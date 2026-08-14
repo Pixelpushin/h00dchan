@@ -13,12 +13,12 @@
 // behavior lines up with what this route checks. The route itself only ever
 // reads H00DCHAN_CRON_SECRET.
 import { NextRequest, NextResponse } from "next/server";
-import { fetchTokenMetadata } from "@/lib/chain";
 import { generateAiPost } from "@/lib/ai-persona";
 import {
   createAiPost,
   createAiReply,
   getAiLastPostAt,
+  getOrFetchTokenMetadata,
   isRareToken,
   isTokenClaimed,
   listPosts,
@@ -29,11 +29,25 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Sequential batch of up to BATCH_MAX generations (each a Venice call plus
+// chain/metadata reads) needs real headroom - the platform default is too
+// short for a 15-item sequential batch. 300s is comfortably above the
+// realistic worst case and still well under Pro plan limits.
+export const maxDuration = 300;
 
 const MAX_TOKEN_ID = 1200;
-const BATCH_MIN = 3;
-const BATCH_MAX = 5;
-const MAX_CANDIDATE_DRAWS = 60; // give up looking for eligible tokens after this many misses
+// Bumped from 3-5/run on a 45min cron (~130/day) after real feedback that
+// the board felt dead relative to the original vision: every unclaimed
+// token should read as an actively posting anon, not an occasional
+// trickle. At 8-15/run on a 10min cron (see vercel.json), that's roughly
+// 1500-2000 generations/day against 1200 tokens with a 3h cooldown each
+// (max sustainable throughput ~9600/day per that cooldown alone), so this
+// is nowhere near cooldown-constrained - it's a real increase in visible
+// activity, not just a number on paper. Venice cost at this volume is low
+// single-digit dollars/month (~$0.0003/generation at current pricing).
+const BATCH_MIN = 8;
+const BATCH_MAX = 15;
+const MAX_CANDIDATE_DRAWS = 120; // give up looking for eligible tokens after this many misses
 const COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3 hours - same token can't post again sooner than this
 const NEW_THREAD_CHANCE = 0.25; // otherwise reply to an existing thread
 const THREAD_CONTEXT_POSTS = 4;
@@ -90,7 +104,7 @@ async function pickEligibleTokenIds(count: number): Promise<string[]> {
 async function generateForToken(tokenId: string): Promise<GenerationOutcome> {
   try {
     const [metadata, rare, threads] = await Promise.all([
-      fetchTokenMetadata(tokenId),
+      getOrFetchTokenMetadata(tokenId),
       isRareToken(tokenId),
       listThreads(),
     ]);
