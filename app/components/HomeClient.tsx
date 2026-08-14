@@ -22,7 +22,7 @@ import {
   writeWalletCache,
 } from "@/lib/walletCache";
 
-type ClaimStage = "preparing" | "signing" | null;
+type ClaimStage = "preparing" | "signing" | "confirming" | null;
 
 interface TbaInfo {
   address: string;
@@ -31,6 +31,24 @@ interface TbaInfo {
 
 function truncateAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+// GET /api/claim?tokenId=X - public, read-only real claimed status (see
+// app/api/claim/route.ts). Separate from useActivePersona: that tracks
+// "which one anon am I currently posting as" (a single session-scoped
+// slot), this tracks "has this specific token actually been silenced
+// server-side" - a token can be claimed without being your *current*
+// posting identity (e.g. you claimed it in an earlier session, or claimed
+// a second token afterward).
+async function fetchClaimedStatus(tokenId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/claim?tokenId=${tokenId}`);
+    if (!res.ok) return false;
+    const data = (await res.json()) as { claimed?: boolean };
+    return data.claimed === true;
+  } catch {
+    return false;
+  }
 }
 
 // Same raw-RPC-stays-client-side reasoning as fetchWalletTokensOnChain
@@ -119,6 +137,9 @@ export default function HomeClient({
   const [error, setError] = useState<string | null>(null);
   const [tokens, setTokens] = useState<TokenMetadata[]>([]);
   const [wallets, setWallets] = useState<Record<string, TbaInfo>>({});
+  const [claimedTokens, setClaimedTokens] = useState<Record<string, boolean>>(
+    {},
+  );
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [claimStage, setClaimStage] = useState<ClaimStage>(null);
 
@@ -134,6 +155,7 @@ export default function HomeClient({
     setState("loading-tokens");
     setError(null);
     setWallets({});
+    setClaimedTokens({});
     try {
       const cached = readWalletCache(owner);
       const [tokenIds, currentBlock] = await Promise.all([
@@ -144,20 +166,24 @@ export default function HomeClient({
         readBlockNumber(),
       ]);
       writeWalletCache(owner, { tokenIds, lastScannedBlock: currentBlock });
-      const [metadata, walletInfos] = await Promise.all([
+      const [metadata, walletInfos, claimedFlags] = await Promise.all([
         Promise.all(tokenIds.map((id) => fetchTokenMetadataViaApi(id))),
         Promise.all(tokenIds.map((id) => fetchTbaInfo(id))),
+        Promise.all(tokenIds.map((id) => fetchClaimedStatus(id))),
       ]);
       const resolved = metadata
         .filter((m): m is TokenMetadata => m !== null)
         .sort((a, b) => Number(a.tokenId) - Number(b.tokenId));
       setTokens(resolved);
       const walletMap: Record<string, TbaInfo> = {};
+      const claimedMap: Record<string, boolean> = {};
       tokenIds.forEach((id, i) => {
         const info = walletInfos[i];
         if (info) walletMap[id] = info;
+        if (claimedFlags[i]) claimedMap[id] = true;
       });
       setWallets(walletMap);
+      setClaimedTokens(claimedMap);
       setState("ready");
     } catch (err) {
       setError(
@@ -182,16 +208,20 @@ export default function HomeClient({
     }
   }, [loadTokens]);
 
-  // Signs the "posting authorization" message for one token and stashes the
-  // resulting claim via useActivePersona (sessionStorage-backed - not
-  // localStorage, a "posting as" identity should not silently persist
-  // across browser restarts, but it DOES survive a same-tab reload, which
-  // is the point: once activated, the card below flips to a persistent
-  // "Chat with this anon" button instead of asking to sign again. No
-  // auto-navigation here - activating and chatting are separate, explicit
-  // steps now. The server independently re-verifies all of this on every
-  // write (see lib/auth-server.ts) - nothing client-side is trusted on its
-  // own.
+  // Signs the "posting authorization" message for one token, then actually
+  // tells the server to silence that token's AI (POST /api/claim) before
+  // switching the active "posting as" identity (useActivePersona -
+  // sessionStorage-backed, a single slot: you can only post as one anon at
+  // a time, same as a real imageboard trip). Previously this only signed
+  // and stored the persona locally - nothing server-side ever changed
+  // until you separately posted a thread/reply, so a plain "sign" did NOT
+  // silence the clanker or move the site-wide progress bar despite the
+  // site's own copy promising it would, and activating a second token
+  // silently looked like it un-activated the first (it didn't - the first
+  // was never actually marked claimed to begin with). claimedTokens now
+  // tracks real per-token server state independently of which one is the
+  // current active persona, so multiple tokens can be (and stay) claimed
+  // at once.
   const handleClaim = useCallback(
     async (token: TokenMetadata) => {
       if (!address) return;
@@ -203,7 +233,30 @@ export default function HomeClient({
         const message = buildAuthMessage(token.tokenId, address, issuedAt);
         setClaimStage("signing");
         const signature = await signMessage(address, message);
-        savePersona({ tokenId: token.tokenId, address, signature, issuedAt });
+        const persona = {
+          tokenId: token.tokenId,
+          address,
+          signature,
+          issuedAt,
+        };
+
+        setClaimStage("confirming");
+        const res = await fetch("/api/claim", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(persona),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          throw new Error(
+            typeof body?.error === "string"
+              ? body.error
+              : `Unable to activate this anon (${res.status}).`,
+          );
+        }
+
+        setClaimedTokens((current) => ({ ...current, [token.tokenId]: true }));
+        savePersona(persona);
       } catch (err) {
         setError(
           err instanceof Error
@@ -288,16 +341,19 @@ export default function HomeClient({
             {state === "ready" && tokens.length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                 {tokens.map((token) => {
-                  const isActive =
+                  const isActivePersona =
                     persona?.tokenId === token.tokenId &&
                     persona?.address.toLowerCase() === address?.toLowerCase();
+                  const isClaimed = claimedTokens[token.tokenId] === true;
                   const isClaiming = claimingId === token.tokenId;
                   const stagePct =
                     claimStage === "preparing"
-                      ? 40
+                      ? 30
                       : claimStage === "signing"
-                        ? 85
-                        : 0;
+                        ? 65
+                        : claimStage === "confirming"
+                          ? 90
+                          : 0;
                   const wallet = wallets[token.tokenId];
 
                   return (
@@ -325,13 +381,31 @@ export default function HomeClient({
                             )}
                           </a>
                         )}
-                        {isActive ? (
+                        {isActivePersona ? (
                           <button
                             onClick={handleChat}
                             className="hc-button w-full text-xs"
                           >
                             Chat with this anon
                           </button>
+                        ) : isClaimed ? (
+                          <div className="flex flex-col gap-1.5">
+                            <span
+                              className="text-xs font-bold"
+                              style={{ color: "var(--hc-greentext)" }}
+                            >
+                              ✓ Activated
+                            </span>
+                            <button
+                              onClick={() => handleClaim(token)}
+                              disabled={isClaiming}
+                              className="hc-button-ghost hc-button w-full text-xs"
+                            >
+                              {isClaiming
+                                ? "Sign in wallet..."
+                                : "Post as this anon instead"}
+                            </button>
+                          </div>
                         ) : (
                           <>
                             <button
@@ -342,7 +416,9 @@ export default function HomeClient({
                               {isClaiming
                                 ? claimStage === "signing"
                                   ? "Sign in wallet..."
-                                  : "Preparing..."
+                                  : claimStage === "confirming"
+                                    ? "Silencing clanker..."
+                                    : "Preparing..."
                                 : "Activate this Anon"}
                             </button>
                             {isClaiming && (
