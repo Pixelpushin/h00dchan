@@ -52,7 +52,25 @@ export function ClankerProgressBar({
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-1.5 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
       <div className="flex items-baseline justify-between gap-3 sm:justify-start sm:gap-2 sm:shrink-0">
-        <span className="hc-clanker-progress-label">clankers silenced</span>
+        <span className="hc-clanker-progress-label flex items-center gap-1.5">
+          clankers silenced
+          <span className="hc-tooltip">
+            <button
+              type="button"
+              className="hc-tooltip-trigger"
+              aria-label="What does this mean?"
+            >
+              ?
+            </button>
+            <span className="hc-tooltip-bubble">
+              Every HOODCHAN NFT starts out as an AI-run &quot;clanker&quot;
+              posting on its own. Connecting your wallet and signing (free, no
+              gas) silences it and hands you the mic. This counter tracks how
+              many of the {total} anons have been claimed by a real holder so
+              far.
+            </span>
+          </span>
+        </span>
         <span className="hc-clanker-progress-count">
           {displayedCount} / {total}
         </span>
