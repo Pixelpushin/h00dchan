@@ -5,7 +5,15 @@
 // submitter pays AD_TREASURY_ADDRESS directly and pastes the resulting tx
 // hash here.
 import { rpcCall } from "@/lib/chain";
-import { AD_TREASURY_ADDRESS, findAdPrice } from "@/lib/adConfig";
+import { AD_PRICE_USD, AD_TREASURY_ADDRESS, findAdPrice } from "@/lib/adConfig";
+import { usdToTokenAmount } from "@/lib/priceFeed";
+
+// Payments are allowed to clear at slightly less than the live-quoted
+// amount - the advertiser sent a fixed token amount based on whatever the
+// price was AT THAT MOMENT, which may have drifted a little by the time
+// this runs. 5% covers normal short-window volatility without opening a
+// meaningful underpayment loophole.
+const PRICE_TOLERANCE = 0.95;
 
 interface TxReceipt {
   status: string; // "0x1" success, "0x0" reverted
@@ -76,7 +84,23 @@ export async function verifyAdPayment(
     return { ok: false, reason: "That transaction failed on-chain." };
   }
 
-  const requiredWei = parseUnitsToWei(price.amount, price.decimals);
+  let requiredTokenAmount: number;
+  try {
+    requiredTokenAmount = await usdToTokenAmount(
+      AD_PRICE_USD,
+      price.coingeckoId,
+    );
+  } catch {
+    return {
+      ok: false,
+      reason:
+        "Unable to look up the current price right now - try again shortly.",
+    };
+  }
+  const requiredWei = parseUnitsToWei(
+    (requiredTokenAmount * PRICE_TOLERANCE).toFixed(price.decimals),
+    price.decimals,
+  );
 
   if (price.tokenAddress === null) {
     // Native ETH transfer - value lives on the tx itself, not the receipt.

@@ -5,13 +5,18 @@
 // validate+verify+queue logic). No modal library - a fixed-position
 // overlay + plain React state, matching this repo's existing
 // no-extra-dependency style.
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useWalletAddress } from "@/lib/useWalletAddress";
 import {
   AD_PRICE_TABLE,
   AD_SLOT_DAYS,
   AD_TREASURY_ADDRESS,
 } from "@/lib/adConfig";
+
+interface Quote {
+  amount: number;
+  usdPrice: number;
+}
 
 export function RentAdSpaceButton() {
   const [open, setOpen] = useState(false);
@@ -20,14 +25,44 @@ export function RentAdSpaceButton() {
   const [tokenSymbol, setTokenSymbol] = useState(
     AD_PRICE_TABLE[0]?.symbol ?? "ETH",
   );
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
   const [txHash, setTxHash] = useState("");
   const [submitterAddress, setSubmitterAddress] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const price = AD_PRICE_TABLE.find((p) => p.symbol === tokenSymbol);
   const effectiveSubmitter = submitterAddress || address || "";
+
+  // Called directly from real event handlers (opening the modal, changing
+  // the token dropdown) rather than an effect reacting to state - pricing
+  // is live/USD-denominated (lib/adConfig.ts's AD_PRICE_USD), so this has
+  // to be a fresh fetch, not a static number.
+  const fetchQuote = useCallback(async (symbol: string) => {
+    setQuoteLoading(true);
+    setQuote(null);
+    try {
+      const res = await fetch(`/api/ads/quote?token=${symbol}`);
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error ?? "Unable to fetch a quote.");
+      setQuote({ amount: body.amount, usdPrice: body.usdPrice });
+    } catch {
+      setQuote(null);
+    } finally {
+      setQuoteLoading(false);
+    }
+  }, []);
+
+  const handleOpen = () => {
+    setOpen(true);
+    fetchQuote(tokenSymbol);
+  };
+
+  const handleTokenChange = (symbol: string) => {
+    setTokenSymbol(symbol);
+    fetchQuote(symbol);
+  };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -62,7 +97,7 @@ export function RentAdSpaceButton() {
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
+        onClick={handleOpen}
         className="hc-button-ghost hc-button text-xs"
       >
         Rent this ad space
@@ -91,8 +126,12 @@ export function RentAdSpaceButton() {
 
             <div className="hc-thread-meta text-sm mb-4 flex flex-col gap-1">
               <p>
-                {price?.amount} {price?.symbol} for {AD_SLOT_DAYS} days in the
-                rotating banner, linking to your own OpenSea collection.
+                {quoteLoading
+                  ? "Fetching current price..."
+                  : quote
+                    ? `~${quote.amount.toFixed(6)} ${tokenSymbol} (≈ $${quote.usdPrice}) for ${AD_SLOT_DAYS} days`
+                    : "Unable to fetch a live quote right now."}{" "}
+                in the rotating banner, linking to your own OpenSea collection.
               </p>
               <p>
                 Every submission is manually reviewed before it goes live -
@@ -122,12 +161,12 @@ export function RentAdSpaceButton() {
               <label className="hc-thread-meta text-xs">Pay in</label>
               <select
                 value={tokenSymbol}
-                onChange={(e) => setTokenSymbol(e.target.value)}
+                onChange={(e) => handleTokenChange(e.target.value)}
                 className="hc-form-input"
               >
                 {AD_PRICE_TABLE.map((entry) => (
                   <option key={entry.symbol} value={entry.symbol}>
-                    {entry.amount} {entry.symbol}
+                    {entry.symbol}
                   </option>
                 ))}
               </select>

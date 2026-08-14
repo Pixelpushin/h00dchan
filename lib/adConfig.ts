@@ -16,15 +16,27 @@ export const AD_TREASURY_ADDRESS =
 
 export const AD_SLOT_DAYS = 7;
 
+// Priced in USD, paid in whatever's whitelisted below - lib/priceFeed.ts
+// converts to a live token amount at both quote-display and payment-
+// verification time, so this number doesn't go stale as ETH's price moves.
+export const AD_PRICE_USD = 25;
+
 export interface AdPriceEntry {
   symbol: string;
   tokenAddress: string | null; // null = native ETH
-  amount: string; // human units, e.g. "0.05" ETH - parsed to wei at verify time
   decimals: number;
+  coingeckoId: string; // lib/priceFeed.ts's lookup key for this token's live USD price
 }
 
+// USDC is intentionally NOT listed yet: a live Blockscout token search on
+// Robinhood Chain turned up FOUR different unverified ERC-20 contracts all
+// using the "USDC" ticker (one literally named "United States Dump Coin"),
+// with no official Circle deployment confirmed on this chain. Whitelisting
+// the wrong one would mean silently accepting a worthless token as full
+// payment. Add a row here once a real, verified USDC contract address is
+// confirmed - not before.
 export const AD_PRICE_TABLE: AdPriceEntry[] = [
-  { symbol: "ETH", tokenAddress: null, amount: "0.05", decimals: 18 },
+  { symbol: "ETH", tokenAddress: null, decimals: 18, coingeckoId: "ethereum" },
 ];
 
 export function findAdPrice(symbol: string): AdPriceEntry | undefined {
