@@ -1,13 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  connectWallet,
-  hasInjectedWallet,
-  onAccountsChanged,
-  signMessage,
-} from "@/lib/wallet";
+import { connectWallet, onAccountsChanged, signMessage } from "@/lib/wallet";
 import {
   fetchWalletTokensOnChain,
   ipfsGatewayUrls,
@@ -20,22 +15,6 @@ import {
 } from "@/lib/persona";
 
 type LoadState = "idle" | "connecting" | "loading-tokens" | "ready" | "error";
-
-// useSyncExternalStore, not a raw useEffect+setState, because
-// window.ethereum is genuinely external, mutable browser state: it can be
-// injected before or after React hydrates, and the server has no `window`
-// at all. This is exactly the primitive React ships for "read a
-// browser-only value the same way on server and client" - getServerSnapshot
-// always returns false (matching what SSR renders), getSnapshot reads the
-// real value once mounted. There's no injection-completed event to
-// subscribe to, so subscribe() is a no-op.
-function subscribeNoop() {
-  return () => {};
-}
-
-function useWalletDetected() {
-  return useSyncExternalStore(subscribeNoop, hasInjectedWallet, () => false);
-}
 
 // Metadata is resolved through our own API route (app/api/token/[tokenId])
 // rather than fetchTokenMetadata() directly, because that function's IPFS
@@ -94,7 +73,6 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [tokens, setTokens] = useState<TokenMetadata[]>([]);
   const [claimingId, setClaimingId] = useState<string | null>(null);
-  const walletDetected = useWalletDetected();
 
   const loadTokens = useCallback(async (owner: string) => {
     setState("loading-tokens");
@@ -247,13 +225,6 @@ export default function Home() {
         {error && (
           <p className="mt-6 text-sm text-center" style={{ color: "#a12b2b" }}>
             {error}
-          </p>
-        )}
-
-        {!walletDetected && (
-          <p className="hc-thread-meta mt-8 max-w-sm text-center">
-            No wallet extension detected in this browser. Install MetaMask,
-            Rabby, or another EIP-1193 wallet to connect.
           </p>
         )}
       </main>
