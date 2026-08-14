@@ -28,15 +28,31 @@ export interface AdPriceEntry {
   coingeckoId: string; // lib/priceFeed.ts's lookup key for this token's live USD price
 }
 
-// USDC is intentionally NOT listed yet: a live Blockscout token search on
+// USDC is intentionally NOT listed: a live Blockscout token search on
 // Robinhood Chain turned up FOUR different unverified ERC-20 contracts all
 // using the "USDC" ticker (one literally named "United States Dump Coin"),
 // with no official Circle deployment confirmed on this chain. Whitelisting
 // the wrong one would mean silently accepting a worthless token as full
-// payment. Add a row here once a real, verified USDC contract address is
-// confirmed - not before.
+// payment. Add a row here only if a real, verified USDC contract address
+// is later confirmed the same way USDG was below.
+//
+// USDG's address was cross-checked against four independent sources before
+// being added here: Paxos's own docs (docs.paxos.com/guides/stablecoin/
+// usdg/mainnet, listing this exact address for "Robinhood Mainnet"), the
+// Global Dollar Network's own launch announcement, Blockscout's verified-
+// contract flag (is_verified: true, EIP-1967 proxy), and a direct
+// eth_call against Robinhood Chain's own RPC confirming name()="Global
+// Dollar", symbol()="USDG", decimals()=6 live on-chain. Decimals is 6 here
+// - USDG uses 18 decimals on some other chains (Ethereum, Ink), do not
+// copy that value if this ever gets ported elsewhere.
 export const AD_PRICE_TABLE: AdPriceEntry[] = [
   { symbol: "ETH", tokenAddress: null, decimals: 18, coingeckoId: "ethereum" },
+  {
+    symbol: "USDG",
+    tokenAddress: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    decimals: 6,
+    coingeckoId: "global-dollar",
+  },
 ];
 
 export function findAdPrice(symbol: string): AdPriceEntry | undefined {
