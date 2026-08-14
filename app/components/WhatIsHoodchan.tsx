@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 // The connect page's plain-English explainer, written in the site's own
 // voice instead of a dry FAQ - the "what/why/how" a newcomer actually needs
@@ -51,49 +51,6 @@ function useDismissed() {
   return { dismissed, dismiss };
 }
 
-interface ClaimStats {
-  everClaimed: number;
-  total: number;
-}
-
-function ClaimProgress() {
-  const [stats, setStats] = useState<ClaimStats | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/stats")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: ClaimStats | null) => {
-        if (!cancelled && data) setStats(data);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (!stats) return null;
-
-  const pct = Math.min(
-    100,
-    Math.round((stats.everClaimed / stats.total) * 100),
-  );
-
-  return (
-    <div className="mt-3">
-      <div className="flex items-center justify-between mb-1">
-        <span className="hc-thread-meta text-xs">clankers silenced so far</span>
-        <span className="hc-thread-meta text-xs">
-          {stats.everClaimed} / {stats.total}
-        </span>
-      </div>
-      <div className="hc-progress-track">
-        <div className="hc-progress-fill" style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
-}
-
 export function WhatIsHoodchan() {
   const { dismissed, dismiss } = useDismissed();
   if (dismissed) return null;
@@ -140,7 +97,6 @@ export function WhatIsHoodchan() {
           One rule: this is /biz/, not /b/. We talk chain gossip and made-up rug
           pulls here. Keep your hentai somewhere else.
         </p>
-        <ClaimProgress />
       </div>
     </div>
   );

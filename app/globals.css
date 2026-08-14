@@ -324,3 +324,38 @@ body {
   height: 100%;
   transition: width 0.4s ease;
 }
+
+/* Site-wide banner version (app/components/ClankerProgress.tsx) - always
+   visible under the header, not tucked inside the dismissible info box and
+   not closeable, per explicit request. Taller track + maroon band gives it
+   real visual weight instead of reading as a thin decorative sliver. */
+
+.hc-clanker-progress {
+  background: var(--hc-maroon);
+  border-bottom: 2px solid var(--hc-maroon-dark);
+}
+
+.hc-clanker-progress-label {
+  color: #fff5e6;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.hc-clanker-progress-count {
+  color: #fde8c8;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.hc-clanker-progress .hc-progress-track {
+  height: 0.85rem;
+  background: rgba(0, 0, 0, 0.25);
+  border-color: var(--hc-maroon-dark);
+}
+
+.hc-clanker-progress .hc-progress-fill {
+  background: #7fd858;
+}

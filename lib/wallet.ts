@@ -108,14 +108,34 @@ export async function signMessage(
   return signer.signMessage(message);
 }
 
+// Synchronous read of whatever AppKit already knows about the current
+// session (it persists connection state itself across reloads).
+export function getConnectedAddress(): string | null {
+  if (typeof window === "undefined") return null;
+  const modal = getAppKit();
+  const account = modal.getAccount();
+  return account?.isConnected && account.address ? account.address : null;
+}
+
 // Fires whenever AppKit's connected account changes - covers both a
 // same-provider account switch and a full disconnect (empty array), same
 // contract as the old `accountsChanged` EIP-1193 event this replaces.
+//
+// Also fires once, synchronously, with whatever AppKit already knows at
+// subscribe time - AppKit persists connection state across reloads, but
+// without this a caller had no way to learn about a restored session
+// without the user clicking "Connect Wallet" again (which then *felt* like
+// logging in again every reload, even though the modal itself resolved
+// instantly since AppKit was already connected under the hood). Callers
+// that only care about real changes can ignore the first call if it matches
+// what they already knew.
 export function onAccountsChanged(
   callback: (accounts: string[]) => void,
 ): () => void {
   if (typeof window === "undefined") return () => {};
   const modal = getAppKit();
+  const current = modal.getAccount();
+  callback(current?.isConnected && current.address ? [current.address] : []);
   return modal.subscribeAccount((state) => {
     callback(state.isConnected && state.address ? [state.address] : []);
   });

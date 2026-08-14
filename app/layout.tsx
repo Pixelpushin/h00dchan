@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { SiteHeader } from "@/app/components/SiteHeader";
+import { ClankerProgress } from "@/app/components/ClankerProgress";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="hc-page min-h-full flex flex-col">
         <SiteHeader />
+        <ClankerProgress />
         {children}
       </body>
     </html>

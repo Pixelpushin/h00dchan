@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { connectWallet, onAccountsChanged, signMessage } from "@/lib/wallet";
 import { WhatIsHoodchan } from "@/app/components/WhatIsHoodchan";
 import { AdBanner } from "@/app/components/AdBanner";
+import { useActivePersona } from "@/lib/usePersona";
 
 const OPENSEA_COLLECTION_URL = "https://opensea.io/collection/h00dchan";
 import {
@@ -12,11 +13,9 @@ import {
   ipfsGatewayUrls,
   type TokenMetadata,
 } from "@/lib/chain";
-import {
-  buildAuthMessage,
-  PERSONA_SESSION_KEY,
-  type PersonaClaim,
-} from "@/lib/persona";
+import { buildAuthMessage } from "@/lib/persona";
+
+type ClaimStage = "preparing" | "signing" | null;
 
 type LoadState = "idle" | "connecting" | "loading-tokens" | "ready" | "error";
 
@@ -72,11 +71,13 @@ function TokenImage({ token }: { token: TokenMetadata }) {
 
 export default function Home() {
   const router = useRouter();
+  const { persona, savePersona } = useActivePersona();
   const [address, setAddress] = useState<string | null>(null);
   const [state, setState] = useState<LoadState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [tokens, setTokens] = useState<TokenMetadata[]>([]);
   const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [claimStage, setClaimStage] = useState<ClaimStage>(null);
 
   const loadTokens = useCallback(async (owner: string) => {
     setState("loading-tokens");
@@ -114,32 +115,28 @@ export default function Home() {
     }
   }, [loadTokens]);
 
-  // Signs the "posting authorization" message for one token, stashes the
-  // resulting claim in sessionStorage (not localStorage - a "posting as"
-  // identity should not silently persist across browser restarts), then
-  // sends the user to the board. The server independently re-verifies all
-  // of this on every write (see lib/auth-server.ts) - nothing client-side
-  // is trusted on its own.
+  // Signs the "posting authorization" message for one token and stashes the
+  // resulting claim via useActivePersona (sessionStorage-backed - not
+  // localStorage, a "posting as" identity should not silently persist
+  // across browser restarts, but it DOES survive a same-tab reload, which
+  // is the point: once activated, the card below flips to a persistent
+  // "Chat with this anon" button instead of asking to sign again. No
+  // auto-navigation here - activating and chatting are separate, explicit
+  // steps now. The server independently re-verifies all of this on every
+  // write (see lib/auth-server.ts) - nothing client-side is trusted on its
+  // own.
   const handleClaim = useCallback(
     async (token: TokenMetadata) => {
       if (!address) return;
       setClaimingId(token.tokenId);
+      setClaimStage("preparing");
       setError(null);
       try {
         const issuedAt = new Date().toISOString();
         const message = buildAuthMessage(token.tokenId, address, issuedAt);
+        setClaimStage("signing");
         const signature = await signMessage(address, message);
-        const persona: PersonaClaim = {
-          tokenId: token.tokenId,
-          address,
-          signature,
-          issuedAt,
-        };
-        window.sessionStorage.setItem(
-          PERSONA_SESSION_KEY,
-          JSON.stringify(persona),
-        );
-        router.push("/board");
+        savePersona({ tokenId: token.tokenId, address, signature, issuedAt });
       } catch (err) {
         setError(
           err instanceof Error
@@ -148,11 +145,19 @@ export default function Home() {
         );
       } finally {
         setClaimingId(null);
+        setClaimStage(null);
       }
     },
-    [address, router],
+    [address, savePersona],
   );
 
+  const handleChat = useCallback(() => {
+    router.push("/board");
+  }, [router]);
+
+  // onAccountsChanged fires once immediately with whatever AppKit already
+  // knows (restoring a session across reload/nav with no re-prompt), then
+  // again on every real change - see lib/wallet.ts.
   useEffect(() => {
     return onAccountsChanged((accounts) => {
       if (!accounts?.length) {
@@ -212,25 +217,65 @@ export default function Home() {
 
             {state === "ready" && tokens.length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                {tokens.map((token) => (
-                  <div key={token.tokenId} className="hc-box overflow-hidden">
-                    <TokenImage token={token} />
-                    <div className="p-2 text-center">
-                      <div className="hc-post-tokenid text-sm mb-2">
-                        Anon #{token.tokenId}
+                {tokens.map((token) => {
+                  const isActive =
+                    persona?.tokenId === token.tokenId &&
+                    persona?.address.toLowerCase() === address?.toLowerCase();
+                  const isClaiming = claimingId === token.tokenId;
+                  const stagePct =
+                    claimStage === "preparing"
+                      ? 40
+                      : claimStage === "signing"
+                        ? 85
+                        : 0;
+
+                  return (
+                    <div key={token.tokenId} className="hc-box overflow-hidden">
+                      <TokenImage token={token} />
+                      <div className="p-2 text-center">
+                        <div className="hc-post-tokenid text-sm mb-2">
+                          Anon #{token.tokenId}
+                        </div>
+                        {isActive ? (
+                          <button
+                            onClick={handleChat}
+                            className="hc-button w-full text-xs"
+                          >
+                            Chat with this anon
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleClaim(token)}
+                              disabled={isClaiming}
+                              className="hc-button-ghost hc-button w-full text-xs"
+                            >
+                              {isClaiming
+                                ? claimStage === "signing"
+                                  ? "Sign in wallet..."
+                                  : "Preparing..."
+                                : "Activate this Anon"}
+                            </button>
+                            {isClaiming && (
+                              <div
+                                className="hc-progress-track mt-2"
+                                style={{ height: "0.3rem" }}
+                              >
+                                <div
+                                  className="hc-progress-fill"
+                                  style={{
+                                    width: `${stagePct}%`,
+                                    transition: "width 0.3s ease",
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
-                      <button
-                        onClick={() => handleClaim(token)}
-                        disabled={claimingId === token.tokenId}
-                        className="hc-button-ghost hc-button w-full text-xs"
-                      >
-                        {claimingId === token.tokenId
-                          ? "Sign in wallet..."
-                          : "Post as this Anon"}
-                      </button>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
