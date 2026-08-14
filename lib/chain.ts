@@ -221,23 +221,34 @@ export function ipfsGatewayUrls(uri: string): string[] {
   return IPFS_GATEWAYS.map((gateway) => gateway(cidPath));
 }
 
+// Races all gateways concurrently (Promise.any) rather than trying them
+// one at a time. Sequential fallback across 5 gateways at an 8s timeout
+// each meant a single genuinely-slow CID could take up to 40s to fail -
+// verified live: this exact path caused production requests to hang for
+// 20s+ before this change, well past what any user will wait for a page
+// to load. Racing bounds worst case to ~8s (all gateways timing out
+// together) and improves the common case too, since whichever gateway
+// happens to be fastest right now wins instead of always paying for
+// nftstorage.link first even on days it's the slow one.
 async function fetchIpfsJson(uri: string): Promise<unknown> {
   const cidPath = ipfsUriToPath(uri);
-  let lastError: unknown;
-  for (const gateway of IPFS_GATEWAYS) {
-    try {
-      const res = await fetch(gateway(cidPath), {
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
-      if (!res.ok) throw new Error(`IPFS gateway responded ${res.status}`);
-      return await res.json();
-    } catch (err) {
-      lastError = err;
-    }
+  const attempts = IPFS_GATEWAYS.map(async (gateway) => {
+    const res = await fetch(gateway(cidPath), {
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(`IPFS gateway responded ${res.status}`);
+    return res.json();
+  });
+
+  try {
+    return await Promise.any(attempts);
+  } catch (err) {
+    // AggregateError when every gateway rejected - surface something
+    // readable instead of the raw multi-error blob.
+    throw new Error(
+      `All IPFS gateways failed: ${err instanceof AggregateError ? err.errors.map((e) => e?.message ?? String(e)).join("; ") : String(err)}`,
+    );
   }
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("Unable to fetch IPFS metadata");
 }
 
 export interface TokenAttribute {
