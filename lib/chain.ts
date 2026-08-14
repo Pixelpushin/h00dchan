@@ -93,6 +93,54 @@ export async function readTokenURI(
   return decodeString(result);
 }
 
+const SELECTOR_TOTAL_SUPPLY = "18160ddd"; // totalSupply()
+
+// Live circulating supply - decrements on burn (verified live: this
+// contract minted 1200 but totalSupply() currently reads 1198 after two
+// confirmed burns, tokens #5 and #6, found via Transfer-to-zero-address
+// logs below). This is the correct denominator for "how many anons exist
+// right now", not the static mint count of 1200.
+export async function readTotalSupply(): Promise<number> {
+  const data = `0x${SELECTOR_TOTAL_SUPPLY}`;
+  const res = await fetch(RPC_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "eth_call",
+      params: [{ to: CONTRACT, data }, "latest"],
+    }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  const body = await res.json();
+  if (body.error) throw new Error(body.error.message ?? "eth_call failed");
+  return Number(BigInt(body.result as string));
+}
+
+const ZERO_ADDRESS_TOPIC = `0x${"0".repeat(64)}`;
+
+// Every token ID this contract has ever burned (Transfer(from, to=0x0,
+// tokenId)) - a single eth_getLogs call covering the whole contract
+// history, not a per-token probe. `ownerOf`/`tokenURI` revert identically
+// for a burned token and a never-minted one, so this log-based approach is
+// the only way to tell "this specific ID was minted then burned" apart
+// from "this ID was never minted" - not that the distinction matters much
+// here (every ID 1-1200 was minted, confirmed via the original totalSupply
+// read of exactly 1200), but the log lookup is also just the cheapest way
+// to get the full burned-ID list in one call instead of probing all 1200.
+export async function fetchBurnedTokenIds(): Promise<string[]> {
+  const logs = await rpcCall<RpcLog[]>("eth_getLogs", [
+    {
+      address: CONTRACT,
+      fromBlock: "0x0",
+      toBlock: "latest",
+      topics: [TRANSFER_EVENT_TOPIC, null, ZERO_ADDRESS_TOPIC],
+    },
+  ]);
+  return [...new Set(logs.map((log) => decodeUint256(log.topics[3])))];
+}
+
 // --- Transfer-log wallet ownership scan ---------------------------------
 //
 // No ERC721Enumerable (confirmed live: tokenOfOwnerByIndex reverts) - so

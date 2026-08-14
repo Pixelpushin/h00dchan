@@ -31,6 +31,7 @@
 import {
   fetchTokenMetadata,
   readOwnerOf,
+  readTotalSupply,
   type TokenMetadata,
 } from "@/lib/chain";
 
@@ -39,6 +40,7 @@ interface MemoryStoreGlobal {
     strings: Map<string, string>;
     lists: Map<string, string[]>;
     zsets: Map<string, Map<string, number>>;
+    sets: Map<string, Set<string>>;
     warnedFallback: boolean;
   };
 }
@@ -49,6 +51,7 @@ if (!globalStore.__h00dchanMemStore) {
     strings: new Map(),
     lists: new Map(),
     zsets: new Map(),
+    sets: new Map(),
     warnedFallback: false,
   };
 }
@@ -161,6 +164,18 @@ function memoryCommand(cmd: string, args: string[]): unknown {
       }
       return count;
     }
+    case "SADD": {
+      const set = memStore.sets.get(args[0]) ?? new Set<string>();
+      let added = 0;
+      for (const member of args.slice(1)) {
+        if (!set.has(member)) added += 1;
+        set.add(member);
+      }
+      memStore.sets.set(args[0], set);
+      return added;
+    }
+    case "SCARD":
+      return (memStore.sets.get(args[0]) ?? new Set()).size;
     default:
       throw new Error(`In-memory store: unsupported command ${cmd}`);
   }
@@ -344,12 +359,40 @@ export interface ClaimRecord {
 // app/api/threads/[threadId]/posts/route.ts) immediately after
 // verifyPersonaClaim succeeds - by that point ownership has already been
 // live-confirmed, so this just records the outcome.
+const EVER_CLAIMED_SET_KEY = "claimed-tokens";
+
 export async function markTokenClaimed(
   tokenId: string,
   address: string,
 ): Promise<void> {
   const record: ClaimRecord = { address, claimedAt: new Date().toISOString() };
   await redisCommand("SET", `claimed:${tokenId}`, JSON.stringify(record));
+  // SADD is idempotent - re-claiming an already-claimed token (session
+  // refresh, same holder posting again) doesn't double count. This tracks
+  // "ever claimed at least once", not "currently claimed right now" (a
+  // token that resold without the new owner reclaiming yet would still
+  // count here even though isTokenClaimed() would say false for it) -
+  // a fine approximation for a progress-bar stat, not a source of truth
+  // for the actual AI-eligibility gate, which is what isTokenClaimed()
+  // still is.
+  await redisCommand("SADD", EVER_CLAIMED_SET_KEY, tokenId);
+}
+
+export interface ClaimStats {
+  everClaimed: number;
+  total: number;
+}
+
+export async function getClaimStats(): Promise<ClaimStats> {
+  const [everClaimed, total] = await Promise.all([
+    redisCommand("SCARD", EVER_CLAIMED_SET_KEY) as Promise<number>,
+    // Live circulating supply, not a hardcoded 1200 - verified live that
+    // this contract decrements totalSupply() on burn (currently 1198 after
+    // 2 confirmed burns), so a hardcoded total would overcount denominator
+    // forever as more burns happen.
+    readTotalSupply(),
+  ]);
+  return { everClaimed: everClaimed ?? 0, total };
 }
 
 // Reads the claim record (if any) and, only if one exists, confirms via a

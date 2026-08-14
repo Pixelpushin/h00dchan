@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { connectWallet, onAccountsChanged, signMessage } from "@/lib/wallet";
+import { WhatIsHoodchan } from "@/app/components/WhatIsHoodchan";
 import {
   fetchWalletTokensOnChain,
   ipfsGatewayUrls,
@@ -165,6 +166,7 @@ export default function Home() {
   return (
     <div className="flex flex-col flex-1 items-center">
       <main className="flex flex-1 w-full max-w-5xl flex-col items-center px-6 py-10">
+        <WhatIsHoodchan />
         {!address ? (
           <button
             onClick={handleConnect}

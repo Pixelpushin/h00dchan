@@ -258,3 +258,69 @@ body {
 .hc-button-ghost:hover:not(:disabled) {
   background: var(--hc-box-alt);
 }
+
+/* --- "What is h00dchan?" info box --------------------------------------- */
+/* Same maroon-header-bar-over-cream-box convention as the classic
+   imageboard "What is X?" info box this whole skin already draws from. */
+
+.hc-infobox {
+  background: var(--hc-box);
+  border: 1px solid var(--hc-box-border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.hc-infobox-header {
+  background: var(--hc-maroon);
+  color: #fff5e6;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.75rem;
+}
+
+.hc-infobox-close {
+  background: transparent;
+  border: none;
+  color: #fff5e6;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.15rem 0.4rem;
+}
+
+.hc-infobox-close:hover {
+  opacity: 0.75;
+}
+
+.hc-infobox-body {
+  padding: 0.85rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.hc-infobox-body p {
+  margin: 0 0 0.75rem 0;
+}
+
+.hc-infobox-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* --- Claim progress bar -------------------------------------------------- */
+
+.hc-progress-track {
+  background: var(--hc-box-alt);
+  border: 1px solid var(--hc-box-border);
+  border-radius: 999px;
+  height: 0.6rem;
+  overflow: hidden;
+}
+
+.hc-progress-fill {
+  background: var(--hc-greentext);
+  height: 100%;
+  transition: width 0.4s ease;
+}

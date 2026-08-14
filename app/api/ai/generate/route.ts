@@ -13,6 +13,7 @@
 // behavior lines up with what this route checks. The route itself only ever
 // reads H00DCHAN_CRON_SECRET.
 import { NextRequest, NextResponse } from "next/server";
+import { fetchBurnedTokenIds } from "@/lib/chain";
 import { generateAiPost } from "@/lib/ai-persona";
 import {
   createAiPost,
@@ -68,7 +69,11 @@ function shuffledTokenIds(): number[] {
   return ids;
 }
 
-async function isEligible(tokenId: string): Promise<boolean> {
+async function isEligible(
+  tokenId: string,
+  burnedIds: Set<string>,
+): Promise<boolean> {
+  if (burnedIds.has(tokenId)) return false;
   if (await isTokenClaimed(tokenId)) return false;
   const lastPostAt = await getAiLastPostAt(tokenId);
   if (lastPostAt) {
@@ -87,7 +92,17 @@ interface GenerationOutcome {
   reason?: string;
 }
 
-async function pickEligibleTokenIds(count: number): Promise<string[]> {
+// Burned token IDs (Transfer to the zero address) are fetched once per
+// batch run, not per-candidate - one eth_getLogs call covering the whole
+// contract history versus probing each drawn candidate individually.
+// ownerOf/tokenURI revert identically for a burned token and one that was
+// never minted, so this is also the only reliable way to exclude burns
+// specifically (verified live: this contract has 2 confirmed burns,
+// tokens #5 and #6, and its totalSupply() correctly decremented to 1198).
+async function pickEligibleTokenIds(
+  count: number,
+  burnedIds: Set<string>,
+): Promise<string[]> {
   const shuffled = shuffledTokenIds();
   const eligible: string[] = [];
   for (
@@ -96,7 +111,7 @@ async function pickEligibleTokenIds(count: number): Promise<string[]> {
     i++
   ) {
     const tokenId = String(shuffled[i]);
-    if (await isEligible(tokenId)) eligible.push(tokenId);
+    if (await isEligible(tokenId, burnedIds)) eligible.push(tokenId);
   }
   return eligible;
 }
@@ -175,7 +190,11 @@ async function generateForToken(tokenId: string): Promise<GenerationOutcome> {
 // debugging and for verifying the cooldown/claim gates directly instead of
 // waiting on random batch selection to redraw the same token.
 async function handleCheck(tokenId: string): Promise<NextResponse> {
-  const claimed = await isTokenClaimed(tokenId);
+  const [claimed, burnedIds] = await Promise.all([
+    isTokenClaimed(tokenId),
+    fetchBurnedTokenIds(),
+  ]);
+  const burned = burnedIds.includes(tokenId);
   const lastPostAt = await getAiLastPostAt(tokenId);
   const elapsed = lastPostAt ? Date.now() - Date.parse(lastPostAt) : null;
   const onCooldown =
@@ -183,11 +202,12 @@ async function handleCheck(tokenId: string): Promise<NextResponse> {
   return NextResponse.json({
     tokenId,
     claimed,
+    burned,
     lastPostAt,
     onCooldown,
     cooldownRemainingMs:
       onCooldown && elapsed !== null ? COOLDOWN_MS - elapsed : 0,
-    eligible: !claimed && !onCooldown,
+    eligible: !burned && !claimed && !onCooldown,
   });
 }
 
@@ -212,7 +232,8 @@ async function handleGenerate(request: NextRequest): Promise<NextResponse> {
 
   const batchSize =
     BATCH_MIN + Math.floor(Math.random() * (BATCH_MAX - BATCH_MIN + 1));
-  const candidates = await pickEligibleTokenIds(batchSize);
+  const burnedIds = new Set(await fetchBurnedTokenIds());
+  const candidates = await pickEligibleTokenIds(batchSize, burnedIds);
 
   if (candidates.length === 0) {
     return NextResponse.json({
