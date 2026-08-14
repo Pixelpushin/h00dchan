@@ -31,3 +31,20 @@ export function buildAuthMessage(
 ): string {
   return `h00dchan posting authorization\ntoken: HOODCHAN #${tokenId}\naddress: ${address}\nissued: ${issuedAt}`;
 }
+
+// Canonical token ID form only: plain decimal digits, no leading zero, no
+// 0x/0b/0o prefix, no whitespace, in [1, 1200]. Without this gate,
+// BigInt("1"), BigInt("01"), BigInt("0x1"), and BigInt("+1") all resolve to
+// the same on-chain token but were previously accepted as distinct strings
+// - stored, rate-limited, and displayed as different identities ("Anon #1"
+// vs "Anon #01" vs "Anon #0x1") for what is actually one NFT. That doesn't
+// let anyone post as a token they don't own, but it does let one token
+// sockpuppet as multiple "different" anons, which defeats the point of the
+// token gate. Reject anything non-canonical before it ever reaches an RPC
+// call, a rate-limit key, or storage.
+const TOKEN_ID_PATTERN = /^[1-9][0-9]{0,3}$/;
+const MAX_TOKEN_ID = 1200;
+
+export function isValidTokenId(tokenId: string): boolean {
+  return TOKEN_ID_PATTERN.test(tokenId) && Number(tokenId) <= MAX_TOKEN_ID;
+}

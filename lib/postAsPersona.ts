@@ -34,8 +34,10 @@ export async function postJsonAsPersona<T>(
       .clone()
       .json()
       .catch(() => null);
-    const reason = typeof body?.error === "string" ? body.error : "";
-    if (reason.toLowerCase().includes("expired")) {
+    // Machine-readable code, not a substring match on the human-readable
+    // message - a copy edit to that message text shouldn't be able to
+    // silently break this retry branch.
+    if (body?.code === "EXPIRED") {
       const refreshed = await reauthorize();
       res = await attempt(refreshed);
     }

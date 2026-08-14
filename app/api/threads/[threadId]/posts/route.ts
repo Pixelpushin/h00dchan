@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyPersonaClaim } from "@/lib/auth-server";
+import { checkWriteRateLimit } from "@/lib/rate-limit";
 import { addReply, getThread, listPosts } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -70,6 +71,17 @@ export async function POST(
     );
   }
 
+  const rate = checkWriteRateLimit(request, address, tokenId);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rate.retryAfterSeconds) },
+      },
+    );
+  }
+
   const verification = await verifyPersonaClaim({
     tokenId,
     address,
@@ -78,7 +90,10 @@ export async function POST(
   });
   if (!verification.ok) {
     return NextResponse.json(
-      { error: verification.reason ?? "Not authorized." },
+      {
+        error: verification.reason ?? "Not authorized.",
+        code: verification.code,
+      },
       { status: 403 },
     );
   }

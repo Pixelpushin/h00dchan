@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyPersonaClaim } from "@/lib/auth-server";
+import { checkWriteRateLimit } from "@/lib/rate-limit";
 import { createThread, listThreads } from "@/lib/store";
 
 // Node runtime (not edge) - needed for ethers' verifyMessage in
@@ -68,6 +69,20 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Cheapest-possible rejection before the crypto/RPC work in
+  // verifyPersonaClaim - see lib/rate-limit.ts for why this matters even
+  // for requests carrying a well-formed signature.
+  const rate = checkWriteRateLimit(request, address, tokenId);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rate.retryAfterSeconds) },
+      },
+    );
+  }
+
   const verification = await verifyPersonaClaim({
     tokenId,
     address,
@@ -76,7 +91,10 @@ export async function POST(request: NextRequest) {
   });
   if (!verification.ok) {
     return NextResponse.json(
-      { error: verification.reason ?? "Not authorized." },
+      {
+        error: verification.reason ?? "Not authorized.",
+        code: verification.code,
+      },
       { status: 403 },
     );
   }

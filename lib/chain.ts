@@ -27,6 +27,15 @@ function encodeUint256(tokenId: number | string | bigint): string {
   return BigInt(tokenId).toString(16).padStart(64, "0");
 }
 
+// Applied to every fetch in this file: a hung RPC or IPFS gateway should
+// fail fast rather than hold a request slot open indefinitely, which
+// matters more than usual here since these calls sit on the hot path of
+// every board write's live ownership check (see lib/auth-server.ts) - a
+// slow-loris-style hang against one of these upstreams would compound into
+// the rate-limited write path timing out for everyone, not just failing
+// for the one slow request.
+const FETCH_TIMEOUT_MS = 8_000;
+
 async function ethCall(
   selector: string,
   tokenId: number | string | bigint,
@@ -41,6 +50,7 @@ async function ethCall(
       method: "eth_call",
       params: [{ to: CONTRACT, data }, "latest"],
     }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   const body = await res.json();
   if (body.error) throw new Error(body.error.message ?? "eth_call failed");
@@ -111,6 +121,7 @@ async function rpcCall<T>(method: string, params: unknown[]): Promise<T> {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   const body = await res.json();
   if (body.error) throw new Error(body.error.message ?? `${method} failed`);
@@ -206,7 +217,9 @@ async function fetchIpfsJson(uri: string): Promise<unknown> {
   let lastError: unknown;
   for (const gateway of IPFS_GATEWAYS) {
     try {
-      const res = await fetch(gateway(cidPath));
+      const res = await fetch(gateway(cidPath), {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
       if (!res.ok) throw new Error(`IPFS gateway responded ${res.status}`);
       return await res.json();
     } catch (err) {
