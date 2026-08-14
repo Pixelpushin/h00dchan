@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { onAccountsChanged, signMessage } from "@/lib/wallet";
 import { WhatIsHoodchan } from "@/app/components/WhatIsHoodchan";
-import { AdBanner } from "@/app/components/AdBanner";
+import { AdBanner, type PaidAd } from "@/app/components/AdBanner";
+import { RentAdSpaceButton } from "@/app/components/RentAdSpaceButton";
 import { useActivePersona } from "@/lib/usePersona";
 
 const OPENSEA_COLLECTION_URL = "https://opensea.io/collection/h00dchan";
@@ -127,8 +128,10 @@ function TokenImage({ token }: { token: TokenMetadata }) {
 // with a "Popular Threads" panel.
 export default function HomeClient({
   popularThreads,
+  paidAds,
 }: {
   popularThreads: ReactNode;
+  paidAds: PaidAd[];
 }) {
   const router = useRouter();
   const { persona, savePersona } = useActivePersona();
@@ -316,7 +319,10 @@ export default function HomeClient({
     <div className="flex flex-col flex-1 items-center">
       <main className="flex flex-1 w-full max-w-5xl flex-col items-center px-6 py-10">
         <WhatIsHoodchan />
-        <AdBanner />
+        <div className="flex w-full justify-end mb-2">
+          <RentAdSpaceButton />
+        </div>
+        <AdBanner paidAds={paidAds} />
         {!address ? (
           <div className="w-full">{popularThreads}</div>
         ) : (

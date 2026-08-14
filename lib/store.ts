@@ -57,7 +57,7 @@ if (!globalStore.__h00dchanMemStore) {
 }
 const memStore = globalStore.__h00dchanMemStore;
 
-async function redisCommand(
+export async function redisCommand(
   cmd: string,
   ...args: Array<string | number>
 ): Promise<unknown> {
@@ -176,6 +176,8 @@ function memoryCommand(cmd: string, args: string[]): unknown {
     }
     case "SCARD":
       return (memStore.sets.get(args[0]) ?? new Set()).size;
+    case "SMEMBERS":
+      return [...(memStore.sets.get(args[0]) ?? new Set())];
     default:
       throw new Error(`In-memory store: unsupported command ${cmd}`);
   }

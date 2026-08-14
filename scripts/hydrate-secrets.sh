@@ -51,6 +51,16 @@ PINATA_GATEWAY_TOKEN=$(get_key "pinata-gateway-token-h00dchan")
 # a server component, never a client-side fetch.
 ALCHEMY_API_KEY=$(get_key "alchemy-api-key")
 
+# Ad-rental feature (lib/opensea.ts, lib/adPayment.ts) - both new, both
+# required before that feature can actually accept a submission. Neither
+# has a safe default: OPENSEA_API_KEY gates collection lookups, and without
+# a real AD_TREASURY_ADDRESS every payment verification fails closed (see
+# lib/adConfig.ts's own comment on why this one is NEXT_PUBLIC_ - it's a
+# receiving address, not a secret, but it lives in Keychain anyway for one
+# source of truth like everything else here).
+OPENSEA_API_KEY=$(get_key "opensea-api-key-h00dchan")
+AD_TREASURY_ADDRESS=$(get_key "ad-treasury-address-h00dchan")
+
 if [ -z "$REOWN_PROJECT_ID" ]; then
   echo "WARNING: reown-project-id-h00dchan not found in Keychain (account: $ACCOUNT)"
   echo "  Add it: security add-generic-password -a openclaw -s reown-project-id-h00dchan -w '<id>' -U"
@@ -58,6 +68,16 @@ fi
 
 if [ -z "$VENICE_API_KEY" ]; then
   echo "WARNING: venice-api-key not found in Keychain (account: $ACCOUNT)"
+fi
+
+if [ -z "$OPENSEA_API_KEY" ]; then
+  echo "WARNING: opensea-api-key-h00dchan not found - ad rental collection lookups will fail"
+  echo "  Add it: security add-generic-password -a openclaw -s opensea-api-key-h00dchan -w '<key>' -U"
+fi
+
+if [ -z "$AD_TREASURY_ADDRESS" ]; then
+  echo "WARNING: ad-treasury-address-h00dchan not found - ad rental payments will fail verification"
+  echo "  Add it: security add-generic-password -a openclaw -s ad-treasury-address-h00dchan -w '<0x address>' -U"
 fi
 
 # Write .env.local (chmod 600 — readable only by owner)
@@ -71,6 +91,8 @@ H00DCHAN_CRON_SECRET=${H00DCHAN_CRON_SECRET}
 NEXT_PUBLIC_PINATA_GATEWAY_DOMAIN=coffee-collective-muskox-308.mypinata.cloud
 NEXT_PUBLIC_PINATA_GATEWAY_TOKEN=${PINATA_GATEWAY_TOKEN}
 ALCHEMY_API_KEY=${ALCHEMY_API_KEY}
+OPENSEA_API_KEY=${OPENSEA_API_KEY}
+NEXT_PUBLIC_AD_TREASURY_ADDRESS=${AD_TREASURY_ADDRESS}
 
 # KV_REST_API_URL / KV_REST_API_TOKEN intentionally left unset here - no
 # Upstash/Vercel KV project is provisioned yet. lib/store.ts falls back to

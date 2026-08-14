@@ -4,17 +4,39 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 
 // Classic imageboard-style rotating ad banner, placed the way real 4chan
 // places its own: below the "What is X?" info box, above the main content.
-// All twelve link to the same place - the actual HOODCHAN OpenSea collection
-// - since that's the one call-to-action this site actually wants people to
-// take (go get a token to claim). Sliced from 3 stacked-panel sheets via
-// scripts' darkest-row seam detection (same technique as the original
-// banner set), 4 panels per sheet.
+// The 12 house banners link to HOODCHAN's own OpenSea collection; any paid
+// ads (see lib/adStore.ts/app/api/ads/route.ts) are mixed into the same
+// rotation, each linking to its own advertiser's collection instead. If
+// there are zero paid ads the behavior is unchanged - house banners only.
 const OPENSEA_COLLECTION_URL = "https://opensea.io/collection/h00dchan";
-const BANNER_COUNT = 12;
+const HOUSE_BANNER_COUNT = 12;
 const ROTATE_MS = 8_000;
 
-function bannerSrc(index: number): string {
-  return `/banners/banner-${index + 1}.jpg`;
+export interface PaidAd {
+  id: string;
+  name: string;
+  imageUrl: string;
+  openseaUrl: string;
+}
+
+interface Entry {
+  src: string;
+  href: string;
+  alt: string;
+}
+
+function buildEntries(paidAds: PaidAd[]): Entry[] {
+  const house: Entry[] = Array.from({ length: HOUSE_BANNER_COUNT }, (_, i) => ({
+    src: `/banners/banner-${i + 1}.jpg`,
+    href: OPENSEA_COLLECTION_URL,
+    alt: "HOODCHAN on OpenSea",
+  }));
+  const paid: Entry[] = paidAds.map((ad) => ({
+    src: ad.imageUrl,
+    href: ad.openseaUrl,
+    alt: ad.name,
+  }));
+  return [...house, ...paid];
 }
 
 // Mount-gated, same pattern as app/page.tsx's useWalletDetected: SSR has no
@@ -37,10 +59,11 @@ function useMounted() {
   );
 }
 
-export function AdBanner() {
+export function AdBanner({ paidAds = [] }: { paidAds?: PaidAd[] }) {
   const mounted = useMounted();
+  const entries = buildEntries(paidAds);
   const [index, setIndex] = useState(() =>
-    Math.floor(Math.random() * BANNER_COUNT),
+    Math.floor(Math.random() * entries.length),
   );
 
   // Rotation lives in a setInterval callback, not the effect body itself -
@@ -50,41 +73,42 @@ export function AdBanner() {
   useEffect(() => {
     const id = setInterval(() => {
       setIndex((current) => {
-        if (BANNER_COUNT <= 1) return current;
-        let next = Math.floor(Math.random() * BANNER_COUNT);
+        if (entries.length <= 1) return current;
+        let next = Math.floor(Math.random() * entries.length);
         while (next === current)
-          next = Math.floor(Math.random() * BANNER_COUNT);
+          next = Math.floor(Math.random() * entries.length);
         return next;
       });
     }, ROTATE_MS);
     return () => clearInterval(id);
-  }, []);
+  }, [entries.length]);
 
   if (!mounted) return null;
 
+  const entry = entries[Math.min(index, entries.length - 1)];
+
   return (
     <a
-      href={OPENSEA_COLLECTION_URL}
+      href={entry.href}
       target="_blank"
       rel="noopener noreferrer"
       className="block w-full mb-6 overflow-hidden rounded border"
       style={{
         borderColor: "var(--hc-box-border)",
         // Fixed aspect ratio (not just h-auto) so the box never changes
-        // size between rotations - the 12 source crops range from 155px to
+        // size between rotations - the 12 house crops range from 155px to
         // 237px tall at this width, which was visibly jumping the layout
-        // every 8s. object-fit: contain (not cover) means a shorter/taller
-        // banner gets letterboxed instead of ever cropping content -
-        // cheap insurance against a bad crop clipping text again, on top
-        // of just fixing this batch's two bad seams directly.
+        // every 8s, and a paid ad's own OpenSea banner can be any shape.
+        // object-fit: contain (not cover) means it always letterboxes
+        // instead of ever cropping content.
         aspectRatio: "1168 / 198",
         background: "#000",
       }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={bannerSrc(index)}
-        alt="HOODCHAN on OpenSea"
+        src={entry.src}
+        alt={entry.alt}
         className="block h-full w-full object-contain"
       />
     </a>
