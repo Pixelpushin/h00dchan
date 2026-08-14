@@ -83,6 +83,28 @@ export async function connectWallet(): Promise<string> {
   return accounts[0];
 }
 
+// Raw personal_sign - proves control of `address` over a human-readable
+// message. Used for the "claim and post as your NFT" flow: the caller
+// builds the message (see lib/persona.ts's buildAuthMessage, so client and
+// server always agree on the exact string) and this just asks the wallet
+// to sign it.
+export async function signMessage(
+  address: string,
+  message: string,
+): Promise<string> {
+  if (!hasInjectedWallet()) {
+    throw new Error(
+      "No wallet found - install MetaMask, Rabby, or another browser wallet extension.",
+    );
+  }
+  const provider = window.ethereum as EthereumProvider;
+  const signature = (await provider.request({
+    method: "personal_sign",
+    params: [message, address],
+  })) as string;
+  return signature;
+}
+
 export function onAccountsChanged(
   callback: (accounts: string[]) => void,
 ): () => void {

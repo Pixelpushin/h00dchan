@@ -1,16 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 import {
   connectWallet,
   hasInjectedWallet,
   onAccountsChanged,
+  signMessage,
 } from "@/lib/wallet";
 import {
   fetchWalletTokensOnChain,
   ipfsGatewayUrls,
   type TokenMetadata,
 } from "@/lib/chain";
+import {
+  buildAuthMessage,
+  PERSONA_SESSION_KEY,
+  type PersonaClaim,
+} from "@/lib/persona";
 
 type LoadState = "idle" | "connecting" | "loading-tokens" | "ready" | "error";
 
@@ -58,7 +65,10 @@ function TokenImage({ token }: { token: TokenMetadata }) {
 
   if (!src) {
     return (
-      <div className="w-full aspect-square bg-zinc-200 dark:bg-zinc-800" />
+      <div
+        className="w-full aspect-square"
+        style={{ background: "var(--hc-box-alt)" }}
+      />
     );
   }
 
@@ -78,10 +88,12 @@ function TokenImage({ token }: { token: TokenMetadata }) {
 }
 
 export default function Home() {
+  const router = useRouter();
   const [address, setAddress] = useState<string | null>(null);
   const [state, setState] = useState<LoadState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [tokens, setTokens] = useState<TokenMetadata[]>([]);
+  const [claimingId, setClaimingId] = useState<string | null>(null);
   const walletDetected = useWalletDetected();
 
   const loadTokens = useCallback(async (owner: string) => {
@@ -120,6 +132,45 @@ export default function Home() {
     }
   }, [loadTokens]);
 
+  // Signs the "posting authorization" message for one token, stashes the
+  // resulting claim in sessionStorage (not localStorage - a "posting as"
+  // identity should not silently persist across browser restarts), then
+  // sends the user to the board. The server independently re-verifies all
+  // of this on every write (see lib/auth-server.ts) - nothing client-side
+  // is trusted on its own.
+  const handleClaim = useCallback(
+    async (token: TokenMetadata) => {
+      if (!address) return;
+      setClaimingId(token.tokenId);
+      setError(null);
+      try {
+        const issuedAt = new Date().toISOString();
+        const message = buildAuthMessage(token.tokenId, address, issuedAt);
+        const signature = await signMessage(address, message);
+        const persona: PersonaClaim = {
+          tokenId: token.tokenId,
+          address,
+          signature,
+          issuedAt,
+        };
+        window.sessionStorage.setItem(
+          PERSONA_SESSION_KEY,
+          JSON.stringify(persona),
+        );
+        router.push("/board");
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to sign the claim message.",
+        );
+      } finally {
+        setClaimingId(null);
+      }
+    },
+    [address, router],
+  );
+
   useEffect(() => {
     return onAccountsChanged((accounts) => {
       if (!accounts?.length) {
@@ -134,24 +185,19 @@ export default function Home() {
   }, [loadTokens]);
 
   return (
-    <div className="flex flex-col flex-1 items-center bg-zinc-50 dark:bg-black font-mono">
-      <main className="flex flex-1 w-full max-w-5xl flex-col items-center px-6 py-16">
-        <h1 className="text-3xl font-bold tracking-tight mb-1">h00dchan</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-8 text-center">
-          the anonymous imageboard for HOODCHAN holders
-        </p>
-
+    <div className="flex flex-col flex-1 items-center">
+      <main className="flex flex-1 w-full max-w-5xl flex-col items-center px-6 py-10">
         {!address ? (
           <button
             onClick={handleConnect}
             disabled={state === "connecting"}
-            className="rounded border border-zinc-800 dark:border-zinc-200 px-6 py-3 font-semibold hover:bg-zinc-800 hover:text-white dark:hover:bg-zinc-200 dark:hover:text-black transition-colors disabled:opacity-50"
+            className="hc-button"
           >
             {state === "connecting" ? "Connecting..." : "Connect Wallet"}
           </button>
         ) : (
           <div className="w-full">
-            <p className="text-xs text-zinc-500 mb-6 break-all text-center">
+            <p className="hc-thread-meta mb-6 break-all text-center">
               connected: {address}
             </p>
 
@@ -162,11 +208,11 @@ export default function Home() {
             )}
 
             {state === "ready" && tokens.length === 0 && (
-              <div className="text-center py-16 border border-dashed border-zinc-300 dark:border-zinc-700 rounded">
-                <p className="text-lg mb-1">
+              <div className="hc-box text-center py-16">
+                <p className="hc-title text-lg mb-1">
                   No HOODCHAN tokens found in this wallet.
                 </p>
-                <p className="text-sm text-zinc-500">
+                <p className="hc-thread-meta text-sm">
                   Hold at least one to post as your anon.
                 </p>
               </div>
@@ -175,13 +221,21 @@ export default function Home() {
             {state === "ready" && tokens.length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                 {tokens.map((token) => (
-                  <div
-                    key={token.tokenId}
-                    className="border border-zinc-300 dark:border-zinc-700 rounded overflow-hidden bg-white dark:bg-zinc-900"
-                  >
+                  <div key={token.tokenId} className="hc-box overflow-hidden">
                     <TokenImage token={token} />
-                    <div className="p-2 text-center text-sm font-semibold">
-                      Anon #{token.tokenId}
+                    <div className="p-2 text-center">
+                      <div className="hc-post-tokenid text-sm mb-2">
+                        Anon #{token.tokenId}
+                      </div>
+                      <button
+                        onClick={() => handleClaim(token)}
+                        disabled={claimingId === token.tokenId}
+                        className="hc-button-ghost hc-button w-full text-xs"
+                      >
+                        {claimingId === token.tokenId
+                          ? "Sign in wallet..."
+                          : "Post as this Anon"}
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -191,13 +245,13 @@ export default function Home() {
         )}
 
         {error && (
-          <p className="mt-6 text-sm text-red-600 dark:text-red-400 max-w-md text-center">
+          <p className="mt-6 text-sm text-center" style={{ color: "#a12b2b" }}>
             {error}
           </p>
         )}
 
         {!walletDetected && (
-          <p className="mt-8 text-xs text-zinc-400 max-w-sm text-center">
+          <p className="hc-thread-meta mt-8 max-w-sm text-center">
             No wallet extension detected in this browser. Install MetaMask,
             Rabby, or another EIP-1193 wallet to connect.
           </p>

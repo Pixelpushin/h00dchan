@@ -24,3 +24,226 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ---------------------------------------------------------------------- *
+ * Imageboard skin
+ *
+ * A classic "cream page / warm-orange header band / maroon accents /
+ * off-white post boxes" imageboard look - this exact combination is a
+ * long-reused convention across many independent open-source imageboard
+ * skins (Tinyboard/vichan-family "Yotsuba B"-style themes among them, one
+ * of the most commonly reused imageboard skins there is), not a proprietary
+ * asset. Everything below is original CSS written for this project; no
+ * stylesheet or asset was copied from anywhere. No 4chan branding, logo, or
+ * name appears anywhere in this app - "h00dchan" is the only site identity
+ * used throughout.
+ * ---------------------------------------------------------------------- */
+
+:root {
+  --hc-bg: #fffde7; /* cream page background */
+  --hc-header-from: #f3a259; /* warm orange gradient, band start */
+  --hc-header-to: #c1571f; /* warm orange gradient, band end */
+  --hc-maroon: #7d1f1f; /* maroon accent - headers, links, subjects */
+  --hc-maroon-dark: #5c1414;
+  --hc-box: #f5ecdc; /* off-white content box */
+  --hc-box-border: #d8c4a0;
+  --hc-box-alt: #eee0c8; /* OP post box, slightly deeper than reply boxes */
+  --hc-greentext: #4a7a2e;
+  --hc-text: #1f1a12;
+  --hc-muted: #7a6a52;
+}
+
+.hc-page {
+  background: var(--hc-bg);
+  color: var(--hc-text);
+  min-height: 100%;
+}
+
+.hc-header-band {
+  background: linear-gradient(
+    180deg,
+    var(--hc-header-from) 0%,
+    var(--hc-header-to) 100%
+  );
+  border-bottom: 4px solid var(--hc-maroon);
+  padding: 0.75rem 1.25rem;
+}
+
+.hc-wordmark {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  font-size: 1.75rem;
+  color: #fff7e6;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.25);
+  letter-spacing: -0.02em;
+}
+
+.hc-tagline {
+  color: #fff0d8;
+  font-size: 0.75rem;
+  opacity: 0.9;
+}
+
+.hc-nav a {
+  color: #fff7e6;
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-decoration: none;
+  border-bottom: 1px dotted transparent;
+}
+
+.hc-nav a:hover {
+  border-bottom-color: #fff7e6;
+}
+
+.hc-subheader {
+  background: var(--hc-box);
+  border-bottom: 1px solid var(--hc-box-border);
+  color: var(--hc-maroon);
+  font-size: 0.8rem;
+  padding: 0.35rem 1.25rem;
+}
+
+.hc-link {
+  color: var(--hc-maroon);
+  text-decoration: underline;
+}
+
+.hc-link:hover {
+  color: var(--hc-maroon-dark);
+}
+
+.hc-title {
+  font-family: Georgia, "Times New Roman", serif;
+  color: var(--hc-maroon);
+  font-weight: 700;
+}
+
+.hc-box {
+  background: var(--hc-box);
+  border: 1px solid var(--hc-box-border);
+  border-radius: 3px;
+}
+
+/* --- Board index ------------------------------------------------------- */
+
+.hc-thread-row {
+  background: var(--hc-box);
+  border: 1px solid var(--hc-box-border);
+  border-radius: 3px;
+  padding: 0.75rem 1rem;
+}
+
+.hc-thread-subject {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  color: var(--hc-maroon);
+}
+
+.hc-thread-meta {
+  color: var(--hc-muted);
+  font-size: 0.75rem;
+}
+
+/* --- Posts --------------------------------------------------------------
+ * Post header line follows classic imageboard convention: Name, the
+ * "Anon #<tokenId>" identity, a timestamp, then a post number.
+ * ---------------------------------------------------------------------- */
+
+.hc-post {
+  background: var(--hc-box);
+  border: 1px solid var(--hc-box-border);
+  border-radius: 3px;
+  padding: 0.6rem 0.8rem;
+}
+
+.hc-post-op {
+  background: var(--hc-box-alt);
+}
+
+.hc-post-header {
+  font-size: 0.8rem;
+  margin-bottom: 0.35rem;
+}
+
+.hc-post-name {
+  color: var(--hc-maroon);
+  font-weight: 700;
+}
+
+.hc-post-tokenid {
+  color: var(--hc-maroon-dark);
+  font-weight: 700;
+}
+
+.hc-post-time,
+.hc-post-num {
+  color: var(--hc-muted);
+}
+
+.hc-post-body {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--hc-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.hc-greentext {
+  color: var(--hc-greentext);
+}
+
+.hc-post-image {
+  border: 1px solid var(--hc-box-border);
+  background: #fff;
+}
+
+.hc-replies {
+  border-left: 2px solid var(--hc-box-border);
+  margin-left: 0.75rem;
+  padding-left: 0.9rem;
+}
+
+.hc-form-input {
+  background: #fffef8;
+  border: 1px solid var(--hc-box-border);
+  border-radius: 3px;
+  color: var(--hc-text);
+  font-family: Georgia, "Times New Roman", serif;
+  padding: 0.5rem 0.6rem;
+}
+
+.hc-form-input:focus {
+  outline: 2px solid var(--hc-header-to);
+  outline-offset: 1px;
+}
+
+.hc-button {
+  background: var(--hc-header-to);
+  color: #fff7e6;
+  border: 1px solid var(--hc-maroon);
+  border-radius: 3px;
+  font-weight: 700;
+  padding: 0.45rem 1rem;
+  cursor: pointer;
+}
+
+.hc-button:hover:not(:disabled) {
+  background: var(--hc-maroon);
+}
+
+.hc-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.hc-button-ghost {
+  background: transparent;
+  color: var(--hc-maroon);
+  border: 1px solid var(--hc-maroon);
+}
+
+.hc-button-ghost:hover:not(:disabled) {
+  background: var(--hc-box-alt);
+}
