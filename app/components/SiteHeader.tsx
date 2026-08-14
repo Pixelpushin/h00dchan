@@ -1,8 +1,12 @@
 import Link from "next/link";
+import { WalletHeaderWidget } from "@/app/components/WalletHeaderWidget";
 
 // Static, server-rendered header band shared by every page - "h00dchan" is
 // the only site identity used here (no 4chan name, logo, or affiliation
-// claim anywhere in this app).
+// claim anywhere in this app). WalletHeaderWidget is the one client island
+// in here: wallet connect belongs top-right of the nav, same place every
+// other dApp puts it, and needs to be reachable from any page - not just
+// buried in the home page's body, and not re-implemented per page.
 export function SiteHeader() {
   return (
     <header className="hc-header-band">
@@ -15,9 +19,10 @@ export function SiteHeader() {
             the anonymous imageboard for HOODCHAN holders
           </p>
         </div>
-        <nav className="hc-nav flex gap-4 pb-1">
+        <nav className="hc-nav flex items-center gap-4 pb-1">
           <Link href="/">connect / claim</Link>
           <Link href="/board">board</Link>
+          <WalletHeaderWidget />
         </nav>
       </div>
     </header>

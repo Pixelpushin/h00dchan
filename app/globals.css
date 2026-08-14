@@ -96,6 +96,40 @@ body {
   border-bottom-color: #fff7e6;
 }
 
+/* --- Header wallet widget (app/components/WalletHeaderWidget.tsx) ------- */
+
+.hc-wallet-pill {
+  color: #fff7e6;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 0.75rem;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 247, 230, 0.45);
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem;
+  line-height: 1;
+}
+
+.hc-wallet-connect-btn {
+  color: #fff7e6;
+  font-weight: 700;
+  font-size: 0.8rem;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 247, 230, 0.55);
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.hc-wallet-connect-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.hc-wallet-connect-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .hc-subheader {
   background: var(--hc-box);
   border-bottom: 1px solid var(--hc-box-border);

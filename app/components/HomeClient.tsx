@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { connectWallet, onAccountsChanged, signMessage } from "@/lib/wallet";
+import { onAccountsChanged, signMessage } from "@/lib/wallet";
 import { WhatIsHoodchan } from "@/app/components/WhatIsHoodchan";
 import { AdBanner } from "@/app/components/AdBanner";
 import { useActivePersona } from "@/lib/usePersona";
@@ -66,7 +66,7 @@ async function fetchTbaInfo(tokenId: string): Promise<TbaInfo | null> {
   }
 }
 
-type LoadState = "idle" | "connecting" | "loading-tokens" | "ready" | "error";
+type LoadState = "idle" | "loading-tokens" | "ready" | "error";
 
 // Metadata is resolved through our own API route (app/api/token/[tokenId])
 // rather than fetchTokenMetadata() directly, because that function's IPFS
@@ -193,21 +193,6 @@ export default function HomeClient({
     }
   }, []);
 
-  const handleConnect = useCallback(async () => {
-    setState("connecting");
-    setError(null);
-    try {
-      const account = await connectWallet();
-      setAddress(account);
-      await loadTokens(account);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unable to connect wallet.",
-      );
-      setState("error");
-    }
-  }, [loadTokens]);
-
   // Signs the "posting authorization" message for one token, then actually
   // tells the server to silence that token's AI (POST /api/claim) before
   // switching the active "posting as" identity (useActivePersona -
@@ -276,8 +261,12 @@ export default function HomeClient({
   }, [router]);
 
   // onAccountsChanged fires once immediately with whatever AppKit already
-  // knows (restoring a session across reload/nav with no re-prompt), then
-  // again on every real change - see lib/wallet.ts.
+  // knows (restoring a session across reload/nav with no re-prompt, e.g.
+  // after connecting via the header widget on a different page), then
+  // again on every real change - see lib/wallet.ts. The setState calls
+  // live inside this callback (not the effect body directly), which is
+  // the pattern effects are meant for: "subscribe for updates from an
+  // external system, calling setState in a callback."
   useEffect(() => {
     return onAccountsChanged((accounts) => {
       if (!accounts?.length) {
@@ -297,22 +286,9 @@ export default function HomeClient({
         <WhatIsHoodchan />
         <AdBanner />
         {!address ? (
-          <div className="w-full flex flex-col items-center">
-            <button
-              onClick={handleConnect}
-              disabled={state === "connecting"}
-              className="hc-button mb-8"
-            >
-              {state === "connecting" ? "Connecting..." : "Connect Wallet"}
-            </button>
-            <div className="w-full">{popularThreads}</div>
-          </div>
+          <div className="w-full">{popularThreads}</div>
         ) : (
           <div className="w-full">
-            <p className="hc-thread-meta mb-6 break-all text-center">
-              connected: {address}
-            </p>
-
             {state === "loading-tokens" && (
               <p className="text-center">
                 Scanning Robinhood Chain for your HOODCHAN tokens...
