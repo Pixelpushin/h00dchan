@@ -11,10 +11,16 @@ const OPENSEA_COLLECTION_URL = "https://opensea.io/collection/h00dchan";
 import {
   fetchWalletTokensOnChain,
   ipfsGatewayUrls,
+  readBlockNumber,
   type TokenMetadata,
 } from "@/lib/chain";
 import { buildAuthMessage } from "@/lib/persona";
 import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
+import {
+  nextBlockHex,
+  readWalletCache,
+  writeWalletCache,
+} from "@/lib/walletCache";
 
 type ClaimStage = "preparing" | "signing" | null;
 
@@ -116,12 +122,28 @@ export default function HomeClient({
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [claimStage, setClaimStage] = useState<ClaimStage>(null);
 
+  // Full history scan (fetchWalletTokensOnChain's eth_getLogs over the
+  // whole contract, from block 0) only ever needs to happen once per
+  // browser per address - after that, the cached token list + last scanned
+  // block let every later load (including a plain refresh, which used to
+  // re-run the full scan every single time) ask the chain for only what's
+  // changed since. Ownership is still re-verified live either way (see
+  // fetchWalletTokensOnChain), so a token sold away since the last visit is
+  // correctly dropped, not just accumulated.
   const loadTokens = useCallback(async (owner: string) => {
     setState("loading-tokens");
     setError(null);
     setWallets({});
     try {
-      const tokenIds = await fetchWalletTokensOnChain(owner);
+      const cached = readWalletCache(owner);
+      const [tokenIds, currentBlock] = await Promise.all([
+        fetchWalletTokensOnChain(owner, {
+          fromBlock: cached ? nextBlockHex(cached.lastScannedBlock) : "0x0",
+          knownTokenIds: cached?.tokenIds,
+        }),
+        readBlockNumber(),
+      ]);
+      writeWalletCache(owner, { tokenIds, lastScannedBlock: currentBlock });
       const [metadata, walletInfos] = await Promise.all([
         Promise.all(tokenIds.map((id) => fetchTokenMetadataViaApi(id))),
         Promise.all(tokenIds.map((id) => fetchTbaInfo(id))),

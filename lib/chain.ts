@@ -188,20 +188,38 @@ export async function rpcCall<T>(
 const OWNERSHIP_CHECK_CONCURRENCY = 15;
 const MAX_CANDIDATES = 300;
 
+// Current chain head, in hex - used by callers doing incremental log scans
+// (see fetchWalletTokensOnChain's fromBlock option below) to record "scanned
+// up to here" after a scan completes.
+export async function readBlockNumber(): Promise<string> {
+  return rpcCall<string>("eth_blockNumber", []);
+}
+
 export async function fetchWalletTokensOnChain(
   address: string,
+  options?: { fromBlock?: string; knownTokenIds?: string[] },
 ): Promise<string[]> {
+  // fromBlock lets a caller that already scanned this address before only
+  // ask for Transfers since that point, instead of re-walking the whole
+  // contract history on every single page load - the actual bottleneck
+  // this exists to avoid. knownTokenIds carries forward whatever that prior
+  // scan found; every ID (old and newly-discovered) still gets a fresh
+  // ownerOf() check below, so a token sold away since the last scan is
+  // correctly dropped, not just accumulated forever.
   const logs = await rpcCall<RpcLog[]>("eth_getLogs", [
     {
       address: CONTRACT,
-      fromBlock: "0x0",
+      fromBlock: options?.fromBlock ?? "0x0",
       toBlock: "latest",
       topics: [TRANSFER_EVENT_TOPIC, null, addressToTopic(address)],
     },
   ]);
 
   const candidateIds = [
-    ...new Set(logs.map((log) => decodeUint256(log.topics[3]))),
+    ...new Set([
+      ...(options?.knownTokenIds ?? []),
+      ...logs.map((log) => decodeUint256(log.topics[3])),
+    ]),
   ].slice(0, MAX_CANDIDATES);
 
   const owned: string[] = [];
