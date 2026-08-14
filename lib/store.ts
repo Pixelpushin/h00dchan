@@ -139,6 +139,24 @@ function memoryCommand(cmd: string, args: string[]): unknown {
       const end = stop === -1 ? sorted.length : stop + 1;
       return sorted.slice(start, end);
     }
+    case "DEL": {
+      let count = 0;
+      for (const key of args) {
+        if (memStrings.delete(key)) count += 1;
+        if (memLists.delete(key)) count += 1;
+        if (memZsets.delete(key)) count += 1;
+      }
+      return count;
+    }
+    case "ZREM": {
+      const zset = memZsets.get(args[0]);
+      if (!zset) return 0;
+      let count = 0;
+      for (const member of args.slice(1)) {
+        if (zset.delete(member)) count += 1;
+      }
+      return count;
+    }
     default:
       throw new Error(`In-memory store: unsupported command ${cmd}`);
   }
@@ -242,6 +260,25 @@ export async function listThreads(): Promise<ThreadWithCounts[]> {
 
 export async function getThread(id: string): Promise<Thread | null> {
   return readThread(id);
+}
+
+// Moderation primitive - removes a thread, every post in it, and its entry
+// in the bump-order index. No soft-delete/audit trail; this is an MVP-scale
+// admin action (see app/api/admin/threads/[threadId]/route.ts), not a full
+// moderation system. Safe to call on a thread that's already gone (each
+// DEL/ZREM is a no-op count, not an error).
+export async function deleteThread(threadId: string): Promise<void> {
+  const postIds = (await redisCommand(
+    "LRANGE",
+    `posts:${threadId}`,
+    0,
+    -1,
+  )) as string[];
+  if (postIds.length > 0) {
+    await redisCommand("DEL", ...postIds.map((id) => `post:${id}`));
+  }
+  await redisCommand("DEL", `posts:${threadId}`, `thread:${threadId}`);
+  await redisCommand("ZREM", "threads:index", threadId);
 }
 
 export async function addReply(

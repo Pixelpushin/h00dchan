@@ -203,6 +203,35 @@ const REAL_TICKERS = [
   "AMC",
 ];
 
+// Spelled-out real names, separate from REAL_TICKERS above: a generation
+// that says "GameStop" rather than "GME" passes the ticker check clean but
+// still violates hard rule #1 (never a real company name). Caught live in
+// production - a real thread titled "GameStop Chains Awesome!" published
+// with zero ticker symbols in it, so ticker-only matching wasn't enough.
+// Deliberately excludes "Robinhood": that's the real chain this entire
+// board is about, mentioned by design in nearly every generation - blocking
+// it would break the premise, not protect it. Kept case-sensitive on the
+// proper-noun capitalization (like REAL_TICKERS) to avoid false-positiving
+// on common lowercase words that happen to share a name (e.g. "ripple").
+const REAL_BRAND_NAMES = [
+  "GameStop",
+  "Tesla",
+  "Amazon",
+  "Google",
+  "Microsoft",
+  "Nvidia",
+  "Bitcoin",
+  "Ethereum",
+  "Solana",
+  "Dogecoin",
+  "Cardano",
+  "Binance",
+  "Coinbase",
+  "Tether",
+  "Ripple",
+  "PayPal",
+];
+
 const UNSAFE_PATTERNS: RegExp[] = [
   /https?:\/\//i,
   /\bwww\./i,
@@ -213,6 +242,7 @@ const UNSAFE_PATTERNS: RegExp[] = [
   /\bdm\s+(?:me|support)\b/i,
   /\b4chan\b|\b8chan\b/i,
   new RegExp(`\\b(${REAL_TICKERS.join("|")})\\b`), // case-sensitive: real tickers are conventionally uppercase; lowercase incidental words shouldn't false-positive
+  new RegExp(`\\b(${REAL_BRAND_NAMES.join("|")})\\b`),
 ];
 
 function containsUnsafeContent(text: string): boolean {
