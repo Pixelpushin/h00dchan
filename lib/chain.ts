@@ -200,7 +200,26 @@ export async function fetchWalletTokensOnChain(
 // exact moment several of the others were failing. A genuinely different
 // operator from the rest of this list, which is the point: gateways going
 // down together correlates by provider, not randomly.
-const IPFS_GATEWAYS: Array<(cidPath: string) => string> = [
+// Paid dedicated gateway (Pinata account already owned, not a new signup) -
+// leads the list now that it's wired up. A dedicated gateway is restricted
+// to self-pinned content by default; HOODCHAN's art was never pinned to
+// this account, so a Gateway Access Token was created (POST
+// /v3/ipfs/gateways/{id}/access_tokens) to open it to the whole public IPFS
+// network instead - verified live against CIDs that were failing across
+// every other gateway during a full-collection backfill. The token is
+// NEXT_PUBLIC_ deliberately: Pinata's own docs describe attaching this
+// exact kind of token to public gateway URLs as the intended pattern (it's
+// a low-privilege gateway-read token, unlike the account JWT/API keys - a
+// leak risks quota abuse, not account compromise), and it needs to reach
+// client-rendered <img src> URLs, not just server-side fetches.
+function dedicatedGatewayUrl(cidPath: string): string | null {
+  const domain = process.env.NEXT_PUBLIC_PINATA_GATEWAY_DOMAIN;
+  const token = process.env.NEXT_PUBLIC_PINATA_GATEWAY_TOKEN;
+  if (!domain || !token) return null;
+  return `https://${domain}/ipfs/${cidPath}?pinataGatewayToken=${token}`;
+}
+
+const PUBLIC_IPFS_GATEWAYS: Array<(cidPath: string) => string> = [
   (cidPath) => `https://alchemy.mypinata.cloud/ipfs/${cidPath}`,
   (cidPath) => `https://nftstorage.link/ipfs/${cidPath}`,
   (cidPath) => `https://dweb.link/ipfs/${cidPath}`,
@@ -209,42 +228,48 @@ const IPFS_GATEWAYS: Array<(cidPath: string) => string> = [
   (cidPath) => `https://gateway.pinata.cloud/ipfs/${cidPath}`,
 ];
 
+function allGatewayUrls(cidPath: string): string[] {
+  const dedicated = dedicatedGatewayUrl(cidPath);
+  const publicUrls = PUBLIC_IPFS_GATEWAYS.map((gateway) => gateway(cidPath));
+  return dedicated ? [dedicated, ...publicUrls] : publicUrls;
+}
+
 function ipfsUriToPath(uri: string): string {
   return uri.replace(/^ipfs:\/\//, "").replace(/^ipfs\//, "");
 }
 
 // Resolves an ipfs:// URI to an https gateway URL suitable for an <img src>
-// or a fetch() call. Non-ipfs URIs pass through unchanged.
+// or a fetch() call. Non-ipfs URIs pass through unchanged. Leads with the
+// dedicated gateway when configured (see dedicatedGatewayUrl above).
 export function resolveIpfsUri(uri: string): string {
   if (!uri.startsWith("ipfs://")) return uri;
-  return IPFS_GATEWAYS[0](ipfsUriToPath(uri));
+  return allGatewayUrls(ipfsUriToPath(uri))[0];
 }
 
 // Full ordered list of gateway URLs for one ipfs:// URI - lets callers (e.g.
 // an <img onError>) retry the next gateway instead of giving up on the
 // first one, since individual gateways are observably flaky even when the
 // underlying content is available (verified live: ipfs.io and Pinata's
-// gateway both timed out on this collection's CIDs while three other
-// gateways served the same content in under 2s).
+// public gateway both timed out on this collection's CIDs while others
+// served the same content in under 2s).
 export function ipfsGatewayUrls(uri: string): string[] {
   if (!uri.startsWith("ipfs://")) return [uri];
-  const cidPath = ipfsUriToPath(uri);
-  return IPFS_GATEWAYS.map((gateway) => gateway(cidPath));
+  return allGatewayUrls(ipfsUriToPath(uri));
 }
 
 // Races all gateways concurrently (Promise.any) rather than trying them
-// one at a time. Sequential fallback across 5 gateways at an 8s timeout
-// each meant a single genuinely-slow CID could take up to 40s to fail -
-// verified live: this exact path caused production requests to hang for
-// 20s+ before this change, well past what any user will wait for a page
-// to load. Racing bounds worst case to ~8s (all gateways timing out
+// one at a time. Sequential fallback across several gateways at an 8s
+// timeout each meant a single genuinely-slow CID could take up to 40s to
+// fail - verified live: this exact path caused production requests to hang
+// for 20s+ before this change, well past what any user will wait for a
+// page to load. Racing bounds worst case to ~8s (all gateways timing out
 // together) and improves the common case too, since whichever gateway
-// happens to be fastest right now wins instead of always paying for
-// nftstorage.link first even on days it's the slow one.
+// happens to be fastest right now wins instead of always paying for the
+// same one first even on days it's the slow one.
 async function fetchIpfsJson(uri: string): Promise<unknown> {
   const cidPath = ipfsUriToPath(uri);
-  const attempts = IPFS_GATEWAYS.map(async (gateway) => {
-    const res = await fetch(gateway(cidPath), {
+  const attempts = allGatewayUrls(cidPath).map(async (url) => {
+    const res = await fetch(url, {
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`IPFS gateway responded ${res.status}`);

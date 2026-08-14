@@ -33,6 +33,16 @@ VENICE_API_KEY=$(get_key "venice-api-key")
 # your Venice API credits.
 H00DCHAN_CRON_SECRET=$(get_key "h00dchan-cron-secret")
 
+# Pinata dedicated gateway access token (coffee-collective-muskox-308,
+# gateway ID 6c86ebb5-3e05-426d-b508-1c01904bb891 on the paid Pinata
+# account). NEXT_PUBLIC_ on purpose: Pinata's own docs describe attaching
+# this exact token to public gateway URLs as the intended usage pattern
+# (it's a low-privilege gateway-read token, not the account JWT/API keys -
+# leaking it risks quota abuse, not account compromise), and it needs to be
+# in client-bundled <img src> URLs for the token grid/post images, not just
+# server-side metadata fetches.
+PINATA_GATEWAY_TOKEN=$(get_key "pinata-gateway-token-h00dchan")
+
 if [ -z "$REOWN_PROJECT_ID" ]; then
   echo "WARNING: reown-project-id-h00dchan not found in Keychain (account: $ACCOUNT)"
   echo "  Add it: security add-generic-password -a openclaw -s reown-project-id-h00dchan -w '<id>' -U"
@@ -50,6 +60,8 @@ cat > "$ENV_FILE" <<EOF
 NEXT_PUBLIC_REOWN_PROJECT_ID=${REOWN_PROJECT_ID}
 VENICE_API_KEY=${VENICE_API_KEY}
 H00DCHAN_CRON_SECRET=${H00DCHAN_CRON_SECRET}
+NEXT_PUBLIC_PINATA_GATEWAY_DOMAIN=coffee-collective-muskox-308.mypinata.cloud
+NEXT_PUBLIC_PINATA_GATEWAY_TOKEN=${PINATA_GATEWAY_TOKEN}
 
 # KV_REST_API_URL / KV_REST_API_TOKEN intentionally left unset here - no
 # Upstash/Vercel KV project is provisioned yet. lib/store.ts falls back to
