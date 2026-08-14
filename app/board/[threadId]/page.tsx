@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getThread, listPosts, type Post } from "@/lib/store";
-import { fetchTokenMetadata, type TokenMetadata } from "@/lib/chain";
+import {
+  getOrFetchTokenMetadata,
+  getThread,
+  listPosts,
+  type Post,
+} from "@/lib/store";
+import { type TokenMetadata } from "@/lib/chain";
 import { PostHeader } from "@/app/components/PostHeader";
 import { PostBody } from "@/app/components/PostBody";
 import { PostImage } from "@/app/components/PostImage";
@@ -10,12 +15,13 @@ import { ReplyForm } from "@/app/board/[threadId]/ReplyForm";
 export const dynamic = "force-dynamic";
 
 // Images are resolved from each post's tokenId at render time (never
-// duplicated/cached into the post record itself) using the same
-// fetchTokenMetadata() the /api/token/[tokenId] route wraps. That route
-// exists to route around browser-side IPFS-gateway CORS flakiness (see its
-// own comment) - a concern that doesn't apply here since this runs
-// server-to-server during SSR, so calling the underlying function directly
-// avoids a redundant self-HTTP round trip for the same resolution logic.
+// duplicated/cached into the post record itself) via
+// lib/store.ts's getOrFetchTokenMetadata - the same permanent KV cache the
+// /api/token/[tokenId] route uses. This used to call fetchTokenMetadata()
+// directly, which bypassed that cache entirely: every thread view was
+// re-hitting IPFS live for every post's token, which was the real source
+// of reported page-load lag (the metadata-route 502s were a symptom of the
+// same underlying flakiness, not the whole story).
 async function resolveTokenMetadata(
   tokenIds: string[],
 ): Promise<Map<string, TokenMetadata | null>> {
@@ -23,7 +29,7 @@ async function resolveTokenMetadata(
   const entries = await Promise.all(
     unique.map(async (id) => {
       try {
-        return [id, await fetchTokenMetadata(id)] as const;
+        return [id, await getOrFetchTokenMetadata(id)] as const;
       } catch {
         return [id, null] as const;
       }

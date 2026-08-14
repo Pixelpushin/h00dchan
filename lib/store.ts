@@ -28,7 +28,11 @@
 // component render of the same process until this was switched to
 // globalThis). globalThis is one shared object across every module graph
 // in the process, which is exactly what a same-process fallback needs.
-import { readOwnerOf } from "@/lib/chain";
+import {
+  fetchTokenMetadata,
+  readOwnerOf,
+  type TokenMetadata,
+} from "@/lib/chain";
 
 interface MemoryStoreGlobal {
   __h00dchanMemStore?: {
@@ -533,4 +537,60 @@ export async function createAiReply(
   }
 
   return post;
+}
+
+// --- Token metadata cache ----------------------------------------------
+//
+// HOODCHAN's metadata/art lives on IPFS, resolved through public gateways
+// (lib/chain.ts's fetchTokenMetadata) - those gateways are observably
+// flaky/rate-limited under real traffic (verified live: repeated 502s on
+// app/api/token/[tokenId] for a token that resolved fine moments later).
+// The HTTP Cache-Control header on that route doesn't actually help -
+// it's a force-dynamic Node serverless function, which Vercel's edge
+// doesn't cache regardless of the header - so every page load was hitting
+// IPFS fresh, for every user, forever. Since a token's metadata is
+// immutable once minted, cache it here permanently (no TTL) once resolved
+// successfully: after the first successful resolution of any given token,
+// no request from any user ever needs to touch IPFS for it again.
+const TOKEN_META_PREFIX = "token-meta:";
+
+export async function getCachedTokenMetadata(
+  tokenId: string,
+): Promise<TokenMetadata | null> {
+  const raw = await redisCommand("GET", `${TOKEN_META_PREFIX}${tokenId}`);
+  return typeof raw === "string" ? (JSON.parse(raw) as TokenMetadata) : null;
+}
+
+export async function cacheTokenMetadata(
+  tokenId: string,
+  metadata: TokenMetadata,
+): Promise<void> {
+  await redisCommand(
+    "SET",
+    `${TOKEN_META_PREFIX}${tokenId}`,
+    JSON.stringify(metadata),
+  );
+}
+
+// The one function every caller should actually use - checks the cache,
+// falls back to a live IPFS fetch on miss, and populates the cache on
+// success. app/api/token/[tokenId]/route.ts (client-side token grid) and
+// app/board/[threadId]/page.tsx (server-rendered post images) both need
+// this same resolution; the thread page originally called
+// fetchTokenMetadata() directly, bypassing the cache entirely - every
+// thread view was re-hitting IPFS live for every post's token, which is
+// almost certainly the real source of reported page-load lag, not just
+// the metadata-route 502s. Import fetchTokenMetadata dynamically-by-name
+// isn't needed here; both modules already sit in the same server bundle.
+export async function getOrFetchTokenMetadata(
+  tokenId: string,
+): Promise<TokenMetadata> {
+  const cached = await getCachedTokenMetadata(tokenId).catch(() => null);
+  if (cached) return cached;
+
+  const metadata = await fetchTokenMetadata(tokenId);
+  await cacheTokenMetadata(tokenId, metadata).catch((err) => {
+    console.error(`Failed to cache metadata for HOODCHAN #${tokenId}`, err);
+  });
+  return metadata;
 }

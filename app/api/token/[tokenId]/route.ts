@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchTokenMetadata } from "@/lib/chain";
+import { getOrFetchTokenMetadata } from "@/lib/store";
 
 // Resolves HOODCHAN token metadata server-side and hands the client clean
 // JSON. This exists because IPFS gateways proved inconsistent about CORS on
@@ -12,6 +12,17 @@ import { fetchTokenMetadata } from "@/lib/chain";
 // gateway. On-chain reads (ownerOf, tokenURI, Transfer logs) stay
 // client-side since the Robinhood Chain RPC was verified to already allow
 // cross-origin requests.
+//
+// Also checks lib/store.ts's permanent KV cache before ever touching IPFS -
+// this route is `force-dynamic`, which means Vercel's edge does NOT cache
+// it despite the Cache-Control header below (that header only matters for
+// clients/proxies that actually see it, which a force-dynamic serverless
+// function's callers do, just not Vercel's own CDN in front of it). Without
+// the KV cache, every page load from every user re-fetched from a public
+// IPFS gateway - verified live in production causing intermittent 502s on
+// a token that resolved fine moments later. Metadata is immutable once
+// minted, so caching it forever after the first successful resolution is
+// correct, not just a performance shortcut.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -27,7 +38,7 @@ export async function GET(
   }
 
   try {
-    const metadata = await fetchTokenMetadata(id);
+    const metadata = await getOrFetchTokenMetadata(String(id));
     return NextResponse.json(metadata, {
       headers: {
         "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
