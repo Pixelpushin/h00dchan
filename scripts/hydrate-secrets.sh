@@ -43,6 +43,14 @@ H00DCHAN_CRON_SECRET=$(get_key "h00dchan-cron-secret")
 # server-side metadata fetches.
 PINATA_GATEWAY_TOKEN=$(get_key "pinata-gateway-token-h00dchan")
 
+# Same key the game projects already use (account: openclaw, service:
+# alchemy-api-key) - not project-scoped, one key works across apps. Powers
+# the token-bound-wallet explorer (lib/alchemy.ts): enhanced NFT/token
+# balance APIs on Robinhood Chain, confirmed working live before wiring
+# this up. Server-side only, no NEXT_PUBLIC_ prefix - the explorer page is
+# a server component, never a client-side fetch.
+ALCHEMY_API_KEY=$(get_key "alchemy-api-key")
+
 if [ -z "$REOWN_PROJECT_ID" ]; then
   echo "WARNING: reown-project-id-h00dchan not found in Keychain (account: $ACCOUNT)"
   echo "  Add it: security add-generic-password -a openclaw -s reown-project-id-h00dchan -w '<id>' -U"
@@ -62,6 +70,7 @@ VENICE_API_KEY=${VENICE_API_KEY}
 H00DCHAN_CRON_SECRET=${H00DCHAN_CRON_SECRET}
 NEXT_PUBLIC_PINATA_GATEWAY_DOMAIN=coffee-collective-muskox-308.mypinata.cloud
 NEXT_PUBLIC_PINATA_GATEWAY_TOKEN=${PINATA_GATEWAY_TOKEN}
+ALCHEMY_API_KEY=${ALCHEMY_API_KEY}
 
 # KV_REST_API_URL / KV_REST_API_TOKEN intentionally left unset here - no
 # Upstash/Vercel KV project is provisioned yet. lib/store.ts falls back to

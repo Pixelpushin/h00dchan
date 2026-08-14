@@ -104,3 +104,23 @@ export function checkWriteRateLimit(
 
   return { allowed: true, retryAfterSeconds: 0 };
 }
+
+// A separate map from the write-path limits above: /api/signals is public
+// and unauthenticated (no address/token to key on, no signature to verify),
+// so per-IP is the only dimension available - and it shouldn't share a
+// budget with the write endpoints, since a burst of legitimate reads
+// shouldn't eat into someone's ability to post.
+const signalsIpLimit = new Map<string, RateEntry>();
+const SIGNALS_IP_MAX = 30;
+
+export function checkSignalsRateLimit(request: NextRequest): RateLimitResult {
+  const now = Date.now();
+  prune(signalsIpLimit, now);
+  const result = consume(
+    signalsIpLimit,
+    getClientIp(request),
+    SIGNALS_IP_MAX,
+    now,
+  );
+  return { ...result, scope: "ip" };
+}

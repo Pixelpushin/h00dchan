@@ -164,7 +164,10 @@ interface RpcLog {
   [key: string]: unknown;
 }
 
-async function rpcCall<T>(method: string, params: unknown[]): Promise<T> {
+export async function rpcCall<T>(
+  method: string,
+  params: unknown[],
+): Promise<T> {
   const res = await fetch(RPC_URL, {
     method: "POST",
     headers: { "content-type": "application/json" },

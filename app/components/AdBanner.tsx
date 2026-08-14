@@ -4,11 +4,13 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 
 // Classic imageboard-style rotating ad banner, placed the way real 4chan
 // places its own: below the "What is X?" info box, above the main content.
-// All four link to the same place - the actual HOODCHAN OpenSea collection
+// All twelve link to the same place - the actual HOODCHAN OpenSea collection
 // - since that's the one call-to-action this site actually wants people to
-// take (go get a token to claim).
+// take (go get a token to claim). Sliced from 3 stacked-panel sheets via
+// scripts' darkest-row seam detection (same technique as the original
+// banner set), 4 panels per sheet.
 const OPENSEA_COLLECTION_URL = "https://opensea.io/collection/h00dchan";
-const BANNER_COUNT = 4;
+const BANNER_COUNT = 12;
 const ROTATE_MS = 8_000;
 
 function bannerSrc(index: number): string {
