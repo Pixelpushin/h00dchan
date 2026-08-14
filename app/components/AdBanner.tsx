@@ -67,14 +67,25 @@ export function AdBanner() {
       href={OPENSEA_COLLECTION_URL}
       target="_blank"
       rel="noopener noreferrer"
-      className="block w-full mb-6 rounded overflow-hidden border"
-      style={{ borderColor: "var(--hc-box-border)" }}
+      className="block w-full mb-6 overflow-hidden rounded border"
+      style={{
+        borderColor: "var(--hc-box-border)",
+        // Fixed aspect ratio (not just h-auto) so the box never changes
+        // size between rotations - the 12 source crops range from 155px to
+        // 237px tall at this width, which was visibly jumping the layout
+        // every 8s. object-fit: contain (not cover) means a shorter/taller
+        // banner gets letterboxed instead of ever cropping content -
+        // cheap insurance against a bad crop clipping text again, on top
+        // of just fixing this batch's two bad seams directly.
+        aspectRatio: "1168 / 198",
+        background: "#000",
+      }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={bannerSrc(index)}
         alt="HOODCHAN on OpenSea"
-        className="w-full h-auto block"
+        className="block h-full w-full object-contain"
       />
     </a>
   );

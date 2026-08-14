@@ -98,6 +98,11 @@ body {
 
 /* --- Header wallet widget (app/components/WalletHeaderWidget.tsx) ------- */
 
+.hc-wallet-widget {
+  position: relative;
+  display: inline-flex;
+}
+
 .hc-wallet-pill {
   color: #fff7e6;
   font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
@@ -107,6 +112,50 @@ body {
   border-radius: 999px;
   padding: 0.3rem 0.75rem;
   line-height: 1;
+  cursor: pointer;
+}
+
+.hc-wallet-pill:hover {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.hc-wallet-menu {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 30;
+  min-width: 10rem;
+  background: var(--hc-box);
+  border: 1px solid var(--hc-box-border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.hc-wallet-menu-item {
+  color: var(--hc-text);
+  font-size: 0.8rem;
+  text-align: left;
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--hc-box-border);
+  padding: 0.55rem 0.8rem;
+  cursor: pointer;
+}
+
+.hc-wallet-menu-item:last-child {
+  border-bottom: none;
+}
+
+.hc-wallet-menu-item:hover {
+  background: var(--hc-box-alt);
+}
+
+.hc-wallet-menu-item-danger {
+  color: #a12b2b;
 }
 
 .hc-wallet-connect-btn {

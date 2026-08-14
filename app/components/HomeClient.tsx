@@ -142,6 +142,11 @@ export default function HomeClient({
   );
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [claimStage, setClaimStage] = useState<ClaimStage>(null);
+  const [bulkActivating, setBulkActivating] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
 
   // Full history scan (fetchWalletTokensOnChain's eth_getLogs over the
   // whole contract, from block 0) only ever needs to happen once per
@@ -207,9 +212,13 @@ export default function HomeClient({
   // tracks real per-token server state independently of which one is the
   // current active persona, so multiple tokens can be (and stay) claimed
   // at once.
+  // Returns whether the claim actually succeeded - handleActivateAll below
+  // uses this to stop the batch on the first failure (most likely the user
+  // rejecting a wallet prompt) instead of firing several more signature
+  // requests in a row regardless.
   const handleClaim = useCallback(
-    async (token: TokenMetadata) => {
-      if (!address) return;
+    async (token: TokenMetadata): Promise<boolean> => {
+      if (!address) return false;
       setClaimingId(token.tokenId);
       setClaimStage("preparing");
       setError(null);
@@ -242,12 +251,14 @@ export default function HomeClient({
 
         setClaimedTokens((current) => ({ ...current, [token.tokenId]: true }));
         savePersona(persona);
+        return true;
       } catch (err) {
         setError(
           err instanceof Error
             ? err.message
             : "Unable to sign the claim message.",
         );
+        return false;
       } finally {
         setClaimingId(null);
         setClaimStage(null);
@@ -255,6 +266,27 @@ export default function HomeClient({
     },
     [address, savePersona],
   );
+
+  // Signs one-at-a-time, sequentially - each activation is its own wallet
+  // signature prompt, there's no way to batch multiple ERC-6551-unrelated
+  // personal_sign requests into one. Stops on the first failure (see
+  // handleClaim's return value) rather than plowing through the rest of
+  // the list after a rejected signature.
+  const handleActivateAll = useCallback(async () => {
+    const pending = tokens.filter((t) => !claimedTokens[t.tokenId]);
+    if (pending.length === 0) return;
+    setBulkActivating(true);
+    setBulkProgress({ done: 0, total: pending.length });
+    for (const token of pending) {
+      const ok = await handleClaim(token);
+      setBulkProgress((current) =>
+        current ? { ...current, done: current.done + 1 } : current,
+      );
+      if (!ok) break;
+    }
+    setBulkActivating(false);
+    setBulkProgress(null);
+  }, [tokens, claimedTokens, handleClaim]);
 
   const handleChat = useCallback(() => {
     router.push("/board");
@@ -315,109 +347,141 @@ export default function HomeClient({
             )}
 
             {state === "ready" && tokens.length > 0 && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                {tokens.map((token) => {
-                  const isActivePersona =
-                    persona?.tokenId === token.tokenId &&
-                    persona?.address.toLowerCase() === address?.toLowerCase();
-                  const isClaimed = claimedTokens[token.tokenId] === true;
-                  const isClaiming = claimingId === token.tokenId;
-                  const stagePct =
-                    claimStage === "preparing"
-                      ? 30
-                      : claimStage === "signing"
-                        ? 65
-                        : claimStage === "confirming"
-                          ? 90
-                          : 0;
-                  const wallet = wallets[token.tokenId];
-
-                  return (
-                    <div key={token.tokenId} className="hc-box overflow-hidden">
-                      <TokenImage token={token} />
-                      <div className="p-2 text-center">
-                        <div className="hc-post-tokenid text-sm mb-2">
-                          Anon #{token.tokenId}
-                        </div>
-                        {wallet && (
-                          <a
-                            href={`/wallet/${token.tokenId}`}
-                            className="hc-thread-meta mb-2 block font-mono text-[0.65rem] hover:underline"
-                            title={wallet.address}
-                          >
-                            wallet: {truncateAddress(wallet.address)}{" "}
-                            {wallet.activated ? (
-                              <span style={{ color: "var(--hc-greentext)" }}>
-                                · active
-                              </span>
-                            ) : (
-                              <span className="opacity-70">
-                                · not yet activated
-                              </span>
-                            )}
-                          </a>
-                        )}
-                        {isActivePersona ? (
-                          <button
-                            onClick={handleChat}
-                            className="hc-button w-full text-xs"
-                          >
-                            Chat with this anon
-                          </button>
-                        ) : isClaimed ? (
-                          <div className="flex flex-col gap-1.5">
-                            <span
-                              className="text-xs font-bold"
-                              style={{ color: "var(--hc-header-to)" }}
-                            >
-                              ✓ Activated
-                            </span>
-                            <button
-                              onClick={() => handleClaim(token)}
-                              disabled={isClaiming}
-                              className="hc-button-ghost hc-button w-full text-xs"
-                            >
-                              {isClaiming
-                                ? "Sign in wallet..."
-                                : "Post as this anon instead"}
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => handleClaim(token)}
-                              disabled={isClaiming}
-                              className="hc-button-ghost hc-button w-full text-xs"
-                            >
-                              {isClaiming
-                                ? claimStage === "signing"
-                                  ? "Sign in wallet..."
-                                  : claimStage === "confirming"
-                                    ? "Silencing clanker..."
-                                    : "Preparing..."
-                                : "Activate this Anon"}
-                            </button>
-                            {isClaiming && (
-                              <div
-                                className="hc-progress-track mt-2"
-                                style={{ height: "0.3rem" }}
-                              >
-                                <div
-                                  className="hc-progress-fill"
-                                  style={{
-                                    width: `${stagePct}%`,
-                                    transition: "width 0.3s ease",
-                                  }}
-                                />
-                              </div>
-                            )}
-                          </>
-                        )}
+              <>
+                {tokens.some((t) => !claimedTokens[t.tokenId]) && (
+                  <div className="mb-4 flex flex-col items-center gap-2">
+                    <button
+                      onClick={handleActivateAll}
+                      disabled={bulkActivating || claimingId !== null}
+                      className="hc-button"
+                    >
+                      {bulkActivating
+                        ? `Activating ${bulkProgress?.done ?? 0} / ${bulkProgress?.total ?? 0}...`
+                        : "Activate All"}
+                    </button>
+                    {bulkActivating && bulkProgress && (
+                      <div
+                        className="hc-progress-track w-full max-w-xs"
+                        style={{ height: "0.35rem" }}
+                      >
+                        <div
+                          className="hc-progress-fill"
+                          style={{
+                            width: `${(bulkProgress.done / bulkProgress.total) * 100}%`,
+                            transition: "width 0.3s ease",
+                          }}
+                        />
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    )}
+                  </div>
+                )}
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                  {tokens.map((token) => {
+                    const isActivePersona =
+                      persona?.tokenId === token.tokenId &&
+                      persona?.address.toLowerCase() === address?.toLowerCase();
+                    const isClaimed = claimedTokens[token.tokenId] === true;
+                    const isClaiming = claimingId === token.tokenId;
+                    const stagePct =
+                      claimStage === "preparing"
+                        ? 30
+                        : claimStage === "signing"
+                          ? 65
+                          : claimStage === "confirming"
+                            ? 90
+                            : 0;
+                    const wallet = wallets[token.tokenId];
+
+                    return (
+                      <div
+                        key={token.tokenId}
+                        className="hc-box overflow-hidden"
+                      >
+                        <TokenImage token={token} />
+                        <div className="p-2 text-center">
+                          <div className="hc-post-tokenid text-sm mb-2">
+                            Anon #{token.tokenId}
+                          </div>
+                          {wallet && (
+                            <a
+                              href={`/wallet/${token.tokenId}`}
+                              className="hc-thread-meta mb-2 block font-mono text-[0.65rem] hover:underline"
+                              title={wallet.address}
+                            >
+                              wallet: {truncateAddress(wallet.address)}{" "}
+                              {wallet.activated ? (
+                                <span style={{ color: "var(--hc-greentext)" }}>
+                                  · active
+                                </span>
+                              ) : (
+                                <span className="opacity-70">
+                                  · not yet activated
+                                </span>
+                              )}
+                            </a>
+                          )}
+                          {isActivePersona ? (
+                            <button
+                              onClick={handleChat}
+                              className="hc-button w-full text-xs"
+                            >
+                              Chat with this anon
+                            </button>
+                          ) : isClaimed ? (
+                            <div className="flex flex-col gap-1.5">
+                              <span
+                                className="text-xs font-bold"
+                                style={{ color: "var(--hc-header-to)" }}
+                              >
+                                ✓ Activated
+                              </span>
+                              <button
+                                onClick={() => handleClaim(token)}
+                                disabled={isClaiming}
+                                className="hc-button-ghost hc-button w-full text-xs"
+                              >
+                                {isClaiming
+                                  ? "Sign in wallet..."
+                                  : "Post as this anon instead"}
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => handleClaim(token)}
+                                disabled={isClaiming}
+                                className="hc-button-ghost hc-button w-full text-xs"
+                              >
+                                {isClaiming
+                                  ? claimStage === "signing"
+                                    ? "Sign in wallet..."
+                                    : claimStage === "confirming"
+                                      ? "Silencing clanker..."
+                                      : "Preparing..."
+                                  : "Activate this Anon"}
+                              </button>
+                              {isClaiming && (
+                                <div
+                                  className="hc-progress-track mt-2"
+                                  style={{ height: "0.3rem" }}
+                                >
+                                  <div
+                                    className="hc-progress-fill"
+                                    style={{
+                                      width: `${stagePct}%`,
+                                      transition: "width 0.3s ease",
+                                    }}
+                                  />
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </div>
         )}
