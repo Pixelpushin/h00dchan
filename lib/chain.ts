@@ -190,7 +190,18 @@ export async function fetchWalletTokensOnChain(
 // `<cid>.ipfs.<gateway>` host) gets blocked by TLS-layer filtering before it
 // ever reaches the gateway - pinata.cloud serves path-style
 // (`/ipfs/<cid>/...`) without that subdomain hop.
+// alchemy.mypinata.cloud added after all 5 gateways above showed a spike in
+// failures under real production load (verified live: a full-collection
+// backfill run saw roughly 60-70% failure rate across the original five,
+// almost certainly rate-limiting from this app's own burst traffic hitting
+// them repeatedly). It's Pinata's own shared gateway (referenced in
+// Alchemy's docs, not something gated by an Alchemy API key specifically -
+// no auth was needed to use it) - tested live and fast (~1s, 200) at the
+// exact moment several of the others were failing. A genuinely different
+// operator from the rest of this list, which is the point: gateways going
+// down together correlates by provider, not randomly.
 const IPFS_GATEWAYS: Array<(cidPath: string) => string> = [
+  (cidPath) => `https://alchemy.mypinata.cloud/ipfs/${cidPath}`,
   (cidPath) => `https://nftstorage.link/ipfs/${cidPath}`,
   (cidPath) => `https://dweb.link/ipfs/${cidPath}`,
   (cidPath) => `https://w3s.link/ipfs/${cidPath}`,
