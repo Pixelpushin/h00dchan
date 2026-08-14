@@ -392,7 +392,7 @@ export default function HomeClient({
                           <div className="flex flex-col gap-1.5">
                             <span
                               className="text-xs font-bold"
-                              style={{ color: "var(--hc-greentext)" }}
+                              style={{ color: "var(--hc-header-to)" }}
                             >
                               ✓ Activated
                             </span>
