@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { connectWallet, onAccountsChanged, signMessage } from "@/lib/wallet";
 import { WhatIsHoodchan } from "@/app/components/WhatIsHoodchan";
+import { AdBanner } from "@/app/components/AdBanner";
+
+const OPENSEA_COLLECTION_URL = "https://opensea.io/collection/h00dchan";
 import {
   fetchWalletTokensOnChain,
   ipfsGatewayUrls,
@@ -167,6 +170,7 @@ export default function Home() {
     <div className="flex flex-col flex-1 items-center">
       <main className="flex flex-1 w-full max-w-5xl flex-col items-center px-6 py-10">
         <WhatIsHoodchan />
+        <AdBanner />
         {!address ? (
           <button
             onClick={handleConnect}
@@ -188,13 +192,21 @@ export default function Home() {
             )}
 
             {state === "ready" && tokens.length === 0 && (
-              <div className="hc-box text-center py-16">
+              <div className="hc-box text-center py-16 px-6">
                 <p className="hc-title text-lg mb-1">
                   No HOODCHAN tokens found in this wallet.
                 </p>
-                <p className="hc-thread-meta text-sm">
+                <p className="hc-thread-meta text-sm mb-5">
                   Hold at least one to post as your anon.
                 </p>
+                <a
+                  href={OPENSEA_COLLECTION_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hc-button inline-block"
+                >
+                  Buy a HOODCHAN on OpenSea
+                </a>
               </div>
             )}
 
