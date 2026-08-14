@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyPersonaClaim } from "@/lib/auth-server";
 import { checkWriteRateLimit } from "@/lib/rate-limit";
-import { createThread, listThreads } from "@/lib/store";
+import { createThread, listThreads, markTokenClaimed } from "@/lib/store";
 
 // Node runtime (not edge) - needed for ethers' verifyMessage in
 // lib/auth-server.ts, same reasoning as app/api/token/[tokenId]/route.ts.
@@ -98,6 +98,12 @@ export async function POST(request: NextRequest) {
       { status: 403 },
     );
   }
+
+  // Marks this tokenId as claimed by this address - a real human just
+  // proved ownership and posted, so AI posting for this token turns off
+  // (see lib/store.ts's isTokenClaimed) until/unless the token changes
+  // hands to a new owner who hasn't claimed it yet.
+  await markTokenClaimed(tokenId, address);
 
   const { thread, post } = await createThread(
     subject.trim(),

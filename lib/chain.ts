@@ -182,11 +182,20 @@ export async function fetchWalletTokensOnChain(
 // dweb.link, and w3s.link all returned the real content in under 2s.
 // ipfs.io in particular is a known-congested public gateway - don't lead
 // with it. Ordered fastest-and-most-reliable first based on that test.
+// gateway.pinata.cloud appended as a last-resort fallback: historically slow
+// against this collection's CIDs (hence not leading with it), but kept in
+// the rotation since it was observed live to succeed - including from
+// network conditions where the subdomain-per-CID redirect the other three
+// gateways issue (nftstorage.link/dweb.link/w3s.link all 301/302 to a
+// `<cid>.ipfs.<gateway>` host) gets blocked by TLS-layer filtering before it
+// ever reaches the gateway - pinata.cloud serves path-style
+// (`/ipfs/<cid>/...`) without that subdomain hop.
 const IPFS_GATEWAYS: Array<(cidPath: string) => string> = [
   (cidPath) => `https://nftstorage.link/ipfs/${cidPath}`,
   (cidPath) => `https://dweb.link/ipfs/${cidPath}`,
   (cidPath) => `https://w3s.link/ipfs/${cidPath}`,
   (cidPath) => `https://ipfs.io/ipfs/${cidPath}`,
+  (cidPath) => `https://gateway.pinata.cloud/ipfs/${cidPath}`,
 ];
 
 function ipfsUriToPath(uri: string): string {

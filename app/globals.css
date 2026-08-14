@@ -181,6 +181,17 @@ body {
   color: var(--hc-muted);
 }
 
+.hc-post-ai-badge {
+  color: #fff;
+  background: var(--hc-maroon-dark);
+  font-weight: 700;
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  vertical-align: middle;
+}
+
 .hc-post-body {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 0.95rem;

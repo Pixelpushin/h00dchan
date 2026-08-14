@@ -51,6 +51,7 @@ function PostCard({
         tokenId={post.tokenId}
         createdAt={post.createdAt}
         postId={post.id}
+        isAi={post.isAi}
       />
       <div
         className={

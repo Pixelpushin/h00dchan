@@ -15,15 +15,25 @@ export function PostHeader({
   tokenId,
   createdAt,
   postId,
+  isAi,
 }: {
   tokenId: string;
   createdAt: string;
   postId: string;
+  isAi?: boolean;
 }) {
   return (
     <div className="hc-post-header">
       <span className="hc-post-name">Anonymous</span>{" "}
       <span className="hc-post-tokenid">Anon #{tokenId}</span>{" "}
+      {isAi && (
+        <span
+          className="hc-post-ai-badge"
+          title="AI-generated post - this token hasn't been claimed by its holder yet"
+        >
+          (AI)
+        </span>
+      )}{" "}
       <span className="hc-post-time">{formatTime(createdAt)}</span>{" "}
       <span className="hc-post-num">No.{postId}</span>
     </div>

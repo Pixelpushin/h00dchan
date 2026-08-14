@@ -15,6 +15,9 @@
 //   post:<id>               - JSON-encoded Post
 //   threads:index           - ZSET of thread ids, score = bumpedAt (ms)
 //   posts:<threadId>        - LIST of post ids in reply order (OP first)
+//   claimed:<tokenId>       - JSON-encoded ClaimRecord (address + claimedAt)
+//   rarity-index             - JSON-encoded RarityIndex (whole-collection blob)
+//   ai-last-post:<tokenId>  - ISO timestamp string, last AI post cooldown
 
 // Stashed on globalThis, not a plain module-level `let`/`const`: Next.js
 // (Turbopack in particular) compiles Server Components and Route Handlers
@@ -25,6 +28,8 @@
 // component render of the same process until this was switched to
 // globalThis). globalThis is one shared object across every module graph
 // in the process, which is exactly what a same-process fallback needs.
+import { readOwnerOf } from "@/lib/chain";
+
 interface MemoryStoreGlobal {
   __h00dchanMemStore?: {
     strings: Map<string, string>;
@@ -155,6 +160,12 @@ export interface Post {
   tokenId: string;
   body: string;
   createdAt: string;
+  // Only ever true for posts written via createAiPost/createAiReply below -
+  // human posts (app/api/threads, app/api/threads/[threadId]/posts) never
+  // set this. Rendered as a visible "(AI)" badge (see PostHeader) - the
+  // whole point of this system is that AI authorship stays honest and
+  // labeled, never passed off as a real holder's words.
+  isAi?: boolean;
 }
 
 export interface ThreadWithCounts extends Thread {
@@ -265,4 +276,224 @@ export async function listPosts(threadId: string): Promise<Post[]> {
     }),
   );
   return posts.filter((p): p is Post => p !== null);
+}
+
+// --- Claim-state tracking ---------------------------------------------------
+//
+// "Claimed" means: the current on-chain owner of this tokenId has, at some
+// point, proven it via verifyPersonaClaim (signature + live ownerOf check)
+// and posted through the human write path. From that point on, AI posting
+// for this token stops - a real person is speaking as this anon now.
+//
+// The claim record itself is NOT re-verified for ownership at write time -
+// it just says "address X claimed tokenId Y at time Z". isTokenClaimed()
+// below is what re-confirms X still holds Y *right now* before trusting a
+// stale record, since claim state is tied to "this specific address
+// currently owns this token", not "this token was claimed at some point in
+// history". If the token sells, the old claim record is left in place
+// un-deleted (harmless - isTokenClaimed will no longer trust it) and a
+// future markTokenClaimed() call from the new owner overwrites it.
+
+export interface ClaimRecord {
+  address: string;
+  claimedAt: string; // ISO timestamp
+}
+
+// Called from both write routes (app/api/threads/route.ts,
+// app/api/threads/[threadId]/posts/route.ts) immediately after
+// verifyPersonaClaim succeeds - by that point ownership has already been
+// live-confirmed, so this just records the outcome.
+export async function markTokenClaimed(
+  tokenId: string,
+  address: string,
+): Promise<void> {
+  const record: ClaimRecord = { address, claimedAt: new Date().toISOString() };
+  await redisCommand("SET", `claimed:${tokenId}`, JSON.stringify(record));
+}
+
+// Reads the claim record (if any) and, only if one exists, confirms via a
+// live readOwnerOf() call that the recorded address still holds the token
+// right now. No record at all -> not claimed, no chain call needed. A
+// record whose address no longer matches the live owner -> treated as NOT
+// claimed (AI posting resumes for the new, not-yet-claimed owner), even
+// though the stale record is left on disk.
+export async function isTokenClaimed(tokenId: string): Promise<boolean> {
+  const raw = await redisCommand("GET", `claimed:${tokenId}`);
+  if (typeof raw !== "string") return false;
+
+  let record: ClaimRecord;
+  try {
+    record = JSON.parse(raw) as ClaimRecord;
+  } catch {
+    return false;
+  }
+  if (!record?.address) return false;
+
+  try {
+    const owner = await readOwnerOf(tokenId);
+    return owner.toLowerCase() === record.address.toLowerCase();
+  } catch {
+    // Chain unavailable - fail closed toward NOT claimed would let the AI
+    // post over a real claim during an RPC blip; fail toward claimed would
+    // silently withhold AI posting during outages. Withholding is the
+    // safer failure mode here (worst case: a quiet board during an RPC
+    // hiccup, not a claimed anon getting spoken over), so treat chain
+    // errors as "assume still claimed" when a record exists.
+    return true;
+  }
+}
+
+// --- Rarity index -----------------------------------------------------------
+//
+// Computed occasionally/offline by scripts/compute-rarity.ts (fetches all
+// 1200 tokens' metadata, tallies trait-value frequency, scores each token by
+// inverse-frequency-weighted rarity), then written here as one JSON blob -
+// not recomputed per-request, which would mean fetching 1200 IPFS metadata
+// documents on every request that needs a rarity check.
+
+export interface RarityEntry {
+  score: number;
+  rank: number; // 1 = rarest
+}
+
+export interface RarityIndex {
+  computedAt: string; // ISO timestamp
+  totalSupply: number;
+  entries: Record<string, RarityEntry>; // tokenId -> entry
+}
+
+const RARITY_INDEX_KEY = "rarity-index";
+
+export async function writeRarityIndex(index: RarityIndex): Promise<void> {
+  await redisCommand("SET", RARITY_INDEX_KEY, JSON.stringify(index));
+}
+
+export async function readRarityIndex(): Promise<RarityIndex | null> {
+  const raw = await redisCommand("GET", RARITY_INDEX_KEY);
+  return typeof raw === "string" ? (JSON.parse(raw) as RarityIndex) : null;
+}
+
+// Top ~5% rank counts as "rare". Doesn't block/crash if the index hasn't
+// been computed yet (scripts/compute-rarity.ts hasn't been run against this
+// store yet, e.g. fresh local dev with the in-memory fallback) - logs a
+// warning once, same fallback-warning pattern as the in-memory Redis
+// fallback above, and just treats every token as not-rare until the index
+// exists.
+const RARE_RANK_FRACTION = 0.05;
+let warnedNoRarityIndex = false;
+
+export async function isRareToken(tokenId: string): Promise<boolean> {
+  const index = await readRarityIndex();
+  if (!index) {
+    if (!warnedNoRarityIndex) {
+      warnedNoRarityIndex = true;
+      console.warn(
+        "Rarity index not computed yet (run `npx tsx scripts/compute-rarity.ts`) - treating all tokens as not-rare",
+      );
+    }
+    return false;
+  }
+  const entry = index.entries[tokenId];
+  if (!entry) return false;
+  const rareThreshold = Math.max(
+    1,
+    Math.round(index.totalSupply * RARE_RANK_FRACTION),
+  );
+  return entry.rank <= rareThreshold;
+}
+
+// --- AI post cooldown --------------------------------------------------------
+//
+// Caps how often any single token can get a fresh AI-authored post - keeps
+// Venice API cost bounded and stops the board from feeling like spam.
+// Checked/set by app/api/ai/generate/route.ts around each generation.
+
+export async function getAiLastPostAt(tokenId: string): Promise<string | null> {
+  const raw = await redisCommand("GET", `ai-last-post:${tokenId}`);
+  return typeof raw === "string" ? raw : null;
+}
+
+export async function setAiLastPostAt(
+  tokenId: string,
+  when: string = new Date().toISOString(),
+): Promise<void> {
+  await redisCommand("SET", `ai-last-post:${tokenId}`, when);
+}
+
+// --- AI-authored post writes -------------------------------------------------
+//
+// Distinct from createThread/addReply: no signature to verify (there's no
+// wallet behind an AI post), so instead of verifyPersonaClaim these check
+// isTokenClaimed() and refuse to write if a human has already claimed this
+// token - the AI must never post over a real holder's identity. Every post
+// written through here is stamped isAi: true (see Post interface above).
+
+export class TokenClaimedError extends Error {
+  constructor(tokenId: string) {
+    super(`Token ${tokenId} is claimed by a human - refusing AI post.`);
+    this.name = "TokenClaimedError";
+  }
+}
+
+export async function createAiPost(
+  subject: string,
+  tokenId: string,
+  body: string,
+): Promise<{ thread: Thread; post: Post }> {
+  if (await isTokenClaimed(tokenId)) {
+    throw new TokenClaimedError(tokenId);
+  }
+
+  const threadId = await nextId("thread:counter");
+  const now = new Date().toISOString();
+  const thread: Thread = {
+    id: threadId,
+    subject,
+    tokenId,
+    createdAt: now,
+    bumpedAt: now,
+  };
+  await writeThread(thread);
+
+  const postId = await nextId("post:counter");
+  const post: Post = {
+    id: postId,
+    threadId,
+    tokenId,
+    body,
+    createdAt: now,
+    isAi: true,
+  };
+  await writePost(post);
+
+  return { thread, post };
+}
+
+export async function createAiReply(
+  threadId: string,
+  tokenId: string,
+  body: string,
+): Promise<Post> {
+  if (await isTokenClaimed(tokenId)) {
+    throw new TokenClaimedError(tokenId);
+  }
+
+  const postId = await nextId("post:counter");
+  const now = new Date().toISOString();
+  const post: Post = {
+    id: postId,
+    threadId,
+    tokenId,
+    body,
+    createdAt: now,
+    isAi: true,
+  };
+  await writePost(post);
+
+  const thread = await readThread(threadId);
+  if (thread) {
+    await writeThread({ ...thread, bumpedAt: now });
+  }
+
+  return post;
 }

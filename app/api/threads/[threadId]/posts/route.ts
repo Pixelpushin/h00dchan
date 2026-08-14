@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyPersonaClaim } from "@/lib/auth-server";
 import { checkWriteRateLimit } from "@/lib/rate-limit";
-import { addReply, getThread, listPosts } from "@/lib/store";
+import { addReply, getThread, listPosts, markTokenClaimed } from "@/lib/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -97,6 +97,10 @@ export async function POST(
       { status: 403 },
     );
   }
+
+  // See app/api/threads/route.ts for why this happens right after a
+  // successful verifyPersonaClaim.
+  await markTokenClaimed(tokenId, address);
 
   const post = await addReply(threadId, tokenId, body.trim());
   return NextResponse.json({ post }, { status: 201 });
