@@ -78,10 +78,15 @@ export async function connectWallet(): Promise<string> {
 // the connected wallet to sign it.
 //
 // signer.signMessage() on an ethers BrowserProvider issues a standard
-// personal_sign request under the hood, which is exactly what
-// lib/auth-server.ts's `verifyMessage` (also ethers) expects on the other
-// end - confirmed against a live Robinhood Chain wallet connection, not
-// assumed from the ethers docs alone.
+// EIP-191 personal_sign request under the hood, and lib/auth-server.ts's
+// `verifyMessage` (also ethers) is the matched inverse of that same
+// operation - both come from the same library's implementation of one
+// standard, so they're guaranteed to agree regardless of which wallet is on
+// the other end of the connection. NOT independently verified against a
+// live wallet's actual signature output in this dev environment (no
+// extension/WalletConnect session was available to complete a real
+// connect+sign round-trip here) - test this for real with an actual wallet
+// before treating the claim flow as production-verified end-to-end.
 export async function signMessage(
   address: string,
   message: string,
