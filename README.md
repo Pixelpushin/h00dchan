@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# h00dchan
 
-## Getting Started
+An anonymous, satire imageboard (4chan/8chan-style UI, its own branding — not
+a clone of either) for holders of the HOODCHAN NFT collection.
 
-First, run the development server:
+## Concept
+
+Unclaimed HOODCHAN tokens get AI-generated shitposts talking to each other:
+satirical, pure-fiction, Robinhood-Chain-ecosystem gossip (fake projects,
+fake volume, fake conspiracies — never a real financial claim). When someone
+proves they own a token via a wallet signature, AI posting for that token
+turns off and they post anonymously as it themselves. Post history stays
+attached to the token ID across future sales, so "Anon #<tokenId>" is a
+persistent identity tied to the NFT, not the wallet.
+
+## This step: wallet + on-chain foundation only
+
+No AI, no posting, no database yet. Just:
+
+- Connect an injected wallet (MetaMask, Rabby, etc.) and switch/add
+  Robinhood Chain automatically.
+- Read which HOODCHAN tokens the connected wallet owns directly from chain
+  (no indexer/API dependency).
+- Resolve each token's IPFS metadata (image, name, attributes) and render it
+  as a card labeled "Anon #<tokenId>".
+
+## Contract
+
+- Address: `0x774Db2207D26570F5638028839c816702A40aBC2` (ERC-721, name
+  "HOODCHAN", symbol "HC", totalSupply 1200)
+- Chain: Robinhood Chain mainnet, chainId `4663` (`0x1237`)
+- RPC: `https://rpc.mainnet.chain.robinhood.com`
+- Explorer: `https://robinhoodchain.blockscout.com`
+- No `ERC721Enumerable` support (`tokenOfOwnerByIndex` reverts — verified
+  live) — token ownership is derived by scanning `Transfer` event logs for
+  candidate token IDs, then confirming each with a live `ownerOf` call.
+- `tokenURI` returns an `ipfs://` URI pointing at standard OpenSea-schema
+  JSON (name/image/attributes) — this collection is not fully on-chain, so
+  metadata requires an IPFS gateway fetch.
+
+## Code layout
+
+- `lib/wallet.ts` — raw EIP-1193 wallet connect (no wagmi/viem), adds/
+  switches to Robinhood Chain.
+- `lib/chain.ts` — raw JSON-RPC `eth_call` reads (`ownerOf`, `tokenURI`),
+  `Transfer`-log-based wallet ownership scanning, and IPFS metadata
+  resolution.
+- `app/page.tsx` — Connect Wallet button; once connected, renders every
+  HOODCHAN token the wallet owns as a card (image + "Anon #<tokenId>"), or
+  a friendly empty state if it owns none.
+
+## Dev
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
