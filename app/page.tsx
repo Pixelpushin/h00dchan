@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import {
   connectWallet,
   hasInjectedWallet,
@@ -13,6 +13,22 @@ import {
 } from "@/lib/chain";
 
 type LoadState = "idle" | "connecting" | "loading-tokens" | "ready" | "error";
+
+// useSyncExternalStore, not a raw useEffect+setState, because
+// window.ethereum is genuinely external, mutable browser state: it can be
+// injected before or after React hydrates, and the server has no `window`
+// at all. This is exactly the primitive React ships for "read a
+// browser-only value the same way on server and client" - getServerSnapshot
+// always returns false (matching what SSR renders), getSnapshot reads the
+// real value once mounted. There's no injection-completed event to
+// subscribe to, so subscribe() is a no-op.
+function subscribeNoop() {
+  return () => {};
+}
+
+function useWalletDetected() {
+  return useSyncExternalStore(subscribeNoop, hasInjectedWallet, () => false);
+}
 
 // Metadata is resolved through our own API route (app/api/token/[tokenId])
 // rather than fetchTokenMetadata() directly, because that function's IPFS
@@ -66,6 +82,7 @@ export default function Home() {
   const [state, setState] = useState<LoadState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [tokens, setTokens] = useState<TokenMetadata[]>([]);
+  const walletDetected = useWalletDetected();
 
   const loadTokens = useCallback(async (owner: string) => {
     setState("loading-tokens");
@@ -179,7 +196,7 @@ export default function Home() {
           </p>
         )}
 
-        {!hasInjectedWallet() && (
+        {!walletDetected && (
           <p className="mt-8 text-xs text-zinc-400 max-w-sm text-center">
             No wallet extension detected in this browser. Install MetaMask,
             Rabby, or another EIP-1193 wallet to connect.
