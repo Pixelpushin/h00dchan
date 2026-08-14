@@ -7,12 +7,59 @@ import {
   onAccountsChanged,
 } from "@/lib/wallet";
 import {
-  fetchTokenMetadata,
   fetchWalletTokensOnChain,
+  ipfsGatewayUrls,
   type TokenMetadata,
 } from "@/lib/chain";
 
 type LoadState = "idle" | "connecting" | "loading-tokens" | "ready" | "error";
+
+// Metadata is resolved through our own API route (app/api/token/[tokenId])
+// rather than fetchTokenMetadata() directly, because that function's IPFS
+// gateway fetches proved CORS-flaky when called from the browser - see the
+// route's own comment for what was actually observed.
+async function fetchTokenMetadataViaApi(
+  tokenId: string,
+): Promise<TokenMetadata | null> {
+  try {
+    const res = await fetch(`/api/token/${tokenId}`);
+    if (!res.ok) return null;
+    return (await res.json()) as TokenMetadata;
+  } catch {
+    return null;
+  }
+}
+
+// Cycles through the remaining IPFS gateways on load failure instead of
+// giving up after the first one - individual gateways are observably flaky
+// even when the underlying content is available.
+function TokenImage({ token }: { token: TokenMetadata }) {
+  const rawImageUri =
+    typeof token.raw.image === "string" ? token.raw.image : "";
+  const candidates = rawImageUri ? ipfsGatewayUrls(rawImageUri) : [];
+  const [attempt, setAttempt] = useState(0);
+  const src = candidates[attempt] ?? token.image;
+
+  if (!src) {
+    return (
+      <div className="w-full aspect-square bg-zinc-200 dark:bg-zinc-800" />
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={token.name}
+      className="w-full aspect-square object-cover"
+      onError={() => {
+        setAttempt((current) =>
+          current + 1 < candidates.length ? current + 1 : current,
+        );
+      }}
+    />
+  );
+}
 
 export default function Home() {
   const [address, setAddress] = useState<string | null>(null);
@@ -26,7 +73,7 @@ export default function Home() {
     try {
       const tokenIds = await fetchWalletTokensOnChain(owner);
       const metadata = await Promise.all(
-        tokenIds.map((id) => fetchTokenMetadata(id).catch(() => null)),
+        tokenIds.map((id) => fetchTokenMetadataViaApi(id)),
       );
       const resolved = metadata
         .filter((m): m is TokenMetadata => m !== null)
@@ -115,16 +162,7 @@ export default function Home() {
                     key={token.tokenId}
                     className="border border-zinc-300 dark:border-zinc-700 rounded overflow-hidden bg-white dark:bg-zinc-900"
                   >
-                    {token.image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={token.image}
-                        alt={token.name}
-                        className="w-full aspect-square object-cover"
-                      />
-                    ) : (
-                      <div className="w-full aspect-square bg-zinc-200 dark:bg-zinc-800" />
-                    )}
+                    <TokenImage token={token} />
                     <div className="p-2 text-center text-sm font-semibold">
                       Anon #{token.tokenId}
                     </div>

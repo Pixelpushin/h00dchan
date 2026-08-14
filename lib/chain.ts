@@ -162,14 +162,20 @@ export async function fetchWalletTokensOnChain(
 //
 // HOODCHAN's tokenURI returns an ipfs:// URI (e.g.
 // ipfs://QmYWhTLQxif6duTiENGJQA9Avejwob1iZyqrHZXRMmKbHj/1) pointing at
-// standard OpenSea-schema JSON. Try ipfs.io first (most broadly reliable
-// public gateway), fall back to a subdomain dweb.link gateway.
+// standard OpenSea-schema JSON, whose own `image` field is a second,
+// separate ipfs:// URI/CID for the actual artwork.
+//
+// Gateway order matters and was verified live with curl, not guessed:
+// ipfs.io and gateway.pinata.cloud both timed out entirely (>12s, no
+// response) against this collection's CIDs, while nftstorage.link,
+// dweb.link, and w3s.link all returned the real content in under 2s.
+// ipfs.io in particular is a known-congested public gateway - don't lead
+// with it. Ordered fastest-and-most-reliable first based on that test.
 const IPFS_GATEWAYS: Array<(cidPath: string) => string> = [
+  (cidPath) => `https://nftstorage.link/ipfs/${cidPath}`,
+  (cidPath) => `https://dweb.link/ipfs/${cidPath}`,
+  (cidPath) => `https://w3s.link/ipfs/${cidPath}`,
   (cidPath) => `https://ipfs.io/ipfs/${cidPath}`,
-  (cidPath) => {
-    const [cid, ...rest] = cidPath.split("/");
-    return `https://${cid}.ipfs.dweb.link/${rest.join("/")}`;
-  },
 ];
 
 function ipfsUriToPath(uri: string): string {
@@ -181,6 +187,18 @@ function ipfsUriToPath(uri: string): string {
 export function resolveIpfsUri(uri: string): string {
   if (!uri.startsWith("ipfs://")) return uri;
   return IPFS_GATEWAYS[0](ipfsUriToPath(uri));
+}
+
+// Full ordered list of gateway URLs for one ipfs:// URI - lets callers (e.g.
+// an <img onError>) retry the next gateway instead of giving up on the
+// first one, since individual gateways are observably flaky even when the
+// underlying content is available (verified live: ipfs.io and Pinata's
+// gateway both timed out on this collection's CIDs while three other
+// gateways served the same content in under 2s).
+export function ipfsGatewayUrls(uri: string): string[] {
+  if (!uri.startsWith("ipfs://")) return [uri];
+  const cidPath = ipfsUriToPath(uri);
+  return IPFS_GATEWAYS.map((gateway) => gateway(cidPath));
 }
 
 async function fetchIpfsJson(uri: string): Promise<unknown> {
