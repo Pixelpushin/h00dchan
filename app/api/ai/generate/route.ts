@@ -1,30 +1,22 @@
-// Trigger route for AI persona post generation. Invoked either by Vercel
-// Cron (GET, per vercel.json at the repo root - Vercel invokes cron routes
-// via GET and, for a project env var literally named CRON_SECRET, auto-sends
-// `Authorization: Bearer <that value>` - see
-// https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs) or
-// manually (POST, for local/curl testing). Both methods share the same
-// handler and the same auth check.
-//
-// This repo's cron secret is named H00DCHAN_CRON_SECRET (already present in
-// .env.local, app-specific rather than the platform-default name) - on
-// Vercel, set the project env var CRON_SECRET to the *same* value as
-// H00DCHAN_CRON_SECRET so Vercel's automatic cron auto-Authorization-header
-// behavior lines up with what this route checks. The route itself only ever
-// reads H00DCHAN_CRON_SECRET.
+// Manual/admin batch trigger for AI persona post generation. No longer
+// invoked by a cron - the board switched from "posts on a timer regardless
+// of activity" to "gets louder when a human actually shows up" once the
+// board was seeded and real activations started coming in (see
+// lib/aiEngagement.ts's triggerAiThread/triggerAiReply, called directly
+// from app/api/threads/route.ts and app/api/threads/[threadId]/posts/route.ts).
+// This route stays for manual seeding/ops use (curl + H00DCHAN_CRON_SECRET),
+// same auth as every other admin action in this repo.
 import { NextRequest, NextResponse } from "next/server";
 import { fetchBurnedTokenIds } from "@/lib/chain";
-import { generateAiPost } from "@/lib/ai-persona";
 import {
-  createAiPost,
-  createAiReply,
+  generateAiReplyForToken,
+  generateAiThreadForToken,
+  pickEligibleTokenIds,
+} from "@/lib/aiEngagement";
+import {
   getAiLastPostAt,
-  getOrFetchTokenMetadata,
-  isRareToken,
   isTokenClaimed,
-  listPosts,
   listThreads,
-  setAiLastPostAt,
   TokenClaimedError,
 } from "@/lib/store";
 
@@ -36,51 +28,16 @@ export const dynamic = "force-dynamic";
 // realistic worst case and still well under Pro plan limits.
 export const maxDuration = 300;
 
-const MAX_TOKEN_ID = 1200;
-// Bumped from 3-5/run on a 45min cron (~130/day) after real feedback that
-// the board felt dead relative to the original vision: every unclaimed
-// token should read as an actively posting anon, not an occasional
-// trickle. At 8-15/run on a 10min cron (see vercel.json), that's roughly
-// 1500-2000 generations/day against 1200 tokens with a 3h cooldown each
-// (max sustainable throughput ~9600/day per that cooldown alone), so this
-// is nowhere near cooldown-constrained - it's a real increase in visible
-// activity, not just a number on paper. Venice cost at this volume is low
-// single-digit dollars/month (~$0.0003/generation at current pricing).
-const BATCH_MIN = 8;
-const BATCH_MAX = 15;
-const MAX_CANDIDATE_DRAWS = 120; // give up looking for eligible tokens after this many misses
-const COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3 hours - same token can't post again sooner than this
+const BATCH_MIN = 3;
+const BATCH_MAX = 8;
+const COOLDOWN_MS = 3 * 60 * 60 * 1000; // kept in sync with lib/aiEngagement.ts's own constant, only used here for the diagnostic ?check= mode
 const NEW_THREAD_CHANCE = 0.25; // otherwise reply to an existing thread
-const THREAD_CONTEXT_POSTS = 4;
 
 function checkAuth(request: NextRequest): boolean {
   const secret = process.env.H00DCHAN_CRON_SECRET;
   if (!secret) return false;
   const header = request.headers.get("authorization");
   return header === `Bearer ${secret}`;
-}
-
-function shuffledTokenIds(): number[] {
-  const ids = Array.from({ length: MAX_TOKEN_ID }, (_, i) => i + 1);
-  for (let i = ids.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [ids[i], ids[j]] = [ids[j], ids[i]];
-  }
-  return ids;
-}
-
-async function isEligible(
-  tokenId: string,
-  burnedIds: Set<string>,
-): Promise<boolean> {
-  if (burnedIds.has(tokenId)) return false;
-  if (await isTokenClaimed(tokenId)) return false;
-  const lastPostAt = await getAiLastPostAt(tokenId);
-  if (lastPostAt) {
-    const elapsed = Date.now() - Date.parse(lastPostAt);
-    if (Number.isFinite(elapsed) && elapsed < COOLDOWN_MS) return false;
-  }
-  return true;
 }
 
 interface GenerationOutcome {
@@ -92,54 +49,14 @@ interface GenerationOutcome {
   reason?: string;
 }
 
-// Burned token IDs (Transfer to the zero address) are fetched once per
-// batch run, not per-candidate - one eth_getLogs call covering the whole
-// contract history versus probing each drawn candidate individually.
-// ownerOf/tokenURI revert identically for a burned token and one that was
-// never minted, so this is also the only reliable way to exclude burns
-// specifically (verified live: this contract has 2 confirmed burns,
-// tokens #5 and #6, and its totalSupply() correctly decremented to 1198).
-async function pickEligibleTokenIds(
-  count: number,
-  burnedIds: Set<string>,
-): Promise<string[]> {
-  const shuffled = shuffledTokenIds();
-  const eligible: string[] = [];
-  for (
-    let i = 0;
-    i < shuffled.length && i < MAX_CANDIDATE_DRAWS && eligible.length < count;
-    i++
-  ) {
-    const tokenId = String(shuffled[i]);
-    if (await isEligible(tokenId, burnedIds)) eligible.push(tokenId);
-  }
-  return eligible;
-}
-
 async function generateForToken(tokenId: string): Promise<GenerationOutcome> {
   try {
-    const [metadata, rare, threads] = await Promise.all([
-      getOrFetchTokenMetadata(tokenId),
-      isRareToken(tokenId),
-      listThreads(),
-    ]);
-
+    const threads = await listThreads();
     const startNewThread =
       threads.length === 0 || Math.random() < NEW_THREAD_CHANCE;
 
     if (startNewThread) {
-      const result = await generateAiPost({
-        metadata,
-        isRare: rare,
-        kind: "thread",
-        apiKey: process.env.VENICE_API_KEY!,
-      });
-      const { thread, post } = await createAiPost(
-        result.subject ?? `Anon #${tokenId}'s thread`,
-        tokenId,
-        result.body,
-      );
-      await setAiLastPostAt(tokenId);
+      const { thread, post } = await generateAiThreadForToken(tokenId);
       return {
         tokenId,
         status: "posted",
@@ -150,20 +67,7 @@ async function generateForToken(tokenId: string): Promise<GenerationOutcome> {
     }
 
     const targetThread = threads[Math.floor(Math.random() * threads.length)];
-    const existingPosts = await listPosts(targetThread.id);
-    const recentPosts = existingPosts
-      .slice(-THREAD_CONTEXT_POSTS)
-      .map((p) => p.body);
-
-    const result = await generateAiPost({
-      metadata,
-      isRare: rare,
-      kind: "reply",
-      context: { subject: targetThread.subject, recentPosts },
-      apiKey: process.env.VENICE_API_KEY!,
-    });
-    const post = await createAiReply(targetThread.id, tokenId, result.body);
-    await setAiLastPostAt(tokenId);
+    const post = await generateAiReplyForToken(tokenId, targetThread);
     return {
       tokenId,
       status: "posted",
@@ -186,9 +90,7 @@ async function generateForToken(tokenId: string): Promise<GenerationOutcome> {
 
 // Auth-gated diagnostic mode - `?check=<tokenId>` reports whether one
 // specific token is currently AI-eligible (not claimed, not on cooldown)
-// without spending a Venice call or writing anything. Useful for ops
-// debugging and for verifying the cooldown/claim gates directly instead of
-// waiting on random batch selection to redraw the same token.
+// without spending a Venice call or writing anything.
 async function handleCheck(tokenId: string): Promise<NextResponse> {
   const [claimed, burnedIds] = await Promise.all([
     isTokenClaimed(tokenId),
@@ -232,8 +134,7 @@ async function handleGenerate(request: NextRequest): Promise<NextResponse> {
 
   const batchSize =
     BATCH_MIN + Math.floor(Math.random() * (BATCH_MAX - BATCH_MIN + 1));
-  const burnedIds = new Set(await fetchBurnedTokenIds());
-  const candidates = await pickEligibleTokenIds(batchSize, burnedIds);
+  const candidates = await pickEligibleTokenIds(batchSize);
 
   if (candidates.length === 0) {
     return NextResponse.json({
@@ -245,10 +146,7 @@ async function handleGenerate(request: NextRequest): Promise<NextResponse> {
   }
 
   // Sequential, not parallel: each generation is a real Venice API call
-  // (cost) plus a chain metadata fetch - running the whole batch
-  // concurrently would spike both Venice spend and IPFS gateway load for no
-  // benefit, since this route itself runs on a schedule, not on a user
-  // request's critical path.
+  // (cost) plus a chain metadata fetch.
   const results: GenerationOutcome[] = [];
   for (const tokenId of candidates) {
     results.push(await generateForToken(tokenId));

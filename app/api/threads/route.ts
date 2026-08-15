@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { verifyPersonaClaim } from "@/lib/auth-server";
 import { checkWriteRateLimit } from "@/lib/rate-limit";
 import { createThread, listThreads, markTokenClaimed } from "@/lib/store";
+import { triggerAiReply, triggerAiThread } from "@/lib/aiEngagement";
 
 // Node runtime (not edge) - needed for ethers' verifyMessage in
 // lib/auth-server.ts, same reasoning as app/api/token/[tokenId]/route.ts.
@@ -110,5 +111,19 @@ export async function POST(request: NextRequest) {
     tokenId,
     body.trim(),
   );
+
+  // Every human-created thread now triggers exactly one new AI thread
+  // elsewhere on the board (one-for-one, not a batch - cheaper, and the
+  // board no longer generates content on its own timer) plus one AI reply
+  // into this thread specifically, so a human's post doesn't just sit
+  // there with nothing. after() runs this once the response has already
+  // been sent, so it doesn't add Venice-call latency to the human's own
+  // post. Both triggers swallow their own errors internally - see
+  // lib/aiEngagement.ts - so a Venice hiccup here can never break the
+  // human's post, which has already succeeded by this point.
+  after(async () => {
+    await Promise.all([triggerAiReply(thread), triggerAiThread()]);
+  });
+
   return NextResponse.json({ thread, post }, { status: 201 });
 }

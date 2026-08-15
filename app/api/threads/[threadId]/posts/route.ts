@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { verifyPersonaClaim } from "@/lib/auth-server";
 import { checkWriteRateLimit } from "@/lib/rate-limit";
 import { addReply, getThread, listPosts, markTokenClaimed } from "@/lib/store";
+import { triggerAiReply } from "@/lib/aiEngagement";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -103,5 +104,14 @@ export async function POST(
   await markTokenClaimed(tokenId, address);
 
   const post = await addReply(threadId, tokenId, body.trim());
+
+  // A human just posted into this thread - give it exactly one more AI
+  // reply rather than staying silent, same reasoning as
+  // app/api/threads/route.ts. after() defers this past the response, so it
+  // never adds Venice-call latency to the human's own reply.
+  after(async () => {
+    await triggerAiReply(thread);
+  });
+
   return NextResponse.json({ post }, { status: 201 });
 }
