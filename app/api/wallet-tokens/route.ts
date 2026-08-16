@@ -43,22 +43,39 @@ export async function GET(request: NextRequest) {
       readBlockNumber(),
     ]);
 
-    const walletEntries = await Promise.all(
-      tokenIds.map(async (tokenId) => {
-        try {
-          const tbaAddress = await computeTbaAddress(tokenId);
-          const activated = await isTbaActivated(tbaAddress);
-          return [tokenId, { address: tbaAddress, activated }] as const;
-        } catch {
+    // Chunked, not one unbounded Promise.all across every token - a
+    // holder with a lot of tokens (2 RPC calls each: account() + getCode())
+    // firing all at once turned out to be exactly the kind of burst that
+    // makes Robinhood Chain's RPC start rejecting/timing out a random
+    // subset, which silently dropped those tokens' wallet info (the
+    // symptom: "some of my NFTs show a wallet line, some don't" - not an
+    // all-or-nothing failure, a partial one). Same concurrency-chunking
+    // convention as fetchWalletTokensOnChain's own ownership checks
+    // (lib/chain.ts), plus one retry per token before giving up, since a
+    // single dropped request is more likely transient than a real error.
+    const TBA_CONCURRENCY = 8;
+    const wallets: Record<string, { address: string; activated: boolean }> = {};
+    for (let i = 0; i < tokenIds.length; i += TBA_CONCURRENCY) {
+      const batch = tokenIds.slice(i, i + TBA_CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(async (tokenId) => {
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              const tbaAddress = await computeTbaAddress(tokenId);
+              const activated = await isTbaActivated(tbaAddress);
+              return [tokenId, { address: tbaAddress, activated }] as const;
+            } catch {
+              // one retry, then give up on this token for this request -
+              // the client re-fetches on every page load anyway.
+            }
+          }
           return null;
-        }
-      }),
-    );
-    const wallets = Object.fromEntries(
-      walletEntries.filter(
-        (entry): entry is NonNullable<typeof entry> => entry !== null,
-      ),
-    );
+        }),
+      );
+      for (const entry of results) {
+        if (entry) wallets[entry[0]] = entry[1];
+      }
+    }
 
     return NextResponse.json({ tokenIds, lastScannedBlock, wallets });
   } catch (error) {
