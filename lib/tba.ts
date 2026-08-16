@@ -2,20 +2,36 @@
 // deterministic on-chain wallet address it can hold assets in, computed via
 // the standard registry's account(), no deployment required for that part.
 //
-// Everything below was verified live against Robinhood Chain mainnet before
-// writing this file, not assumed from the EIP spec or docs:
+// Everything below was verified live against Robinhood Chain mainnet AND
+// independently cross-checked against Base mainnet (a chain where
+// Tokenbound's real contracts are confirmed live), not assumed from the EIP
+// spec or docs:
 // - The registry at REGISTRY_ADDRESS has real deployed bytecode and
 //   dispatches exactly the two selectors used here (account/createAccount) -
 //   confirmed via eth_getCode + a real eth_call, matching the finalized
-//   EIP-6551 ABI.
-// - IMPLEMENTATION_ADDRESS (Tokenbound's standard V3 account implementation,
-//   audited, deployed at the same address on every chain that's run their
-//   permissionless CREATE2 self-deploy tool) currently has NO code on
-//   Robinhood Chain (eth_getCode returned "0x") - it has not been deployed
-//   here yet. account()'s return value doesn't depend on the implementation
-//   actually having code though - it's a pure function of the inputs - so
-//   computeTbaAddress() below already returns the real, correct, final TBA
-//   address a token will have once that one-time deployment happens.
+//   EIP-6551 ABI. Matches Tokenbound's own published deployment address
+//   exactly (docs.tokenbound.org/contracts/deployments).
+// - IMPLEMENTATION_ADDRESS was WRONG until this fix - the previous constant
+//   (0x2d25602551487c3f3354dd80d76d54383a243358) was checked multiple times
+//   earlier this session and confirmed to have no code on Robinhood Chain,
+//   which was read as "correct address, just not deployed here yet." That
+//   was never actually verified against Tokenbound's own docs. It turned
+//   out that address has no code on ANY chain, including Base mainnet where
+//   Tokenbound's real implementation is definitely live - it was never
+//   Tokenbound's real contract at all. The correct address
+//   (0x41C8f39463A868d3A88af00cd0fe7102F30E44eC) was confirmed by
+//   eth_getCode returning real bytecode on Base mainnet, matching
+//   Tokenbound's own deployment docs. Before switching this constant, every
+//   TBA address ever computed with the old wrong value was checked for
+//   real ETH/NFT/token balances (fetchWalletHoldings) - all zero, so this
+//   fix changes nothing anyone has ever actually used.
+// - Like the old address, this correct one currently has NO code on
+//   Robinhood Chain either (eth_getCode returned "0x") - it has not been
+//   deployed here yet. account()'s return value doesn't depend on the
+//   implementation actually having code though - it's a pure function of
+//   the inputs - so computeTbaAddress() below already returns the real,
+//   correct, final TBA address a token will have once that one-time
+//   deployment happens.
 // - A live eth_call for token #1 returned a real, non-zero, deterministic
 //   address, confirming this read path works today.
 //
@@ -28,7 +44,7 @@ import { CHAIN_ID_HEX, CONTRACT, rpcCall } from "@/lib/chain";
 
 export const REGISTRY_ADDRESS = "0x000000006551c19487814612e58FE06813775758";
 export const IMPLEMENTATION_ADDRESS =
-  "0x2d25602551487c3f3354dd80d76d54383a243358";
+  "0x41C8f39463A868d3A88af00cd0fe7102F30E44eC";
 
 const SELECTOR_ACCOUNT = "246a0021"; // account(address,bytes32,uint256,address,uint256)
 const SELECTOR_CREATE_ACCOUNT = "8a54c52f"; // createAccount(address,bytes32,uint256,address,uint256)
