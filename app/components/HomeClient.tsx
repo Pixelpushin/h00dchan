@@ -9,14 +9,8 @@ import { RentAdSpaceButton } from "@/app/components/RentAdSpaceButton";
 import { useActivePersona } from "@/lib/usePersona";
 
 const OPENSEA_COLLECTION_URL = "https://opensea.io/collection/h00dchan";
-import {
-  fetchWalletTokensOnChain,
-  ipfsGatewayUrls,
-  readBlockNumber,
-  type TokenMetadata,
-} from "@/lib/chain";
+import { ipfsGatewayUrls, type TokenMetadata } from "@/lib/chain";
 import { buildAuthMessage, buildBatchAuthMessage } from "@/lib/persona";
-import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
 import {
   nextBlockHex,
   readWalletCache,
@@ -49,21 +43,6 @@ async function fetchClaimedStatus(tokenId: string): Promise<boolean> {
     return data.claimed === true;
   } catch {
     return false;
-  }
-}
-
-// Same raw-RPC-stays-client-side reasoning as fetchWalletTokensOnChain
-// above: the registry lives behind the same Robinhood Chain RPC already
-// verified CORS-open, so there's no need for a server route here - see
-// lib/tba.ts for what's actually being computed and why no deployment is
-// required for this read-only part.
-async function fetchTbaInfo(tokenId: string): Promise<TbaInfo | null> {
-  try {
-    const address = await computeTbaAddress(tokenId);
-    const activated = await isTbaActivated(address);
-    return { address, activated };
-  } catch {
-    return null;
   }
 }
 
@@ -158,6 +137,18 @@ export default function HomeClient({
   // changed since. Ownership is still re-verified live either way (see
   // fetchWalletTokensOnChain), so a token sold away since the last visit is
   // correctly dropped, not just accumulated.
+  // Wallet-token discovery (log scan + per-candidate ownerOf checks) and
+  // TBA lookups (registry account() + getCode()) both go through
+  // /api/wallet-tokens now, server-to-server, instead of the browser
+  // calling Robinhood Chain's RPC directly - confirmed live (a real
+  // holder's browser console) that at high request volume (a wallet
+  // holding a lot of tokens generates dozens-to-hundreds of concurrent
+  // eth_calls) that RPC sometimes returns a malformed CORS header, which
+  // every browser correctly refuses and every affected request then
+  // silently drops (fetchWalletTokensOnChain's per-candidate checks
+  // catch-and-exclude failures) - tokens just quietly failed to appear,
+  // no visible error. Server-to-server fetches were never subject to that
+  // browser-only restriction in the first place.
   const loadTokens = useCallback(async (owner: string) => {
     setState("loading-tokens");
     setError(null);
@@ -165,28 +156,37 @@ export default function HomeClient({
     setClaimedTokens({});
     try {
       const cached = readWalletCache(owner);
-      const [tokenIds, currentBlock] = await Promise.all([
-        fetchWalletTokensOnChain(owner, {
-          fromBlock: cached ? nextBlockHex(cached.lastScannedBlock) : "0x0",
-          knownTokenIds: cached?.tokenIds,
-        }),
-        readBlockNumber(),
-      ]);
-      writeWalletCache(owner, { tokenIds, lastScannedBlock: currentBlock });
-      const [metadata, walletInfos, claimedFlags] = await Promise.all([
+      const params = new URLSearchParams({ address: owner });
+      if (cached) {
+        params.set("fromBlock", nextBlockHex(cached.lastScannedBlock));
+        params.set("knownTokenIds", cached.tokenIds.join(","));
+      }
+      const walletRes = await fetch(`/api/wallet-tokens?${params}`);
+      const walletBody = await walletRes.json().catch(() => null);
+      if (!walletRes.ok) {
+        throw new Error(
+          typeof walletBody?.error === "string"
+            ? walletBody.error
+            : `Unable to load tokens (${walletRes.status}).`,
+        );
+      }
+      const tokenIds: string[] = walletBody.tokenIds;
+      const walletMap: Record<string, TbaInfo> = walletBody.wallets ?? {};
+      writeWalletCache(owner, {
+        tokenIds,
+        lastScannedBlock: walletBody.lastScannedBlock,
+      });
+
+      const [metadata, claimedFlags] = await Promise.all([
         Promise.all(tokenIds.map((id) => fetchTokenMetadataViaApi(id))),
-        Promise.all(tokenIds.map((id) => fetchTbaInfo(id))),
         Promise.all(tokenIds.map((id) => fetchClaimedStatus(id))),
       ]);
       const resolved = metadata
         .filter((m): m is TokenMetadata => m !== null)
         .sort((a, b) => Number(a.tokenId) - Number(b.tokenId));
       setTokens(resolved);
-      const walletMap: Record<string, TbaInfo> = {};
       const claimedMap: Record<string, boolean> = {};
       tokenIds.forEach((id, i) => {
-        const info = walletInfos[i];
-        if (info) walletMap[id] = info;
         if (claimedFlags[i]) claimedMap[id] = true;
       });
       setWallets(walletMap);
