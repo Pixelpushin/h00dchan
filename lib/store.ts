@@ -146,6 +146,15 @@ function memoryCommand(cmd: string, args: string[]): unknown {
       const end = stop === -1 ? sorted.length : stop + 1;
       return sorted.slice(start, end);
     }
+    case "ZRANGEBYSCORE": {
+      const zset = memZsets.get(args[0]) ?? new Map<string, number>();
+      const min = Number(args[1]);
+      const max = Number(args[2]);
+      return [...zset.entries()]
+        .filter(([, score]) => score >= min && score <= max)
+        .sort((a, b) => a[1] - b[1])
+        .map(([member]) => member);
+    }
     case "DEL": {
       let count = 0;
       for (const key of args) {
@@ -259,6 +268,25 @@ export async function createThread(
   await writePost(post);
 
   return { thread, post };
+}
+
+// A thread is "human" if its OP post isn't isAi - checked directly against
+// the OP post rather than a denormalized flag on Thread, since that works
+// correctly on every thread ever created (including ones from before this
+// check existed) with no migration needed.
+export async function isThreadHuman(threadId: string): Promise<boolean> {
+  const ids = (await redisCommand(
+    "LRANGE",
+    `posts:${threadId}`,
+    0,
+    0,
+  )) as string[];
+  const opId = ids[0];
+  if (!opId) return false;
+  const raw = await redisCommand("GET", `post:${opId}`);
+  if (typeof raw !== "string") return false;
+  const op = JSON.parse(raw) as Post;
+  return op.isAi !== true;
 }
 
 export async function listThreads(): Promise<ThreadWithCounts[]> {

@@ -1,5 +1,6 @@
 import HomeClient from "@/app/components/HomeClient";
 import { PopularThreads } from "@/app/components/PopularThreads";
+import { HumanThreads } from "@/app/components/HumanThreads";
 import { listActiveAds } from "@/lib/adStore";
 
 export const dynamic = "force-dynamic";
@@ -12,5 +13,11 @@ export default async function Home() {
     imageUrl: ad.imageUrl,
     openseaUrl: ad.openseaUrl,
   }));
-  return <HomeClient popularThreads={<PopularThreads />} paidAds={paidAds} />;
+  const popularThreads = (
+    <>
+      <HumanThreads />
+      <PopularThreads />
+    </>
+  );
+  return <HomeClient popularThreads={popularThreads} paidAds={paidAds} />;
 }

@@ -1,0 +1,96 @@
+import Link from "next/link";
+import {
+  getOrFetchTokenMetadata,
+  isThreadHuman,
+  listThreads,
+} from "@/lib/store";
+import { PostImage } from "@/app/components/PostImage";
+
+// Sits alongside PopularThreads on the home page - that one ranks by reply
+// count, which buries a thread someone *just* posted until it gets
+// engagement. This one shows the most recent human-started threads
+// specifically, most recent first, so posting gives real-time visible
+// feedback: "yes, my thread is really up there" - not "wait and see if it
+// becomes popular."
+const PREVIEW_COUNT = 6;
+// listThreads() has no per-request cap - bound how many recent threads get
+// the isThreadHuman() check (one extra store read each) rather than
+// checking the entire board's history on every home page load.
+const SCAN_LIMIT = 30;
+
+export async function HumanThreads() {
+  const threads = await listThreads().catch(() => []);
+  if (threads.length === 0) return null;
+
+  const recentCandidates = [...threads]
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .slice(0, SCAN_LIMIT);
+
+  const humanFlags = await Promise.all(
+    recentCandidates.map((thread) =>
+      isThreadHuman(thread.id).catch(() => false),
+    ),
+  );
+  const human = recentCandidates
+    .filter((_, i) => humanFlags[i])
+    .slice(0, PREVIEW_COUNT);
+
+  if (human.length === 0) return null;
+
+  const withThumbnails = await Promise.all(
+    human.map(async (thread) => ({
+      thread,
+      metadata: await getOrFetchTokenMetadata(thread.tokenId).catch(() => null),
+    })),
+  );
+
+  return (
+    <div className="hc-infobox w-full mb-6">
+      <div className="hc-infobox-header">
+        <span>Threads From Real Holders</span>
+      </div>
+      <div className="hc-infobox-body">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {withThumbnails.map(({ thread, metadata }) => {
+            const rawImageUri =
+              metadata && typeof metadata.raw.image === "string"
+                ? metadata.raw.image
+                : "";
+            return (
+              <Link
+                key={thread.id}
+                href={`/board/${thread.id}`}
+                className="hc-box block overflow-hidden"
+              >
+                {metadata && (
+                  <PostImage
+                    rawImageUri={rawImageUri}
+                    fallbackSrc={metadata.image}
+                    alt={metadata.name}
+                    className="w-full aspect-[2/1] object-cover"
+                  />
+                )}
+                <div className="p-2">
+                  <div className="hc-thread-subject text-sm truncate">
+                    {thread.subject}
+                  </div>
+                  <div className="hc-thread-meta">
+                    Anon #{thread.tokenId} ·{" "}
+                    {thread.replyCount === 1
+                      ? "1 reply"
+                      : `${thread.replyCount} replies`}
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+        <div className="mt-3 text-center">
+          <Link href="/board" className="hc-link text-sm">
+            view the full board ›
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
