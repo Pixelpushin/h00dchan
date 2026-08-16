@@ -3,15 +3,13 @@ import { verifyPersonaClaim } from "@/lib/auth-server";
 import { checkWriteRateLimit } from "@/lib/rate-limit";
 import { createThread, listThreads, markTokenClaimed } from "@/lib/store";
 import { triggerAiThread } from "@/lib/aiEngagement";
-import { scheduleStaggeredReplies } from "@/lib/scheduledReplies";
-
-// A human starting a real thread is more effort than replying to one -
-// reward that with a few AI replies trickling in over time instead of one
-// instant reply, so the thread feels like it's getting real organic
-// engagement rather than an obvious instant bot dump. Processed by the
-// cron at app/api/ai/process-scheduled/route.ts (see vercel.json).
-const REWARD_REPLY_COUNT = 3;
-const REWARD_WINDOW_MS = 30 * 60 * 1000;
+import {
+  claimRewardSlot,
+  REWARD_REPLY_COUNT,
+  REWARD_WINDOW_MS,
+  scheduleStaggeredReplies,
+} from "@/lib/scheduledReplies";
+import { scoreThreadQuality } from "@/lib/threadQuality";
 
 // Node runtime (not edge) - needed for ethers' verifyMessage in
 // lib/auth-server.ts, same reasoning as app/api/token/[tokenId]/route.ts.
@@ -123,19 +121,27 @@ export async function POST(request: NextRequest) {
 
   // Every human-created thread triggers exactly one new AI thread
   // elsewhere on the board (one-for-one, not a batch - cheaper, and the
-  // board no longer generates content on its own timer), immediately, plus
-  // a few AI replies into THIS thread specifically, staggered over the
-  // next ~30 minutes rather than dumped all at once. after() runs this
-  // once the response has already been sent, so none of it adds Venice-
-  // call or Redis latency to the human's own post. triggerAiThread
-  // swallows its own errors internally (lib/aiEngagement.ts) - a Venice
-  // hiccup here can never break the human's post, which has already
-  // succeeded by this point.
+  // board no longer generates content on its own timer), immediately.
+  // Separately, THIS thread only gets the staggered-reward extra replies
+  // if it clears lib/threadQuality.ts's bar - the reward is meant for
+  // genuinely witty/funny posts, not every post, or it's just a second
+  // blind bot-spam mechanic. after() runs this once the response has
+  // already been sent, so none of it adds Venice-call or Redis latency to
+  // the human's own post. triggerAiThread swallows its own errors
+  // internally (lib/aiEngagement.ts) - a Venice hiccup here can never
+  // break the human's post, which has already succeeded by this point.
   after(async () => {
-    await Promise.all([
-      scheduleStaggeredReplies(thread.id, REWARD_REPLY_COUNT, REWARD_WINDOW_MS),
+    const [quality] = await Promise.all([
+      scoreThreadQuality(thread.subject, [post]),
       triggerAiThread(),
     ]);
+    if (quality.passed && (await claimRewardSlot(thread.id))) {
+      await scheduleStaggeredReplies(
+        thread.id,
+        REWARD_REPLY_COUNT,
+        REWARD_WINDOW_MS,
+      );
+    }
   });
 
   return NextResponse.json({ thread, post }, { status: 201 });

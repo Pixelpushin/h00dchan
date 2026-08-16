@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { connectWallet, disconnectWallet } from "@/lib/wallet";
 import { useWalletAddress } from "@/lib/useWalletAddress";
+import { useHasNewActivity } from "@/lib/useHasNewActivity";
 import { robinhoodChain } from "@/lib/appkit";
 
 function truncateAddress(address: string): string {
@@ -24,6 +25,7 @@ export function WalletHeaderWidget() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const { hasNew, markSeen } = useHasNewActivity(address);
 
   const handleConnect = useCallback(async () => {
     setConnecting(true);
@@ -82,12 +84,19 @@ export function WalletHeaderWidget() {
   return (
     <div className="hc-wallet-widget" ref={rootRef}>
       <button
-        onClick={() => setMenuOpen((open) => !open)}
+        onClick={() =>
+          setMenuOpen((open) => {
+            const next = !open;
+            if (next) markSeen();
+            return next;
+          })
+        }
         className="hc-wallet-pill"
-        title={address}
+        title={hasNew ? "New reply on one of your threads" : address}
         aria-expanded={menuOpen}
       >
         {truncateAddress(address)}
+        {hasNew && <span className="hc-wallet-badge" aria-hidden="true" />}
       </button>
       {menuOpen && (
         <div className="hc-wallet-menu">

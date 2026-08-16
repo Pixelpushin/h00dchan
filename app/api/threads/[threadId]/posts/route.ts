@@ -3,6 +3,13 @@ import { verifyPersonaClaim } from "@/lib/auth-server";
 import { checkWriteRateLimit } from "@/lib/rate-limit";
 import { addReply, getThread, listPosts, markTokenClaimed } from "@/lib/store";
 import { triggerAiReply } from "@/lib/aiEngagement";
+import {
+  claimRewardSlot,
+  REWARD_REPLY_COUNT,
+  REWARD_WINDOW_MS,
+  scheduleStaggeredReplies,
+} from "@/lib/scheduledReplies";
+import { scoreThreadQuality } from "@/lib/threadQuality";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -107,10 +114,27 @@ export async function POST(
 
   // A human just posted into this thread - give it exactly one more AI
   // reply rather than staying silent, same reasoning as
-  // app/api/threads/route.ts. after() defers this past the response, so it
-  // never adds Venice-call latency to the human's own reply.
+  // app/api/threads/route.ts. Separately, if this reply (plus the thread
+  // so far) clears lib/threadQuality.ts's bar, also schedule a staggered
+  // reward batch - same mechanic as new threads, extended to replies since
+  // an ongoing back-and-forth can be just as funny as an opening post.
+  // after() defers all of this past the response, so it never adds
+  // Venice-call latency to the human's own reply.
   after(async () => {
-    await triggerAiReply(thread);
+    // listPosts already includes this reply - addReply's writePost/RPUSH
+    // already landed before this after() callback runs.
+    const [, allPosts] = await Promise.all([
+      triggerAiReply(thread),
+      listPosts(threadId),
+    ]);
+    const quality = await scoreThreadQuality(thread.subject, allPosts);
+    if (quality.passed && (await claimRewardSlot(threadId))) {
+      await scheduleStaggeredReplies(
+        threadId,
+        REWARD_REPLY_COUNT,
+        REWARD_WINDOW_MS,
+      );
+    }
   });
 
   return NextResponse.json({ post }, { status: 201 });

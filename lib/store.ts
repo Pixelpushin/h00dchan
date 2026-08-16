@@ -667,3 +667,32 @@ export async function getOrFetchTokenMetadata(
   });
   return metadata;
 }
+
+// --- In-app notification badge -------------------------------------------
+//
+// "Did my thread get a new reply" badge on the wallet header widget. Keyed
+// by wallet address, not tokenId - a holder can own several tokens and
+// this is one badge for "any of your stuff got activity", not per-token.
+// Deliberately just one timestamp per address rather than per-thread read
+// state: simple, and the only actions that move it are "connect a wallet"
+// (implicit - never seen before) and "open the wallet menu" (explicit
+// mark-read) - see app/api/notifications/route.ts.
+const NOTIF_LAST_SEEN_PREFIX = "notif-last-seen:";
+
+export async function getNotifLastSeen(
+  address: string,
+): Promise<string | null> {
+  const raw = await redisCommand(
+    "GET",
+    `${NOTIF_LAST_SEEN_PREFIX}${address.toLowerCase()}`,
+  );
+  return typeof raw === "string" ? raw : null;
+}
+
+export async function setNotifLastSeen(address: string): Promise<void> {
+  await redisCommand(
+    "SET",
+    `${NOTIF_LAST_SEEN_PREFIX}${address.toLowerCase()}`,
+    new Date().toISOString(),
+  );
+}

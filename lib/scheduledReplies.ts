@@ -13,6 +13,13 @@ import { redisCommand } from "@/lib/store";
 
 const QUEUE_KEY = "scheduled:ai-replies";
 
+// Shared by both reward call sites (app/api/threads/route.ts for new
+// threads, app/api/threads/[threadId]/posts/route.ts for replies) - each
+// gated by lib/threadQuality.ts's scoreThreadQuality before this ever gets
+// scheduled.
+export const REWARD_REPLY_COUNT = 3;
+export const REWARD_WINDOW_MS = 30 * 60 * 1000;
+
 export interface ScheduledReply {
   threadId: string;
 }
@@ -55,6 +62,22 @@ export async function scheduleStaggeredReplies(
     const offset = sliceStart + Math.random() * (sliceEnd - sliceStart);
     await scheduleAiReply(threadId, now + offset);
   }
+}
+
+// Cost guardrail: a thread that keeps clearing the quality bar on every
+// human reply could otherwise stack unbounded reward batches (3 extra
+// Venice replies each time). Caps total reward batches per thread over its
+// lifetime rather than capping per-time-window - a genuinely great thread
+// can still earn a few waves of reward, just not infinite ones.
+const REWARD_COUNT_KEY_PREFIX = "reward-count:";
+const MAX_REWARD_BATCHES_PER_THREAD = 3;
+
+export async function claimRewardSlot(threadId: string): Promise<boolean> {
+  const count = (await redisCommand(
+    "INCR",
+    `${REWARD_COUNT_KEY_PREFIX}${threadId}`,
+  )) as number;
+  return count <= MAX_REWARD_BATCHES_PER_THREAD;
 }
 
 export async function popDueAiReplies(

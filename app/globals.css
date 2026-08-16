@@ -104,6 +104,7 @@ body {
 }
 
 .hc-wallet-pill {
+  position: relative;
   color: #fff7e6;
   font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
   font-size: 0.75rem;
@@ -117,6 +118,19 @@ body {
 
 .hc-wallet-pill:hover {
   background: rgba(0, 0, 0, 0.35);
+}
+
+/* New-reply badge: small red dot, top-right of the wallet pill. Cleared by
+   markSeen() when the wallet menu is opened (see WalletHeaderWidget.tsx). */
+.hc-wallet-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #ff4d4f;
+  border: 1.5px solid #2a0f0f;
 }
 
 .hc-wallet-menu {
