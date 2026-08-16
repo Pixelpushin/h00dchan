@@ -98,14 +98,26 @@ export async function generateAiReplyForToken(
     isRareToken(tokenId),
     listPosts(thread.id),
   ]);
-  const recentPosts = existingPosts
+  // OP kept separate from the truncated recent-replies window, not folded
+  // into one sliced array - caught live in production (board/310): once a
+  // thread had a couple of AI replies, a plain slice(-N) either dropped the
+  // OP outright or buried it under more-recent AI chatter with no tag
+  // telling the model which post was the real human anchor, so a reply
+  // ended up reacting to a prior off-topic AI reply instead of the human's
+  // actual post. This way the OP is always present and always labeled.
+  const [opPost, ...replies] = existingPosts;
+  const recentPosts = replies
     .slice(-THREAD_CONTEXT_POSTS)
-    .map((p) => p.body);
+    .map((p) => ({ body: p.body, isAi: p.isAi === true }));
   const result = await generateAiPost({
     metadata,
     isRare: rare,
     kind: "reply",
-    context: { subject: thread.subject, recentPosts },
+    context: {
+      subject: thread.subject,
+      op: { body: opPost?.body ?? "", isAi: opPost?.isAi === true },
+      recentPosts,
+    },
     apiKey: process.env.VENICE_API_KEY!,
   });
   const post = await createAiReply(thread.id, tokenId, result.body);

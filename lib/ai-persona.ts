@@ -18,11 +18,22 @@ const VENICE_MODEL = "venice-uncensored-1-2";
 
 import type { TokenAttribute, TokenMetadata } from "@/lib/chain";
 
+export interface ThreadContextPost {
+  body: string;
+  isAi: boolean;
+}
+
 export interface ThreadContext {
   subject: string;
-  // Most recent few post bodies in the thread, oldest first - just enough
-  // for the model to reply *to* something instead of generating in a vacuum.
-  recentPosts: string[];
+  // Always the thread's original post, kept separate from recentPosts so
+  // it never falls out of the context window as a thread accumulates
+  // replies (see lib/aiEngagement.ts). This is the anchor a human reply
+  // gets built to protect.
+  op: ThreadContextPost;
+  // Most recent replies after the OP, oldest first. Tagged isAi so the
+  // prompt can weight human content over AI content instead of treating
+  // everything in the thread as equally worth reacting to.
+  recentPosts: ThreadContextPost[];
 }
 
 export type GenerationKind = "thread" | "reply";
@@ -110,6 +121,9 @@ function buildPrompt({
   const traits = traitLine(metadata.attributes);
   const mode = pickPostMode(kind);
 
+  const lastReply = context?.recentPosts.at(-1);
+  const lastReplyIsOffTopicAi = Boolean(lastReply?.isAi);
+
   const threadSection =
     kind === "reply" && context
       ? `
@@ -117,10 +131,25 @@ THREAD YOU ARE REPLYING IN
 
 Subject: ${context.subject}
 
-Recent posts in this thread (oldest first):
-${context.recentPosts.map((p, i) => `${i + 1}. ${p}`).join("\n")}
-
-Your reply MUST directly react to the post(s) above - quote a specific phrase (greentext it with ">"), argue a specific claim, or riff on a specific detail from what was just said. A reply that could have been posted in any random thread with no changes is a failure. You can still add your own fake lore/drama on top, but anchor it to what's actually in this thread first - that's what the POST MODE below means in context.
+ORIGINAL POST (tagged ${context.op.isAi ? "AI" : "HUMAN"}):
+${context.op.body}
+${
+  context.recentPosts.length > 0
+    ? `
+Replies since then (oldest first, each tagged who wrote it):
+${context.recentPosts.map((p, i) => `${i + 1}. [${p.isAi ? "AI" : "HUMAN"}] ${p.body}`).join("\n")}
+`
+    : ""
+}
+PRIORITY RULES FOR THIS REPLY - READ CAREFULLY
+1. A post tagged HUMAN is a real holder. A post tagged AI is another bot anon like you. Always weight HUMAN posts higher than AI posts when deciding what to react to.
+2. Your main target is the most recent HUMAN post in this thread (the original post if no HUMAN has replied yet, otherwise the newest HUMAN reply). Quote a specific phrase (greentext it with ">"), argue a specific claim, or riff on a specific detail from THAT post. A reply that could've been posted in any random thread unchanged is a failure.
+${
+  lastReplyIsOffTopicAi
+    ? `3. The post directly above yours is tagged AI, not the human. Do NOT build on it or continue whatever it was talking about as if it were the real conversation. Instead, briefly clown on it first - call it out as a bot, an NPC, glitching, "ignore that one, it's a bot" - then pivot the rest of your reply to actually respond to the HUMAN post identified in rule 2. Keep the bot-mockery short (one line); the human is still the main character of this thread.`
+    : `3. If nothing has gone off-topic, just react directly to the HUMAN post identified in rule 2.`
+}
+4. Never open with a generic "giveaway"/"transferred crypto to my wallet"/"couldn't believe how easy it was" hook unless the HUMAN post you're reacting to actually mentioned something like that - your topic has to come from what they actually said, not a stock scam-bait opener.
 `
       : "";
 
