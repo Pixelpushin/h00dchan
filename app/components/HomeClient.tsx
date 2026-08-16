@@ -15,7 +15,7 @@ import {
   readBlockNumber,
   type TokenMetadata,
 } from "@/lib/chain";
-import { buildAuthMessage } from "@/lib/persona";
+import { buildAuthMessage, buildBatchAuthMessage } from "@/lib/persona";
 import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
 import {
   nextBlockHex,
@@ -146,10 +146,6 @@ export default function HomeClient({
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [claimStage, setClaimStage] = useState<ClaimStage>(null);
   const [bulkActivating, setBulkActivating] = useState(false);
-  const [bulkProgress, setBulkProgress] = useState<{
-    done: number;
-    total: number;
-  } | null>(null);
 
   // Full history scan (fetchWalletTokensOnChain's eth_getLogs over the
   // whole contract, from block 0) only ever needs to happen once per
@@ -270,26 +266,68 @@ export default function HomeClient({
     [address, savePersona],
   );
 
-  // Signs one-at-a-time, sequentially - each activation is its own wallet
-  // signature prompt, there's no way to batch multiple ERC-6551-unrelated
-  // personal_sign requests into one. Stops on the first failure (see
-  // handleClaim's return value) rather than plowing through the rest of
-  // the list after a rejected signature.
+  // One signature covers every pending token (lib/persona.ts's
+  // buildBatchAuthMessage) instead of one wallet prompt per token -
+  // claiming was never an on-chain transaction to begin with (no gas), so
+  // "batching" it just means building one message instead of N and
+  // sending one request to /api/claim/batch. The signature itself either
+  // succeeds or fails as a whole (one prompt, one user decision); once
+  // it's signed, ownership is still re-checked per token server-side, so a
+  // token that sold in the meantime is reported back as failed rather than
+  // silently succeeding or blocking the rest of the batch.
   const handleActivateAll = useCallback(async () => {
     const pending = tokens.filter((t) => !claimedTokens[t.tokenId]);
-    if (pending.length === 0) return;
+    if (!address || pending.length === 0) return;
     setBulkActivating(true);
-    setBulkProgress({ done: 0, total: pending.length });
-    for (const token of pending) {
-      const ok = await handleClaim(token);
-      setBulkProgress((current) =>
-        current ? { ...current, done: current.done + 1 } : current,
+    setError(null);
+    try {
+      const tokenIds = pending.map((t) => t.tokenId);
+      const issuedAt = new Date().toISOString();
+      const message = buildBatchAuthMessage(tokenIds, address, issuedAt);
+      const signature = await signMessage(address, message);
+
+      const res = await fetch("/api/claim/batch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tokenIds, address, signature, issuedAt }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(
+          typeof body?.error === "string"
+            ? body.error
+            : `Unable to activate anons (${res.status}).`,
+        );
+      }
+
+      const results = body.results as Record<
+        string,
+        { ok: boolean; reason?: string }
+      >;
+      const succeeded = Object.entries(results).filter(([, r]) => r.ok);
+      const failed = Object.entries(results).filter(([, r]) => !r.ok);
+
+      setClaimedTokens((current) => {
+        const next = { ...current };
+        for (const [tokenId] of succeeded) next[tokenId] = true;
+        return next;
+      });
+
+      if (failed.length > 0) {
+        setError(
+          `Activated ${succeeded.length} of ${pending.length} - ${failed
+            .map(([tokenId, r]) => `#${tokenId} (${r.reason ?? "failed"})`)
+            .join(", ")}.`,
+        );
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to sign the batch claim.",
       );
-      if (!ok) break;
+    } finally {
+      setBulkActivating(false);
     }
-    setBulkActivating(false);
-    setBulkProgress(null);
-  }, [tokens, claimedTokens, handleClaim]);
+  }, [address, tokens, claimedTokens]);
 
   const handleChat = useCallback(() => {
     router.push("/board");
@@ -355,30 +393,17 @@ export default function HomeClient({
             {state === "ready" && tokens.length > 0 && (
               <>
                 {tokens.some((t) => !claimedTokens[t.tokenId]) && (
-                  <div className="mb-4 flex flex-col items-center gap-2">
+                  <div className="mb-4 flex flex-col items-center gap-1">
                     <button
                       onClick={handleActivateAll}
                       disabled={bulkActivating || claimingId !== null}
                       className="hc-button"
                     >
-                      {bulkActivating
-                        ? `Activating ${bulkProgress?.done ?? 0} / ${bulkProgress?.total ?? 0}...`
-                        : "Activate All"}
+                      {bulkActivating ? "Sign in wallet..." : "Activate All"}
                     </button>
-                    {bulkActivating && bulkProgress && (
-                      <div
-                        className="hc-progress-track w-full max-w-xs"
-                        style={{ height: "0.35rem" }}
-                      >
-                        <div
-                          className="hc-progress-fill"
-                          style={{
-                            width: `${(bulkProgress.done / bulkProgress.total) * 100}%`,
-                            transition: "width 0.3s ease",
-                          }}
-                        />
-                      </div>
-                    )}
+                    <p className="hc-thread-meta text-xs">
+                      One signature activates every unclaimed anon below.
+                    </p>
                   </div>
                 )}
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">

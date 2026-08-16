@@ -32,6 +32,32 @@ export function buildAuthMessage(
   return `h00dchan posting authorization\ntoken: HOODCHAN #${tokenId}\naddress: ${address}\nissued: ${issuedAt}`;
 }
 
+// One signature authorizing a whole batch of tokens at once ("Activate
+// All" - see app/components/HomeClient.tsx) instead of one wallet prompt
+// per token. Claiming was never an on-chain transaction to begin with (no
+// gas, per the site's own copy) - it's a personal_sign proving "I hold
+// these addresses' tokens right now," so batching it is just building one
+// message instead of N, not a smart-contract multicall. Token IDs are
+// sorted numerically before building the message so the client and server
+// always agree on the exact string regardless of array order the caller
+// happened to pass.
+export function buildBatchAuthMessage(
+  tokenIds: string[],
+  address: string,
+  issuedAt: string,
+): string {
+  const sorted = [...tokenIds].sort((a, b) => Number(a) - Number(b));
+  const list = sorted.map((id) => `HOODCHAN #${id}`).join(", ");
+  return `h00dchan posting authorization (batch)\ntokens: ${list}\naddress: ${address}\nissued: ${issuedAt}`;
+}
+
+// One live eth_call per token in the batch (see verifyBatchPersonaClaim) -
+// bounded so a single request can't force an unbounded number of RPC
+// calls. Comfortably above what any real holder needs (1198 total supply,
+// and holding even a small fraction of a collection this size is already
+// a lot).
+export const MAX_BATCH_CLAIM_SIZE = 50;
+
 // Canonical token ID form only: plain decimal digits, no leading zero, no
 // 0x/0b/0o prefix, no whitespace, in [1, 1200]. Without this gate,
 // BigInt("1"), BigInt("01"), BigInt("0x1"), and BigInt("+1") all resolve to

@@ -21,7 +21,9 @@ import { verifyMessage } from "ethers";
 import { readOwnerOf } from "@/lib/chain";
 import {
   buildAuthMessage,
+  buildBatchAuthMessage,
   isValidTokenId,
+  MAX_BATCH_CLAIM_SIZE,
   PERSONA_MAX_AGE_MS,
   type PersonaClaim,
 } from "@/lib/persona";
@@ -135,4 +137,128 @@ export async function verifyPersonaClaim(
   }
 
   return { ok: true };
+}
+
+export interface BatchClaimVerificationResult {
+  ok: boolean;
+  reason?: string;
+  code?: ClaimFailureCode;
+  // Only present when ok is true (the signature itself checked out) - one
+  // entry per submitted tokenId, since a valid batch signature doesn't
+  // guarantee every listed token is still held (one could have sold
+  // between building the message and this request landing).
+  perToken?: Record<string, { ok: boolean; reason?: string }>;
+}
+
+// Same four checks as verifyPersonaClaim, applied once to the signature
+// (one message covering every tokenId) and then per-token for the live
+// ownership check - see lib/persona.ts's buildBatchAuthMessage for why one
+// signature can cover many tokens safely: the message is built from the
+// exact sorted tokenId list, so a signature can't be replayed against a
+// different set of tokens without the recovered address changing.
+export async function verifyBatchPersonaClaim(claim: {
+  tokenIds?: string[];
+  address?: string;
+  signature?: string;
+  issuedAt?: string;
+}): Promise<BatchClaimVerificationResult> {
+  const { tokenIds, address, signature, issuedAt } = claim;
+
+  if (
+    !tokenIds ||
+    tokenIds.length === 0 ||
+    !address ||
+    !signature ||
+    !issuedAt
+  ) {
+    return {
+      ok: false,
+      code: "INVALID_INPUT",
+      reason: "Missing claim fields.",
+    };
+  }
+  if (tokenIds.length > MAX_BATCH_CLAIM_SIZE) {
+    return {
+      ok: false,
+      code: "INVALID_INPUT",
+      reason: `Too many tokens in one batch (max ${MAX_BATCH_CLAIM_SIZE}).`,
+    };
+  }
+  for (const tokenId of tokenIds) {
+    if (!isValidTokenId(tokenId)) {
+      return {
+        ok: false,
+        code: "INVALID_INPUT",
+        reason: `Invalid token ID: ${tokenId}.`,
+      };
+    }
+  }
+  if (!ADDRESS_PATTERN.test(address)) {
+    return { ok: false, code: "INVALID_INPUT", reason: "Invalid address." };
+  }
+
+  const issuedAtMs = Date.parse(issuedAt);
+  if (!Number.isFinite(issuedAtMs)) {
+    return {
+      ok: false,
+      code: "INVALID_TIMESTAMP",
+      reason: "Invalid issuedAt timestamp.",
+    };
+  }
+  if (issuedAtMs > Date.now() + 60_000) {
+    return {
+      ok: false,
+      code: "INVALID_TIMESTAMP",
+      reason: "Invalid issuedAt timestamp.",
+    };
+  }
+  if (Date.now() - issuedAtMs > PERSONA_MAX_AGE_MS) {
+    return {
+      ok: false,
+      code: "EXPIRED",
+      reason: "Signature expired, please reconnect and sign again.",
+    };
+  }
+
+  const expectedMessage = buildBatchAuthMessage(tokenIds, address, issuedAt);
+
+  let recovered: string;
+  try {
+    recovered = verifyMessage(expectedMessage, signature);
+  } catch {
+    return {
+      ok: false,
+      code: "INVALID_SIGNATURE",
+      reason: "Invalid signature.",
+    };
+  }
+
+  if (recovered.toLowerCase() !== address.toLowerCase()) {
+    return {
+      ok: false,
+      code: "INVALID_SIGNATURE",
+      reason: "Invalid signature.",
+    };
+  }
+
+  // Signature verified for the whole batch - now check live ownership
+  // per token, independently, so one already-sold token doesn't block the
+  // rest of a legitimate batch.
+  const perToken: Record<string, { ok: boolean; reason?: string }> = {};
+  for (const tokenId of tokenIds) {
+    try {
+      const owner = await readOwnerOf(tokenId);
+      perToken[tokenId] =
+        owner.toLowerCase() === address.toLowerCase()
+          ? { ok: true }
+          : { ok: false, reason: "You no longer hold this token." };
+    } catch {
+      perToken[tokenId] = {
+        ok: false,
+        reason: "Unable to verify ownership on-chain right now.",
+      };
+    }
+  }
+
+  return { ok: true, perToken };
 }
