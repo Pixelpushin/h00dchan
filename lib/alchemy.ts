@@ -48,6 +48,9 @@ export interface WalletNft {
 export interface WalletTokenBalance {
   contractAddress: string;
   balance: string; // raw hex balance, uint256
+  symbol: string | null;
+  name: string | null;
+  decimals: number | null;
 }
 
 export interface WalletHoldings {
@@ -67,6 +70,42 @@ interface AlchemyNftItem {
 interface AlchemyTokenBalanceItem {
   contractAddress?: string;
   tokenBalance?: string;
+}
+
+interface AlchemyTokenMetadata {
+  name?: string;
+  symbol?: string;
+  decimals?: number;
+  logo?: string;
+}
+
+interface TokenMetadataResult {
+  symbol: string | null;
+  name: string | null;
+  decimals: number | null;
+}
+
+// Best-effort display metadata for an ERC-20 contract. This is purely a
+// display nicety (resolved name/symbol/decimals instead of a raw address
+// and raw uint256), so a failure here must never take down the wallet
+// page - fall back to nulls and let the caller render the truncated
+// address instead.
+async function fetchTokenMetadata(
+  contractAddress: string,
+): Promise<TokenMetadataResult> {
+  try {
+    const result = await alchemyRpc<AlchemyTokenMetadata>(
+      "alchemy_getTokenMetadata",
+      [contractAddress],
+    );
+    return {
+      symbol: result.symbol ?? null,
+      name: result.name ?? null,
+      decimals: typeof result.decimals === "number" ? result.decimals : null,
+    };
+  } catch {
+    return { symbol: null, name: null, decimals: null };
+  }
 }
 
 // Three calls fired concurrently, not sequentially - each is independent
@@ -91,17 +130,43 @@ export async function fetchWalletHoldings(
     imageUrl: item.image?.cachedUrl ?? item.image?.originalUrl ?? null,
   }));
 
-  const tokenBalances: WalletTokenBalance[] = (tokenResult.tokenBalances ?? [])
-    .filter(
-      (item) =>
-        item.contractAddress &&
-        item.tokenBalance &&
-        BigInt(item.tokenBalance) > BigInt(0),
-    )
-    .map((item) => ({
+  const rawTokenBalances = (tokenResult.tokenBalances ?? []).filter(
+    (item) =>
+      item.contractAddress &&
+      item.tokenBalance &&
+      BigInt(item.tokenBalance) > BigInt(0),
+  );
+
+  // Resolve metadata (name/symbol/decimals) for every unique contract
+  // concurrently - there are usually only a handful of distinct tokens per
+  // wallet, so no chunking/concurrency limiting is needed here (unlike the
+  // RPC-heavy chain.ts code elsewhere in this repo, which talks to a much
+  // flakier RPC).
+  const uniqueContracts = Array.from(
+    new Set(rawTokenBalances.map((item) => item.contractAddress!)),
+  );
+  const metadataEntries = await Promise.all(
+    uniqueContracts.map(
+      async (contractAddress) =>
+        [contractAddress, await fetchTokenMetadata(contractAddress)] as const,
+    ),
+  );
+  const metadataByContract = new Map(metadataEntries);
+
+  const tokenBalances: WalletTokenBalance[] = rawTokenBalances.map((item) => {
+    const metadata = metadataByContract.get(item.contractAddress!) ?? {
+      symbol: null,
+      name: null,
+      decimals: null,
+    };
+    return {
       contractAddress: item.contractAddress!,
       balance: item.tokenBalance!,
-    }));
+      symbol: metadata.symbol,
+      name: metadata.name,
+      decimals: metadata.decimals,
+    };
+  });
 
   return { address, ethBalanceWei, nfts, tokenBalances };
 }

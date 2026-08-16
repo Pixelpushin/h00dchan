@@ -22,6 +22,18 @@ function truncateAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
+// Mirrors formatEth's whole/fractional split, but for an arbitrary ERC-20's
+// decimals instead of the hardcoded 18 for ETH.
+function formatTokenAmount(rawBalance: string, decimals: number): string {
+  const amount = BigInt(rawBalance);
+  if (decimals <= 0) return amount.toString();
+  const unit = BigInt(10) ** BigInt(decimals);
+  const whole = amount / unit;
+  const frac = amount % unit;
+  const fracStr = frac.toString().padStart(decimals, "0").slice(0, 6);
+  return `${whole}.${fracStr}`;
+}
+
 export default async function WalletPage({
   params,
 }: {
@@ -145,17 +157,25 @@ export default async function WalletPage({
                 </p>
               ) : (
                 <div className="flex flex-col gap-1.5">
-                  {holdings.tokenBalances.map((token) => (
-                    <div
-                      key={token.contractAddress}
-                      className="flex items-center justify-between font-mono text-xs"
-                    >
-                      <span>{truncateAddress(token.contractAddress)}</span>
-                      <span className="hc-thread-meta">
-                        {BigInt(token.balance).toString()} (raw units)
-                      </span>
-                    </div>
-                  ))}
+                  {holdings.tokenBalances.map((token) => {
+                    const label =
+                      token.symbol ??
+                      token.name ??
+                      truncateAddress(token.contractAddress);
+                    const amount =
+                      token.decimals !== null
+                        ? formatTokenAmount(token.balance, token.decimals)
+                        : `${BigInt(token.balance).toString()} (raw units)`;
+                    return (
+                      <div
+                        key={token.contractAddress}
+                        className="flex items-center justify-between font-mono text-xs"
+                      >
+                        <span>{label}</span>
+                        <span className="hc-thread-meta">{amount}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
