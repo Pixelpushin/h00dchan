@@ -185,7 +185,10 @@ export async function rpcCall<T>(
 // firing them all at once: a high-churn wallet (many past transfers, most
 // no longer held) could otherwise mean hundreds of concurrent RPC calls for
 // one wallet connect.
-const OWNERSHIP_CHECK_CONCURRENCY = 15;
+// Exported - lib/auth-server.ts's verifyBatchPersonaClaim reuses this exact
+// concurrency budget for its own per-token ownerOf checks against the same
+// RPC, rather than duplicating a second magic number.
+export const OWNERSHIP_CHECK_CONCURRENCY = 15;
 const MAX_CANDIDATES = 300;
 
 // Current chain head, in hex - used by callers doing incremental log scans

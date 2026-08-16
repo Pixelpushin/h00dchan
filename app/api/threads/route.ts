@@ -45,8 +45,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { subject, body, tokenId, address, signature, issuedAt } = (payload ??
-    {}) as Record<string, unknown>;
+  const {
+    subject,
+    body,
+    tokenId,
+    address,
+    signature,
+    issuedAt,
+    batchTokenIds,
+  } = (payload ?? {}) as Record<string, unknown>;
 
   if (
     typeof subject !== "string" ||
@@ -96,6 +103,7 @@ export async function POST(request: NextRequest) {
     address,
     signature,
     issuedAt,
+    batchTokenIds: Array.isArray(batchTokenIds) ? batchTokenIds : undefined,
   });
   if (!verification.ok) {
     return NextResponse.json(

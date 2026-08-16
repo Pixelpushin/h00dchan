@@ -11,6 +11,14 @@ import { markTokenClaimed } from "@/lib/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// A big batch's now-chunked ownership checks (see verifyBatchPersonaClaim)
+// run in several sequential RPC rounds rather than one - the previous
+// unchunked version fit inside the platform's default duration limit by
+// accident, at the cost of spuriously failing under real RPC load. Worst
+// case (MAX_BATCH_CLAIM_SIZE=50 tokens, OWNERSHIP_CHECK_CONCURRENCY=15):
+// 4 chunks x up to 2 attempts x FETCH_TIMEOUT_MS (8s) = ~64s - 90s leaves
+// real headroom instead of trading one timeout bug for a narrower one.
+export const maxDuration = 90;
 
 export async function POST(request: NextRequest) {
   let payload: unknown;

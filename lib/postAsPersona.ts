@@ -24,6 +24,11 @@ export async function postJsonAsPersona<T>(
         address: claim.address,
         signature: claim.signature,
         issuedAt: claim.issuedAt,
+        // Only present for a persona saved from "Activate All" - see
+        // lib/persona.ts's PersonaClaim and lib/auth-server.ts's
+        // verifyPersonaClaim for why the server needs this to reconstruct
+        // the right signed message.
+        ...(claim.batchTokenIds ? { batchTokenIds: claim.batchTokenIds } : {}),
       }),
     });
 

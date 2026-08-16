@@ -128,6 +128,17 @@ function memoryCommand(cmd: string, args: string[]): unknown {
     }
     case "LLEN":
       return (memLists.get(args[0]) ?? []).length;
+    case "LREM": {
+      // Only the "count 0" form (remove every match) is used anywhere in
+      // this codebase - args[1] is accepted but ignored rather than
+      // implementing Redis's full positive/negative-count semantics for a
+      // command with exactly one caller.
+      const list = memLists.get(args[0]) ?? [];
+      const target = args[2];
+      const next = list.filter((item) => item !== target);
+      memLists.set(args[0], next);
+      return list.length - next.length;
+    }
     case "ZADD": {
       const zset = memZsets.get(args[0]) ?? new Map<string, number>();
       for (let i = 1; i < args.length; i += 2) {
@@ -328,6 +339,40 @@ export async function deleteThread(threadId: string): Promise<void> {
   }
   await redisCommand("DEL", `posts:${threadId}`, `thread:${threadId}`);
   await redisCommand("ZREM", "threads:index", threadId);
+}
+
+export class CannotDeleteOpError extends Error {
+  constructor(threadId: string) {
+    super(
+      `Post is the OP of thread ${threadId} - delete the whole thread instead.`,
+    );
+    this.name = "CannotDeleteOpError";
+  }
+}
+
+// Moderation primitive for a single bad reply (e.g. a stray off-topic AI
+// generation) without nuking the whole thread around it - deleteThread
+// above is the only removal tool that existed before this, which is too
+// blunt when the thread itself (and its other posts) are fine. Refuses to
+// remove the OP itself: a thread with no OP is a broken state this data
+// model doesn't otherwise support (see createThread's own comment on why a
+// thread and its OP post are always created together) - deleteThread is
+// the correct tool for "the whole thread needs to go."
+export async function deletePost(
+  threadId: string,
+  postId: string,
+): Promise<void> {
+  const opIds = (await redisCommand(
+    "LRANGE",
+    `posts:${threadId}`,
+    0,
+    0,
+  )) as string[];
+  if (opIds[0] === postId) {
+    throw new CannotDeleteOpError(threadId);
+  }
+  await redisCommand("LREM", `posts:${threadId}`, 0, postId);
+  await redisCommand("DEL", `post:${postId}`);
 }
 
 export async function addReply(

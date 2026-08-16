@@ -55,8 +55,8 @@ export async function POST(
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { body, tokenId, address, signature, issuedAt } = (payload ??
-    {}) as Record<string, unknown>;
+  const { body, tokenId, address, signature, issuedAt, batchTokenIds } =
+    (payload ?? {}) as Record<string, unknown>;
 
   if (
     typeof body !== "string" ||
@@ -95,6 +95,7 @@ export async function POST(
     address,
     signature,
     issuedAt,
+    batchTokenIds: Array.isArray(batchTokenIds) ? batchTokenIds : undefined,
   });
   if (!verification.ok) {
     return NextResponse.json(

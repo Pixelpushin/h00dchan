@@ -18,7 +18,7 @@
 //   (d) reject if issuedAt is older than 15 minutes, forcing a fresh
 //       signature periodically
 import { verifyMessage } from "ethers";
-import { readOwnerOf } from "@/lib/chain";
+import { OWNERSHIP_CHECK_CONCURRENCY, readOwnerOf } from "@/lib/chain";
 import {
   buildAuthMessage,
   buildBatchAuthMessage,
@@ -51,7 +51,7 @@ const ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
 export async function verifyPersonaClaim(
   claim: Partial<PersonaClaim>,
 ): Promise<ClaimVerificationResult> {
-  const { tokenId, address, signature, issuedAt } = claim;
+  const { tokenId, address, signature, issuedAt, batchTokenIds } = claim;
 
   if (!tokenId || !address || !signature || !issuedAt) {
     return {
@@ -69,6 +69,40 @@ export async function verifyPersonaClaim(
   }
   if (!ADDRESS_PATTERN.test(address)) {
     return { ok: false, code: "INVALID_INPUT", reason: "Invalid address." };
+  }
+
+  // A persona saved from "Activate All" (see HomeClient.tsx's
+  // handleActivateAll) carries the batch signature, not a single-token
+  // one - the signed message was buildBatchAuthMessage's string, not
+  // buildAuthMessage's. Without this branch, every post made right after a
+  // batch activation would 403 with INVALID_SIGNATURE (the server would
+  // reconstruct and check against the wrong message), silently defeating
+  // the whole point of batch activation ("cant use them to chat" was this
+  // exact bug). tokenId must be a member of batchTokenIds - not just any
+  // valid id - so a batch signature for tokens A/B/C can't be replayed to
+  // post as unrelated token D.
+  let batchIds: string[] | undefined;
+  if (batchTokenIds !== undefined) {
+    if (
+      !Array.isArray(batchTokenIds) ||
+      batchTokenIds.length === 0 ||
+      batchTokenIds.length > MAX_BATCH_CLAIM_SIZE ||
+      !batchTokenIds.every((id) => typeof id === "string" && isValidTokenId(id))
+    ) {
+      return {
+        ok: false,
+        code: "INVALID_INPUT",
+        reason: "Invalid batch token list.",
+      };
+    }
+    if (!batchTokenIds.includes(tokenId)) {
+      return {
+        ok: false,
+        code: "INVALID_INPUT",
+        reason: "Token is not part of the signed batch.",
+      };
+    }
+    batchIds = batchTokenIds;
   }
 
   const issuedAtMs = Date.parse(issuedAt);
@@ -96,7 +130,9 @@ export async function verifyPersonaClaim(
     };
   }
 
-  const expectedMessage = buildAuthMessage(tokenId, address, issuedAt);
+  const expectedMessage = batchIds
+    ? buildBatchAuthMessage(batchIds, address, issuedAt)
+    : buildAuthMessage(tokenId, address, issuedAt);
 
   let recovered: string;
   try {
@@ -243,23 +279,37 @@ export async function verifyBatchPersonaClaim(claim: {
 
   // Signature verified for the whole batch - now check live ownership per
   // token, independently, so one already-sold token doesn't block the rest
-  // of a legitimate batch. Parallel, not sequential: each is an independent
-  // read with no ordering dependency, and running them one at a time meant
-  // a real batch of 10+ tokens could take 10+ seconds of RPC round-trips
-  // back to back - long enough that the client-side "still working" signal
-  // needed to be airtight (see HomeClient.tsx's bulk-activating stage
-  // text), and long enough to just fix directly here too.
-  const entries = await Promise.all(
-    tokenIds.map(async (tokenId) => {
-      try {
-        const owner = await readOwnerOf(tokenId);
-        return [
-          tokenId,
-          owner.toLowerCase() === address.toLowerCase()
-            ? { ok: true }
-            : { ok: false, reason: "You no longer hold this token." },
-        ] as const;
-      } catch {
+  // of a legitimate batch. Chunked (OWNERSHIP_CHECK_CONCURRENCY, same
+  // budget lib/chain.ts's fetchWalletTokensOnChain uses against this same
+  // RPC), not one unbounded Promise.all - firing up to MAX_BATCH_CLAIM_SIZE
+  // (50) simultaneous eth_calls at Robinhood Chain's RPC in one shot was
+  // confirmed live in production to spuriously fail a real holder's
+  // ownership checks under that burst (same RPC-under-load instability
+  // already hit and fixed twice elsewhere in this codebase - see
+  // app/api/wallet-tokens/route.ts's TBA lookups), which meant a real
+  // owner's tokens came back "unable to verify ownership" and never got
+  // marked claimed even though they genuinely held them. One retry per
+  // token before giving up, same as the wallet-tokens fix.
+  const perToken: Record<string, { ok: boolean; reason?: string }> = {};
+  for (let i = 0; i < tokenIds.length; i += OWNERSHIP_CHECK_CONCURRENCY) {
+    const batch = tokenIds.slice(i, i + OWNERSHIP_CHECK_CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(async (tokenId) => {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const owner = await readOwnerOf(tokenId);
+            return [
+              tokenId,
+              owner.toLowerCase() === address.toLowerCase()
+                ? { ok: true }
+                : { ok: false, reason: "You no longer hold this token." },
+            ] as const;
+          } catch {
+            // One retry, then give up on this token - a single dropped
+            // request is more likely transient RPC flakiness than a real
+            // ownership problem.
+          }
+        }
         return [
           tokenId,
           {
@@ -267,10 +317,10 @@ export async function verifyBatchPersonaClaim(claim: {
             reason: "Unable to verify ownership on-chain right now.",
           },
         ] as const;
-      }
-    }),
-  );
-  const perToken = Object.fromEntries(entries);
+      }),
+    );
+    for (const [tokenId, result] of results) perToken[tokenId] = result;
+  }
 
   return { ok: true, perToken };
 }

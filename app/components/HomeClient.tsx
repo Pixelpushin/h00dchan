@@ -325,6 +325,28 @@ export default function HomeClient({
         return next;
       });
 
+      // Batch activation used to leave every card on "Activate this Anon"
+      // even after a fully successful batch - handleClaim (just below)
+      // calls savePersona() on success, but this path never did, so there
+      // was never an active "posting as" identity to show "Chat with this
+      // anon" for. Picks the lowest succeeded tokenId as the one to post
+      // as; the persona carries the full signed tokenIds list
+      // (batchTokenIds) so the server can reconstruct the batch message
+      // when this persona is later used to actually post (see
+      // lib/auth-server.ts's verifyPersonaClaim).
+      if (succeeded.length > 0) {
+        const activeTokenId = succeeded
+          .map(([tokenId]) => tokenId)
+          .sort((a, b) => Number(a) - Number(b))[0];
+        savePersona({
+          tokenId: activeTokenId,
+          address,
+          signature,
+          issuedAt,
+          batchTokenIds: tokenIds,
+        });
+      }
+
       if (failed.length > 0) {
         setError(
           `Activated ${succeeded.length} of ${pending.length} - ${failed
@@ -340,7 +362,7 @@ export default function HomeClient({
       setBulkActivating(false);
       setBulkStage(null);
     }
-  }, [address, tokens, claimedTokens]);
+  }, [address, tokens, claimedTokens, savePersona]);
 
   const handleChat = useCallback(() => {
     router.push("/board");
@@ -453,19 +475,30 @@ export default function HomeClient({
                             Anon #{token.tokenId}
                           </div>
                           {wallet && (
+                            // "smart wallet ... deployed/not deployed", not
+                            // "active"/"not yet activated" - this is the
+                            // token-bound account's on-chain deployment
+                            // status (see lib/tba.ts), a totally separate
+                            // concept from whether you can post as this
+                            // anon (that's the claimed/Activate button
+                            // below). The old "not yet activated" wording
+                            // read as if it were blocking the Activate
+                            // button, which it never did - real user
+                            // confusion traced back to this exact label.
                             <a
                               href={`/wallet/${token.tokenId}`}
                               className="hc-thread-meta mb-2 block font-mono text-[0.65rem] hover:underline"
                               title={wallet.address}
                             >
-                              wallet: {truncateAddress(wallet.address)}{" "}
+                              smart wallet: {truncateAddress(wallet.address)}{" "}
                               {wallet.activated ? (
                                 <span style={{ color: "var(--hc-greentext)" }}>
-                                  · active
+                                  · deployed
                                 </span>
                               ) : (
                                 <span className="opacity-70">
-                                  · not yet activated
+                                  · not deployed (optional, doesn&apos;t affect
+                                  posting)
                                 </span>
                               )}
                             </a>

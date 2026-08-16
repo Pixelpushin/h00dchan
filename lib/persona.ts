@@ -11,6 +11,14 @@ export interface PersonaClaim {
   address: string;
   signature: string;
   issuedAt: string; // ISO timestamp, when the signature was produced
+  // Present only when this persona came from "Activate All" (a batch
+  // signature over buildBatchAuthMessage's string) rather than a
+  // single-token signature over buildAuthMessage's string - the server
+  // needs to know which message to reconstruct before checking `signature`
+  // (see lib/auth-server.ts's verifyPersonaClaim). tokenId is always the
+  // one specific token currently being posted as; batchTokenIds is the
+  // full set the signature actually covers.
+  batchTokenIds?: string[];
 }
 
 // sessionStorage (not localStorage): this is a per-tab, per-session
