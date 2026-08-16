@@ -241,24 +241,36 @@ export async function verifyBatchPersonaClaim(claim: {
     };
   }
 
-  // Signature verified for the whole batch - now check live ownership
-  // per token, independently, so one already-sold token doesn't block the
-  // rest of a legitimate batch.
-  const perToken: Record<string, { ok: boolean; reason?: string }> = {};
-  for (const tokenId of tokenIds) {
-    try {
-      const owner = await readOwnerOf(tokenId);
-      perToken[tokenId] =
-        owner.toLowerCase() === address.toLowerCase()
-          ? { ok: true }
-          : { ok: false, reason: "You no longer hold this token." };
-    } catch {
-      perToken[tokenId] = {
-        ok: false,
-        reason: "Unable to verify ownership on-chain right now.",
-      };
-    }
-  }
+  // Signature verified for the whole batch - now check live ownership per
+  // token, independently, so one already-sold token doesn't block the rest
+  // of a legitimate batch. Parallel, not sequential: each is an independent
+  // read with no ordering dependency, and running them one at a time meant
+  // a real batch of 10+ tokens could take 10+ seconds of RPC round-trips
+  // back to back - long enough that the client-side "still working" signal
+  // needed to be airtight (see HomeClient.tsx's bulk-activating stage
+  // text), and long enough to just fix directly here too.
+  const entries = await Promise.all(
+    tokenIds.map(async (tokenId) => {
+      try {
+        const owner = await readOwnerOf(tokenId);
+        return [
+          tokenId,
+          owner.toLowerCase() === address.toLowerCase()
+            ? { ok: true }
+            : { ok: false, reason: "You no longer hold this token." },
+        ] as const;
+      } catch {
+        return [
+          tokenId,
+          {
+            ok: false,
+            reason: "Unable to verify ownership on-chain right now.",
+          },
+        ] as const;
+      }
+    }),
+  );
+  const perToken = Object.fromEntries(entries);
 
   return { ok: true, perToken };
 }

@@ -69,16 +69,20 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const results: Record<string, { ok: boolean; reason?: string }> = {};
-  for (const tokenId of tokenIds) {
-    const tokenResult = verification.perToken![tokenId];
-    if (tokenResult.ok) {
-      await markTokenClaimed(tokenId, address);
-      results[tokenId] = { ok: true };
-    } else {
-      results[tokenId] = tokenResult;
-    }
-  }
+  // Writes are independent per token (each touches its own Redis key), so
+  // no reason to serialize them either - same reasoning as the ownership
+  // checks in verifyBatchPersonaClaim.
+  const entries = await Promise.all(
+    tokenIds.map(async (tokenId) => {
+      const tokenResult = verification.perToken![tokenId];
+      if (tokenResult.ok) {
+        await markTokenClaimed(tokenId, address);
+        return [tokenId, { ok: true }] as const;
+      }
+      return [tokenId, tokenResult] as const;
+    }),
+  );
+  const results = Object.fromEntries(entries);
 
   return NextResponse.json({ results });
 }

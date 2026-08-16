@@ -146,6 +146,9 @@ export default function HomeClient({
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [claimStage, setClaimStage] = useState<ClaimStage>(null);
   const [bulkActivating, setBulkActivating] = useState(false);
+  const [bulkStage, setBulkStage] = useState<"signing" | "confirming" | null>(
+    null,
+  );
 
   // Full history scan (fetchWalletTokensOnChain's eth_getLogs over the
   // whole contract, from block 0) only ever needs to happen once per
@@ -279,6 +282,7 @@ export default function HomeClient({
     const pending = tokens.filter((t) => !claimedTokens[t.tokenId]);
     if (!address || pending.length === 0) return;
     setBulkActivating(true);
+    setBulkStage("signing");
     setError(null);
     try {
       const tokenIds = pending.map((t) => t.tokenId);
@@ -286,6 +290,14 @@ export default function HomeClient({
       const message = buildBatchAuthMessage(tokenIds, address, issuedAt);
       const signature = await signMessage(address, message);
 
+      // The signature is done at this point - what's left is a real
+      // server round-trip (one live on-chain ownership check per token,
+      // now parallelized, but still real RPC latency for a big batch).
+      // Without this stage change the button kept reading "Sign in
+      // wallet..." straight through that wait, which read as frozen and
+      // was enough to make someone reload mid-request, aborting it before
+      // anything got marked claimed.
+      setBulkStage("confirming");
       const res = await fetch("/api/claim/batch", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -326,6 +338,7 @@ export default function HomeClient({
       );
     } finally {
       setBulkActivating(false);
+      setBulkStage(null);
     }
   }, [address, tokens, claimedTokens]);
 
@@ -399,10 +412,16 @@ export default function HomeClient({
                       disabled={bulkActivating || claimingId !== null}
                       className="hc-button"
                     >
-                      {bulkActivating ? "Sign in wallet..." : "Activate All"}
+                      {bulkStage === "signing"
+                        ? "Sign in wallet..."
+                        : bulkStage === "confirming"
+                          ? "Activating - do not close this tab..."
+                          : "Activate All"}
                     </button>
                     <p className="hc-thread-meta text-xs">
-                      One signature activates every unclaimed anon below.
+                      {bulkStage === "confirming"
+                        ? "Verifying ownership on-chain - this can take a few seconds for a lot of anons."
+                        : "One signature activates every unclaimed anon below."}
                     </p>
                   </div>
                 )}
