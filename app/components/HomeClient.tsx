@@ -10,7 +10,11 @@ import { useActivePersona } from "@/lib/usePersona";
 
 const OPENSEA_COLLECTION_URL = "https://opensea.io/collection/h00dchan";
 import { ipfsGatewayUrls, type TokenMetadata } from "@/lib/chain";
-import { buildAuthMessage, buildBatchAuthMessage } from "@/lib/persona";
+import {
+  buildAuthMessage,
+  buildBatchAuthMessage,
+  MAX_BATCH_CLAIM_SIZE,
+} from "@/lib/persona";
 import {
   nextBlockHex,
   readWalletCache,
@@ -128,6 +132,18 @@ export default function HomeClient({
   const [bulkStage, setBulkStage] = useState<"signing" | "confirming" | null>(
     null,
   );
+  // Only set (and only shown) when a holder has more unclaimed tokens than
+  // MAX_BATCH_CLAIM_SIZE - one signature can only ever authorize up to that
+  // many tokens (see lib/persona.ts), so a bigger wallet needs one
+  // signature per group. A real holder with 50+ tokens hit this live: the
+  // batch endpoint correctly rejected the oversized request
+  // (INVALID_INPUT, "Too many tokens in one batch"), but the client never
+  // split into groups to begin with, so "Activate All" just hard-failed
+  // for anyone above the cap.
+  const [bulkProgress, setBulkProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
 
   // Full history scan (fetchWalletTokensOnChain's eth_getLogs over the
   // whole contract, from block 0) only ever needs to happen once per
@@ -282,74 +298,104 @@ export default function HomeClient({
     const pending = tokens.filter((t) => !claimedTokens[t.tokenId]);
     if (!address || pending.length === 0) return;
     setBulkActivating(true);
-    setBulkStage("signing");
     setError(null);
+
+    // One signature only ever authorizes up to MAX_BATCH_CLAIM_SIZE tokens
+    // (the server hard-rejects anything larger - INVALID_INPUT, "Too many
+    // tokens in one batch"). A holder past that count needs one signature
+    // per group instead of one signature total - real production case: a
+    // holder with 50+ unclaimed tokens got a flat 403 because this used to
+    // send the whole `pending` list in a single request no matter its size.
+    const groups: TokenMetadata[][] = [];
+    for (let i = 0; i < pending.length; i += MAX_BATCH_CLAIM_SIZE) {
+      groups.push(pending.slice(i, i + MAX_BATCH_CLAIM_SIZE));
+    }
+
+    let activePersona: {
+      tokenId: string;
+      address: string;
+      signature: string;
+      issuedAt: string;
+      batchTokenIds: string[];
+    } | null = null;
+    let totalSucceeded = 0;
+    const allFailed: Array<[string, { ok: boolean; reason?: string }]> = [];
+
     try {
-      const tokenIds = pending.map((t) => t.tokenId);
-      const issuedAt = new Date().toISOString();
-      const message = buildBatchAuthMessage(tokenIds, address, issuedAt);
-      const signature = await signMessage(address, message);
-
-      // The signature is done at this point - what's left is a real
-      // server round-trip (one live on-chain ownership check per token,
-      // now parallelized, but still real RPC latency for a big batch).
-      // Without this stage change the button kept reading "Sign in
-      // wallet..." straight through that wait, which read as frozen and
-      // was enough to make someone reload mid-request, aborting it before
-      // anything got marked claimed.
-      setBulkStage("confirming");
-      const res = await fetch("/api/claim/batch", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ tokenIds, address, signature, issuedAt }),
-      });
-      const body = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(
-          typeof body?.error === "string"
-            ? body.error
-            : `Unable to activate anons (${res.status}).`,
+      for (let g = 0; g < groups.length; g++) {
+        setBulkProgress(
+          groups.length > 1 ? { current: g + 1, total: groups.length } : null,
         );
-      }
+        setBulkStage("signing");
 
-      const results = body.results as Record<
-        string,
-        { ok: boolean; reason?: string }
-      >;
-      const succeeded = Object.entries(results).filter(([, r]) => r.ok);
-      const failed = Object.entries(results).filter(([, r]) => !r.ok);
+        const tokenIds = groups[g].map((t) => t.tokenId);
+        const issuedAt = new Date().toISOString();
+        const message = buildBatchAuthMessage(tokenIds, address, issuedAt);
+        const signature = await signMessage(address, message);
 
-      setClaimedTokens((current) => {
-        const next = { ...current };
-        for (const [tokenId] of succeeded) next[tokenId] = true;
-        return next;
-      });
-
-      // Batch activation used to leave every card on "Activate this Anon"
-      // even after a fully successful batch - handleClaim (just below)
-      // calls savePersona() on success, but this path never did, so there
-      // was never an active "posting as" identity to show "Chat with this
-      // anon" for. Picks the lowest succeeded tokenId as the one to post
-      // as; the persona carries the full signed tokenIds list
-      // (batchTokenIds) so the server can reconstruct the batch message
-      // when this persona is later used to actually post (see
-      // lib/auth-server.ts's verifyPersonaClaim).
-      if (succeeded.length > 0) {
-        const activeTokenId = succeeded
-          .map(([tokenId]) => tokenId)
-          .sort((a, b) => Number(a) - Number(b))[0];
-        savePersona({
-          tokenId: activeTokenId,
-          address,
-          signature,
-          issuedAt,
-          batchTokenIds: tokenIds,
+        // The signature is done at this point - what's left is a real
+        // server round-trip (one live on-chain ownership check per token,
+        // chunked+retried server-side, but still real RPC latency for a
+        // big group). Without this stage change the button kept reading
+        // "Sign in wallet..." straight through that wait, which read as
+        // frozen and was enough to make someone reload mid-request,
+        // aborting it before anything got marked claimed.
+        setBulkStage("confirming");
+        const res = await fetch("/api/claim/batch", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ tokenIds, address, signature, issuedAt }),
         });
+        const body = await res.json().catch(() => null);
+        if (!res.ok) {
+          throw new Error(
+            typeof body?.error === "string"
+              ? body.error
+              : `Unable to activate anons (${res.status}).`,
+          );
+        }
+
+        const results = body.results as Record<
+          string,
+          { ok: boolean; reason?: string }
+        >;
+        const succeeded = Object.entries(results).filter(([, r]) => r.ok);
+        const failed = Object.entries(results).filter(([, r]) => !r.ok);
+
+        setClaimedTokens((current) => {
+          const next = { ...current };
+          for (const [tokenId] of succeeded) next[tokenId] = true;
+          return next;
+        });
+
+        totalSucceeded += succeeded.length;
+        allFailed.push(...failed);
+
+        // Picks the first group's lowest succeeded tokenId as the active
+        // posting identity - the persona carries THAT group's exact
+        // signature/issuedAt/tokenIds (batchTokenIds), since a signature
+        // only verifies against the exact list it was signed over (see
+        // lib/auth-server.ts's verifyPersonaClaim). Only set once - later
+        // groups don't override an already-active persona.
+        if (!activePersona && succeeded.length > 0) {
+          const activeTokenId = succeeded
+            .map(([tokenId]) => tokenId)
+            .sort((a, b) => Number(a) - Number(b))[0];
+          activePersona = {
+            tokenId: activeTokenId,
+            address,
+            signature,
+            issuedAt,
+            batchTokenIds: tokenIds,
+          };
+        }
       }
 
-      if (failed.length > 0) {
+      if (activePersona) savePersona(activePersona);
+
+      if (allFailed.length > 0) {
         setError(
-          `Activated ${succeeded.length} of ${pending.length} - ${failed
+          `Activated ${totalSucceeded} of ${pending.length} - ${allFailed
             .map(([tokenId, r]) => `#${tokenId} (${r.reason ?? "failed"})`)
             .join(", ")}.`,
         );
@@ -361,6 +407,7 @@ export default function HomeClient({
     } finally {
       setBulkActivating(false);
       setBulkStage(null);
+      setBulkProgress(null);
     }
   }, [address, tokens, claimedTokens, savePersona]);
 
@@ -435,7 +482,9 @@ export default function HomeClient({
                       className="hc-button"
                     >
                       {bulkStage === "signing"
-                        ? "Sign in wallet..."
+                        ? bulkProgress
+                          ? `Sign in wallet (${bulkProgress.current} of ${bulkProgress.total})...`
+                          : "Sign in wallet..."
                         : bulkStage === "confirming"
                           ? "Activating - do not close this tab..."
                           : "Activate All"}
@@ -443,7 +492,9 @@ export default function HomeClient({
                     <p className="hc-thread-meta text-xs">
                       {bulkStage === "confirming"
                         ? "Verifying ownership on-chain - this can take a few seconds for a lot of anons."
-                        : "One signature activates every unclaimed anon below."}
+                        : bulkProgress
+                          ? `You have more than ${MAX_BATCH_CLAIM_SIZE} unclaimed anons - this needs ${bulkProgress.total} signatures, one per group of ${MAX_BATCH_CLAIM_SIZE}.`
+                          : "One signature activates every unclaimed anon below."}
                     </p>
                   </div>
                 )}
