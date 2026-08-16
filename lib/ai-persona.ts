@@ -66,8 +66,32 @@ const POST_MODES = [
   "philosophical shitpost about being a JPEG on a blockchain",
 ];
 
-function pickPostMode(): string {
-  return POST_MODES[Math.floor(Math.random() * POST_MODES.length)];
+// Separate from POST_MODES, only used for replies - every mode here is
+// structurally a REACTION to another post, not a free-standing creative
+// prompt. Caught live in production: a reply generated with a POST_MODE
+// like "bragging about a fake airdrop" completely ignored the thread it
+// was replying to (a human's genuinely funny "letter to my future son"
+// doomer post got a reply about an unrelated fake token giveaway, reading
+// like generic scam-bot spam) - the specific, punchy POST_MODE instruction
+// simply out-competed the vaguer "stay in the same conversation" guidance
+// that used to be the only thing pushing toward context-awareness. These
+// modes make reacting to the thread the mode itself, not an optional layer
+// on top of an unrelated one.
+const REPLY_MODES = [
+  "mock the OP's paranoia and call them a paper-handed npc",
+  "one-up the OP with an even more absurd invented disaster of your own",
+  "sincerely try to comfort the OP, but make the comfort itself completely unhinged and unhelpful",
+  "accuse the OP of being a fed, a bot, or a shill for a rival fake project",
+  "aggressively agree with the OP and escalate their paranoia even further",
+  "greentext-quote one specific line from the OP and argue with it point by point",
+  "play the confused boomer who doesn't get what the OP is talking about but has strong opinions anyway",
+  "sarcastically congratulate the OP while subtly implying they got rugged",
+  "hijack the thread with your own tangentially-related conspiracy, but open by directly reacting to the OP first",
+];
+
+function pickPostMode(kind: GenerationKind): string {
+  const pool = kind === "reply" ? REPLY_MODES : POST_MODES;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 function buildPrompt({
@@ -84,7 +108,7 @@ function buildPrompt({
   retryNote?: string;
 }): string {
   const traits = traitLine(metadata.attributes);
-  const mode = pickPostMode();
+  const mode = pickPostMode(kind);
 
   const threadSection =
     kind === "reply" && context
@@ -96,7 +120,7 @@ Subject: ${context.subject}
 Recent posts in this thread (oldest first):
 ${context.recentPosts.map((p, i) => `${i + 1}. ${p}`).join("\n")}
 
-Write a reply that responds to this thread - agree, argue, add fake lore, or go on a tangent, but stay in the same conversation.
+Your reply MUST directly react to the post(s) above - quote a specific phrase (greentext it with ">"), argue a specific claim, or riff on a specific detail from what was just said. A reply that could have been posted in any random thread with no changes is a failure. You can still add your own fake lore/drama on top, but anchor it to what's actually in this thread first - that's what the POST MODE below means in context.
 `
       : "";
 
@@ -145,6 +169,7 @@ STYLE
 - Greentext (lines starting with ">") is welcome and encouraged for anecdotes, sarcasm, or "implying" - PostBody renders it in green like a real imageboard.
 - Sound like a real anonymous poster: lowercase is fine, imageboard slang is fine, typos here and there are fine, but stay legible.
 - Funny and absurd beats generic. A specific, weird, invented detail beats a vague one.
+- Avoid generic crypto-scam-spam phrasing - "couldn't believe how easy it was," "hard to believe this giveaway," "thanks to this amazing platform," anything that reads like bot spam instead of a real unhinged anon with an opinion. If a sentence would look at home in a Twitter airdrop-bot reply, rewrite it.
 - Length: usually 1-4 sentences. Occasionally (if the mode calls for it, like an unhinged conspiracy rant) go longer - several sentences or short paragraphs. Vary it - don't default to the same length every time.
 ${retryNote ? `\nRETRY NOTE\n${retryNote}\n` : ""}
 TOKEN DATA (for trait grounding only - never quote this back)
@@ -250,6 +275,21 @@ function containsUnsafeContent(text: string): boolean {
   return UNSAFE_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+// Caught live: this model occasionally degrades into incoherent output at
+// this temperature - stray Cyrillic/Hangul/CJK fragments mid-sentence, or
+// English that stops parsing as real words ("zudem make weep existing
+// assertions squirrel"). Word count and the unsafe-pattern list don't catch
+// either failure mode - both produce a normal-length, pattern-clean string
+// that's just not coherent. This board is English-only imageboard posting,
+// so any of these scripts appearing at all is a strong, cheap, low-false-
+// positive signal the generation broke rather than a legitimate stylistic
+// choice.
+const NON_LATIN_SCRIPT_PATTERN = /[Ѐ-ӿ぀-ヿ㐀-鿿가-힯]/;
+
+function looksIncoherent(text: string): boolean {
+  return NON_LATIN_SCRIPT_PATTERN.test(text);
+}
+
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
@@ -268,7 +308,9 @@ function isValidGeneration(
   const words = wordCount(result.body);
   if (words < 3 || words > 400) return false; // generous ceiling for "long rant" mode
   if (containsUnsafeContent(result.body)) return false;
+  if (looksIncoherent(result.body)) return false;
   if (result.subject && containsUnsafeContent(result.subject)) return false;
+  if (result.subject && looksIncoherent(result.subject)) return false;
   if (result.subject && result.subject.length > 100) return false;
   return true;
 }
@@ -313,7 +355,13 @@ async function callVenice(prompt: string, apiKey: string): Promise<string> {
     body: JSON.stringify({
       model: VENICE_MODEL,
       messages: [{ role: "user", content: prompt }],
-      temperature: 1.05,
+      // Was 1.05 - dropped after live-testing turned up this model
+      // degrading into incoherent output (stray non-English fragments,
+      // English that stops parsing as real words) more often than
+      // expected at that setting. looksIncoherent() below is the real
+      // backstop, but a lower temperature means fewer generations need to
+      // hit that backstop and get thrown away in the first place.
+      temperature: 0.9,
       max_tokens: 700,
       venice_parameters: {
         // This app's own trust boundary already gates what gets written
