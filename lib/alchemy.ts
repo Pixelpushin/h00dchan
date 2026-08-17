@@ -115,7 +115,9 @@ export async function fetchWalletHoldings(
   address: string,
 ): Promise<WalletHoldings> {
   const [ethBalanceWei, nftResult, tokenResult] = await Promise.all([
-    alchemyRpc<string>("eth_getBalance", [address, "latest"]),
+    alchemyRpc<string>("eth_getBalance", [address, "latest"]).catch(
+      () => "0x0",
+    ),
     fetchNftsForOwner(address).catch(() => ({ ownedNfts: [] })),
     alchemyRpc<{ tokenBalances?: AlchemyTokenBalanceItem[] }>(
       "alchemy_getTokenBalances",
