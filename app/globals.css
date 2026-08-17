@@ -411,6 +411,14 @@ body {
 .hc-profile-card {
   position: relative;
   display: block;
+  /* Root cause of the nameplate detaching from the image whenever a
+     taller sibling (e.g. the level-up <details> expanding) grew the flex
+     row: flex items stretch to the row's height by default, so this
+     wrapper - not the <img> inside it - was growing taller than the
+     visible image, and the plate/badge (positioned relative to THIS box)
+     drifted down with it. align-self keeps the card's own box locked to
+     its content's real height no matter what any sibling does. */
+  align-self: flex-start;
 }
 
 .hc-profile-card .hc-profile-avatar {
