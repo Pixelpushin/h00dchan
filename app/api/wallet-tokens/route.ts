@@ -18,6 +18,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchWalletTokensOnChain, readBlockNumber } from "@/lib/chain";
 import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
+import { countPostsByToken, isTokenClaimed, listThreads } from "@/lib/store";
+import { computeLevelProgress } from "@/lib/leveling";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,10 +40,22 @@ export async function GET(request: NextRequest) {
     : undefined;
 
   try {
-    const [tokenIds, lastScannedBlock] = await Promise.all([
+    const [tokenIds, lastScannedBlock, threads] = await Promise.all([
       fetchWalletTokensOnChain(address, { fromBlock, knownTokenIds }),
       readBlockNumber(),
+      // Fetched once for the whole wallet, not per-token - listThreads()
+      // is already cache-backed (see lib/store.ts), so this is cheap
+      // regardless of how many tokens this address holds. Used below to
+      // derive each token's threadsStarted count for its level.
+      listThreads().catch(() => []),
     ]);
+    const threadsStartedByToken = new Map<string, number>();
+    for (const thread of threads) {
+      threadsStartedByToken.set(
+        thread.tokenId,
+        (threadsStartedByToken.get(thread.tokenId) ?? 0) + 1,
+      );
+    }
 
     // Chunked, not one unbounded Promise.all across every token - a
     // holder with a lot of tokens (2 RPC calls each: account() + getCode())
@@ -55,6 +69,7 @@ export async function GET(request: NextRequest) {
     // single dropped request is more likely transient than a real error.
     const TBA_CONCURRENCY = 8;
     const wallets: Record<string, { address: string; activated: boolean }> = {};
+    const levels: Record<string, number> = {};
     for (let i = 0; i < tokenIds.length; i += TBA_CONCURRENCY) {
       const batch = tokenIds.slice(i, i + TBA_CONCURRENCY);
       const results = await Promise.all(
@@ -62,8 +77,22 @@ export async function GET(request: NextRequest) {
           for (let attempt = 0; attempt < 2; attempt++) {
             try {
               const tbaAddress = await computeTbaAddress(tokenId);
-              const activated = await isTbaActivated(tbaAddress);
-              return [tokenId, { address: tbaAddress, activated }] as const;
+              const [activated, claimed, totalPosts] = await Promise.all([
+                isTbaActivated(tbaAddress),
+                isTokenClaimed(tokenId).catch(() => false),
+                countPostsByToken(tokenId).catch(() => 0),
+              ]);
+              const level = computeLevelProgress({
+                claimed,
+                walletActivated: activated,
+                threadsStarted: threadsStartedByToken.get(tokenId) ?? 0,
+                totalPosts,
+              }).level;
+              return [
+                tokenId,
+                { address: tbaAddress, activated },
+                level,
+              ] as const;
             } catch {
               // one retry, then give up on this token for this request -
               // the client re-fetches on every page load anyway.
@@ -73,11 +102,14 @@ export async function GET(request: NextRequest) {
         }),
       );
       for (const entry of results) {
-        if (entry) wallets[entry[0]] = entry[1];
+        if (entry) {
+          wallets[entry[0]] = entry[1];
+          levels[entry[0]] = entry[2];
+        }
       }
     }
 
-    return NextResponse.json({ tokenIds, lastScannedBlock, wallets });
+    return NextResponse.json({ tokenIds, lastScannedBlock, wallets, levels });
   } catch (error) {
     console.error(`Failed to load wallet tokens for ${address}`, error);
     return NextResponse.json(

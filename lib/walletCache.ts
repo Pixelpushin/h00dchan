@@ -21,6 +21,7 @@ export interface WalletRenderCache {
   tokens: unknown[];
   wallets: Record<string, unknown>;
   claimedTokens: Record<string, boolean>;
+  levels?: Record<string, number>;
 }
 
 export function readWalletRenderCache(

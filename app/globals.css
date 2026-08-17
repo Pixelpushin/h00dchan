@@ -418,16 +418,20 @@ body {
 }
 
 .hc-profile-card-plate {
+  /* left/right/bottom carry the inset directly - NOT left:0/right:0/
+     bottom:0 plus margin. That combination (margin on a bottom:0 abspos
+     box with min-height instead of height) is a known-fragile formula:
+     confirmed live it rendered the plate detached below the image with
+     a visible gap, inconsistently across browsers/contexts. This form
+     has no ambiguity - the box's edges ARE the inset, full stop. */
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  min-height: 26px;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.4rem;
-  margin: 0 6px 6px;
   padding: 0.3rem 0.6rem 0.3rem 0.75rem;
   /* Angled "esports HUD" nameplate, not a soft image fade - a slanted
      parallelogram bar floating just above the image's bottom edge, with
@@ -459,19 +463,52 @@ body {
   line-height: 1.2;
 }
 
-.hc-profile-card-level {
-  flex-shrink: 0;
-  color: #ffd97a;
+/* Level square - a separate badge to the left of the name bar (not
+   inline text inside it), site-color-themed for contrast. Only rendered
+   where level actually applies (profile page, home token grid) - the
+   name bar's own left inset shifts over via .hc-profile-card-has-level
+   to make room for it, everywhere else the bar just uses the full
+   width. */
+.hc-profile-card-level-badge {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: linear-gradient(135deg, var(--hc-header-from), var(--hc-header-to));
+  border: 1px solid var(--hc-maroon-dark);
+  color: #fff5e6;
+  line-height: 1;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.hc-profile-card-level-label {
+  font-size: 0.45rem;
   font-weight: 700;
-  font-size: 0.7rem;
-  line-height: 1.2;
+  letter-spacing: 0.03em;
+  opacity: 0.85;
+}
+
+.hc-profile-card-level-num {
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.hc-profile-card-has-level .hc-profile-card-plate {
+  left: 40px;
 }
 
 /* Compact variant for small reply thumbnails (80px) - same idea, scaled
    down so the plate doesn't overwhelm a tiny image. */
 .hc-profile-card-sm .hc-profile-card-plate {
-  min-height: 16px;
-  margin: 0 3px 3px;
+  left: 3px;
+  right: 3px;
+  bottom: 3px;
   padding: 0.1rem 0.3rem 0.1rem 0.4rem;
 }
 

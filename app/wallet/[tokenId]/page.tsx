@@ -105,18 +105,21 @@ export default async function WalletPage({
 
         <div className="hc-box flex flex-col gap-4 p-4 sm:flex-row">
           {metadata && (
-            <div className="hc-profile-card shrink-0 mx-auto sm:mx-0">
+            <div className="hc-profile-card hc-profile-card-has-level shrink-0 mx-auto sm:mx-0">
               <PostImage
                 rawImageUri={rawImageUri}
                 fallbackSrc={metadata.image}
                 alt={metadata.name}
                 className="hc-post-image hc-profile-avatar w-32 h-32 sm:w-44 sm:h-44 object-cover"
               />
+              <span className="hc-profile-card-level-badge">
+                <span className="hc-profile-card-level-label">LV</span>
+                <span className="hc-profile-card-level-num">
+                  {levelProgress.level}
+                </span>
+              </span>
               <div className="hc-profile-card-plate">
                 <span className="hc-profile-card-name">Anon #{tokenId}</span>
-                <span className="hc-profile-card-level">
-                  Lv. {levelProgress.level}
-                </span>
               </div>
             </div>
           )}

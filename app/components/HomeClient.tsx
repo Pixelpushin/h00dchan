@@ -120,6 +120,7 @@ export default function HomeClient({
   const [error, setError] = useState<string | null>(null);
   const [tokens, setTokens] = useState<TokenMetadata[]>([]);
   const [wallets, setWallets] = useState<Record<string, TbaInfo>>({});
+  const [levels, setLevels] = useState<Record<string, number>>({});
   const [claimedTokens, setClaimedTokens] = useState<Record<string, boolean>>(
     {},
   );
@@ -172,11 +173,13 @@ export default function HomeClient({
       setTokens(renderCache.tokens as TokenMetadata[]);
       setWallets(renderCache.wallets as Record<string, TbaInfo>);
       setClaimedTokens(renderCache.claimedTokens);
+      setLevels(renderCache.levels ?? {});
       setState("ready");
     } else {
       setState("loading-tokens");
       setWallets({});
       setClaimedTokens({});
+      setLevels({});
     }
     try {
       // Always a full scan now - no fromBlock/knownTokenIds. This used to
@@ -209,6 +212,7 @@ export default function HomeClient({
 
       const tokenIds: string[] = walletBody.tokenIds;
       const walletMap: Record<string, TbaInfo> = walletBody.wallets ?? {};
+      const levelMap: Record<string, number> = walletBody.levels ?? {};
 
       const [metadata, claimedFlags] = await Promise.all([
         Promise.all(tokenIds.map((id) => fetchTokenMetadataViaApi(id))),
@@ -224,11 +228,13 @@ export default function HomeClient({
       });
       setWallets(walletMap);
       setClaimedTokens(claimedMap);
+      setLevels(levelMap);
       setState("ready");
       writeWalletRenderCache(owner, {
         tokens: resolved,
         wallets: walletMap,
         claimedTokens: claimedMap,
+        levels: levelMap,
       });
     } catch (err) {
       // If a render cache already painted something, a failed background
@@ -574,6 +580,7 @@ export default function HomeClient({
                             ? 90
                             : 0;
                     const wallet = wallets[token.tokenId];
+                    const level = levels[token.tokenId];
 
                     return (
                       <div
@@ -582,9 +589,19 @@ export default function HomeClient({
                       >
                         <Link
                           href={`/wallet/${token.tokenId}`}
-                          className="hc-profile-card block w-full"
+                          className={`hc-profile-card block w-full ${level !== undefined ? "hc-profile-card-has-level" : ""}`}
                         >
                           <TokenImage token={token} />
+                          {level !== undefined && (
+                            <span className="hc-profile-card-level-badge">
+                              <span className="hc-profile-card-level-label">
+                                LV
+                              </span>
+                              <span className="hc-profile-card-level-num">
+                                {level}
+                              </span>
+                            </span>
+                          )}
                           <div className="hc-profile-card-plate">
                             <span className="hc-profile-card-name">
                               Anon #{token.tokenId}
