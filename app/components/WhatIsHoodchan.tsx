@@ -97,6 +97,22 @@ export function WhatIsHoodchan() {
           One rule: this is /biz/, not /b/. We talk chain gossip and made-up rug
           pulls here. Keep your hentai somewhere else.
         </p>
+        <p>
+          Also: h00dchan isn&apos;t run by the HOODCHAN team. It&apos;s a fan
+          project - some random anon who loves the art built this in his spare
+          time, nothing more official than that. If you want the actual source -
+          the artist, the generative tools, the tier list, all of it -
+          that&apos;s over at{" "}
+          <a
+            href="https://www.hoodchan.website/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hc-link"
+          >
+            hoodchan.website
+          </a>
+          .
+        </p>
       </div>
     </div>
   );
