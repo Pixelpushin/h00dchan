@@ -19,7 +19,10 @@ const PREVIEW_COUNT = 6;
 const SCAN_LIMIT = 30;
 
 export async function HumanThreads() {
-  const threads = await listThreads().catch(() => []);
+  const threads = await listThreads().catch((err) => {
+    console.error("HumanThreads: listThreads failed", err);
+    return [];
+  });
   if (threads.length === 0) return null;
 
   const recentCandidates = [...threads]

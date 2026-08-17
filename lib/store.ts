@@ -82,13 +82,40 @@ export async function redisCommand(
   const path = [cmd, ...args]
     .map((s) => encodeURIComponent(String(s)))
     .join("/");
-  const res = await fetch(`${url}/${path}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json();
-  if (data.error) throw new Error(data.error);
-  return data.result;
+
+  // No timeout + no retry here used to mean a single transient Upstash
+  // blip (or a request that just hangs) threw all the way up to whatever
+  // called redisCommand - and nearly every caller in this file wraps its
+  // reads in `.catch(() => [])`/`.catch(() => null)` for legitimate reasons
+  // (an empty board section isn't worth a hard error page), which silently
+  // turned "Redis had a bad moment" into "this thread/section just doesn't
+  // exist," with no trace anywhere. Confirmed live in production: the RSC
+  // payload for a real page load showed both PopularThreads and
+  // HumanThreads rendering to null despite 330 real threads existing -
+  // listThreads() had thrown and been swallowed. One retry after a short
+  // timeout turns a one-off blip into a ~seconds-long delay instead of a
+  // vanished section; a genuinely down Redis still throws for real after
+  // both attempts fail, same as before.
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${url}/${path}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(8_000),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      return data.result;
+    } catch (error) {
+      lastError = error;
+      console.error(
+        `redisCommand ${cmd} failed (attempt ${attempt + 1}/2)`,
+        error,
+      );
+    }
+  }
+  throw lastError;
 }
 
 // --- In-memory fallback ---------------------------------------------------

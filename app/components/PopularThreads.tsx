@@ -12,7 +12,10 @@ import { PostImage } from "@/app/components/PostImage";
 const PREVIEW_COUNT = 6;
 
 export async function PopularThreads() {
-  const threads = await listThreads().catch(() => []);
+  const threads = await listThreads().catch((err) => {
+    console.error("PopularThreads: listThreads failed", err);
+    return [];
+  });
   if (threads.length === 0) return null;
 
   const popular = [...threads]
