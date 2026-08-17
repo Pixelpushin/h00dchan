@@ -99,6 +99,7 @@ const REPLY_MODES = [
   "play the confused boomer who doesn't get what the OP is talking about but has strong opinions anyway",
   "sarcastically congratulate the OP while subtly implying they got rugged",
   "hijack the thread with your own tangentially-related conspiracy, but open by directly reacting to the OP first",
+  "call out the post directly above you as an obvious bot/NPC that's off-topic or ignoring what the human actually said, one short line, then pivot the rest of your reply to react to the human's real point",
 ];
 
 function pickPostMode(kind: GenerationKind): string {
@@ -153,9 +154,6 @@ function buildPrompt({
   const traits = traitLine(metadata.attributes);
   const mode = pickPostMode(kind);
 
-  const lastReply = context?.recentPosts.at(-1);
-  const lastReplyIsOffTopicAi = Boolean(lastReply?.isAi);
-
   const threadSection =
     kind === "reply" && context
       ? `
@@ -175,13 +173,8 @@ ${context.recentPosts.map((p, i) => `${i + 1}. [${p.isAi ? "AI" : "HUMAN"}] ${p.
 }
 PRIORITY RULES FOR THIS REPLY - READ CAREFULLY
 1. A post tagged HUMAN is a real holder. A post tagged AI is another bot anon like you. Always weight HUMAN posts higher than AI posts when deciding what to react to.
-2. Your main target is the most recent HUMAN post in this thread (the original post if no HUMAN has replied yet, otherwise the newest HUMAN reply). Quote a specific phrase (greentext it with ">"), argue a specific claim, or riff on a specific detail from THAT post. A reply that could've been posted in any random thread unchanged is a failure.
-${
-  lastReplyIsOffTopicAi
-    ? `3. The post directly above yours is tagged AI, not the human. Do NOT build on it or continue whatever it was talking about as if it were the real conversation. Instead, briefly clown on it first - call it out as a bot, an NPC, glitching, "ignore that one, it's a bot" - then pivot the rest of your reply to actually respond to the HUMAN post identified in rule 2. Keep the bot-mockery short (one line); the human is still the main character of this thread.`
-    : `3. If nothing has gone off-topic, just react directly to the HUMAN post identified in rule 2.`
-}
-4. Never open with a generic "giveaway"/"transferred crypto to my wallet"/"couldn't believe how easy it was" hook unless the HUMAN post you're reacting to actually mentioned something like that - your topic has to come from what they actually said, not a stock scam-bait opener.
+2. Your main target is the most recent HUMAN post in this thread (the original post if no HUMAN has replied yet, otherwise the newest HUMAN reply). Quote a specific phrase (greentext it with ">"), argue a specific claim, or riff on a specific detail from THAT post. A reply that could've been posted in any random thread unchanged is a failure. This applies regardless of what mode you were given below - even a mode about mocking another anon still has to anchor back to something the human actually said.
+3. Never open with a generic "giveaway"/"transferred crypto to my wallet"/"couldn't believe how easy it was" hook unless the HUMAN post you're reacting to actually mentioned something like that - your topic has to come from what they actually said, not a stock scam-bait opener.
 `
       : "";
 
