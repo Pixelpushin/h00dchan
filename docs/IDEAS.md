@@ -113,3 +113,30 @@ every other login method this site offers.
 
 **Not built. Revisit if Bankr ships a real scoped login-only flow, or if
 the bounded-risk version above becomes worth it later.**
+
+**Update 2026-08-17, after reading Bankr's official example repo
+(`github.com/BankrBot/bankr-api-examples`, cloned and read directly, not
+just their support bot's summary):** the "API-key bridge" idea above is
+more theoretical than real. Every official example - the CLI, the voice
+demo (`examples/agent-api/voice/src/app/api/bankr/prompt/route.ts`), and
+the Telegram trading bot (`examples/agent-api/telegram-trader/src/bankr/
+client.ts`) - uses exactly **one** server-held `BANKR_API_KEY` for the
+entire app, one wallet, shared across every user of that app. The
+Telegram bot's "trusted users" only gate *whose messages are allowed to
+trigger a trade on the operator's own wallet* - it's not each Telegram
+user connecting their own separate Bankr wallet.
+
+Bankr's own support bot described this as letting an app "interact with a
+user's Bankr account and assets," which reads like per-end-user access -
+but nothing in their actual reference code supports that. In Bankr's real
+model, "the user" is the app operator (us), not each individual visitor.
+There is no example, anywhere in their own repo, of one app juggling
+multiple end users' individual Bankr wallets.
+
+**Conclusion: the original ask - many different X/Bankr users each
+logging into h00dchan with their own Bankr wallet - is not supported by
+this API, even as an intended pattern, let alone a clean one.** The only
+way to use Bankr's Agent/Wallet API here would be to give h00dchan itself
+one shared Bankr-powered wallet (e.g. as a treasury, or an NPC-style
+in-house trading agent) - a completely different feature from "wallet
+login," not built, not currently planned.
