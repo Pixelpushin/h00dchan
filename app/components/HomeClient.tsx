@@ -239,10 +239,23 @@ export default function HomeClient({
       // this was caught with, and requiring a prior non-empty cache would
       // have silently skipped retrying the one case that actually needed
       // it (caught by re-testing this fix against the exact reproduction
-      // before shipping it). Any incremental scan (cached !== null) that
-      // comes back with zero tokens is worth one full-scan double-check
-      // before trusting and re-caching "you really do have zero."
-      if (cached && walletBody.tokenIds.length === 0) {
+      // before shipping it).
+      //
+      // Broadened from "only retry on zero" after a second live report:
+      // a real 9-token wallet showed 9, then 3 on a plain reload - not
+      // zero, so the original guard didn't catch it. Root cause is one
+      // level deeper than the cache-poisoning bug above: readOwnerOf has
+      // no retry of its own, and fetchWalletTokensOnChain silently drops
+      // (catches to null) any single candidate whose live ownership
+      // recheck fails - a transient RPC blip on even one of several
+      // concurrent calls quietly shrinks the result, no error anywhere.
+      // Any incremental scan that comes back SMALLER than what was
+      // previously cached (not just empty) is exactly as suspicious - a
+      // holder is far more likely to have hit transient RPC flakiness
+      // than to have sold most of their collection in the seconds since
+      // the last visit - so it gets the same one full-scan double-check
+      // before being trusted and re-cached.
+      if (cached && walletBody.tokenIds.length < cached.tokenIds.length) {
         walletBody = await fetchWalletTokens(false);
       }
 

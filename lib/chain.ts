@@ -225,11 +225,29 @@ export async function fetchWalletTokensOnChain(
     ]),
   ].slice(0, MAX_CANDIDATES);
 
+  // One retry per candidate before giving up on it - same reasoning as
+  // app/api/wallet-tokens/route.ts's TBA lookups (which already do this):
+  // readOwnerOf has no retry of its own, and a bare .catch(() => null) on
+  // a single transient RPC blip silently drops a token the address
+  // genuinely owns, with nothing to signal it happened. Caught live: a
+  // real 9-token wallet intermittently showed as few as 3 on a plain
+  // reload - not a chunking-scale problem (9 fits in one
+  // OWNERSHIP_CHECK_CONCURRENCY batch already), just occasional
+  // single-request flakiness with no retry to absorb it.
   const owned: string[] = [];
   for (let i = 0; i < candidateIds.length; i += OWNERSHIP_CHECK_CONCURRENCY) {
     const batch = candidateIds.slice(i, i + OWNERSHIP_CHECK_CONCURRENCY);
     const owners = await Promise.all(
-      batch.map((id) => readOwnerOf(id).catch(() => null)),
+      batch.map(async (id) => {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            return await readOwnerOf(id);
+          } catch {
+            // one retry, then give up on this candidate
+          }
+        }
+        return null;
+      }),
     );
     batch.forEach((id, j) => {
       const owner = owners[j];
