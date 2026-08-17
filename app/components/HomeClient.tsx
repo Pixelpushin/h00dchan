@@ -643,7 +643,7 @@ export default function HomeClient({
                               onClick={handleChat}
                               className="hc-button w-full text-xs"
                             >
-                              Chat with this anon
+                              Chat as this anon
                             </button>
                           ) : isClaimed ? (
                             <div className="flex flex-col gap-1.5">
