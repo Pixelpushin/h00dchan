@@ -317,6 +317,55 @@ body {
   color: var(--hc-greentext);
 }
 
+/* Spam-filter toggle switch (wallet holdings view) - plain checkbox
+   underneath for accessibility/keyboard support, styled as a track+thumb
+   switch rather than a native checkbox. */
+.hc-toggle {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 19px;
+  flex-shrink: 0;
+}
+
+.hc-toggle-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.hc-toggle-thumb {
+  position: absolute;
+  inset: 0;
+  background: var(--hc-box-alt);
+  border: 1px solid var(--hc-box-border);
+  border-radius: 999px;
+  transition: background 0.15s ease;
+}
+
+.hc-toggle-thumb::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 15px;
+  height: 15px;
+  background: #fff7e6;
+  border: 1px solid var(--hc-maroon);
+  border-radius: 999px;
+  transition: transform 0.15s ease;
+}
+
+.hc-toggle-on .hc-toggle-thumb {
+  background: var(--hc-maroon);
+}
+
+.hc-toggle-on .hc-toggle-thumb::before {
+  transform: translateX(15px);
+}
+
 .hc-post-image {
   border: 1px solid var(--hc-box-border);
   background: #fff;

@@ -6,6 +6,7 @@ import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
 import { fetchWalletHoldings, type WalletHoldings } from "@/lib/alchemy";
 import { PostImage } from "@/app/components/PostImage";
 import { BLOCK_EXPLORER_URL } from "@/lib/chain";
+import { WalletHoldingsView } from "@/app/components/WalletHoldingsView";
 
 export const dynamic = "force-dynamic";
 
@@ -16,22 +17,6 @@ function formatEth(weiHex: string): string {
   const whole = wei / WEI_PER_ETH;
   const frac = wei % WEI_PER_ETH;
   const fracStr = frac.toString().padStart(18, "0").slice(0, 4);
-  return `${whole}.${fracStr}`;
-}
-
-function truncateAddress(address: string): string {
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
-}
-
-// Mirrors formatEth's whole/fractional split, but for an arbitrary ERC-20's
-// decimals instead of the hardcoded 18 for ETH.
-function formatTokenAmount(rawBalance: string, decimals: number): string {
-  const amount = BigInt(rawBalance);
-  if (decimals <= 0) return amount.toString();
-  const unit = BigInt(10) ** BigInt(decimals);
-  const whole = amount / unit;
-  const frac = amount % unit;
-  const fracStr = frac.toString().padStart(decimals, "0").slice(0, 6);
   return `${whole}.${fracStr}`;
 }
 
@@ -116,75 +101,10 @@ export default async function WalletPage({
               </div>
             </div>
 
-            <div className="hc-box p-4">
-              <div className="hc-thread-meta text-xs mb-2">
-                NFTs ({holdings.nfts.length})
-              </div>
-              {holdings.nfts.length === 0 ? (
-                <p className="hc-thread-meta text-sm">
-                  Nothing in this wallet yet.
-                </p>
-              ) : (
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                  {holdings.nfts.map((nft) => (
-                    <div
-                      key={`${nft.contractAddress}-${nft.tokenId}`}
-                      className="hc-box overflow-hidden"
-                    >
-                      {nft.imageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={nft.imageUrl}
-                          alt={nft.name ?? nft.tokenId}
-                          className="w-full aspect-square object-cover"
-                        />
-                      ) : (
-                        <div
-                          className="w-full aspect-square"
-                          style={{ background: "var(--hc-box-alt)" }}
-                        />
-                      )}
-                      <div className="p-1.5 text-center hc-thread-meta text-[0.65rem] truncate">
-                        {nft.name ?? `#${nft.tokenId}`}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="hc-box p-4">
-              <div className="hc-thread-meta text-xs mb-2">
-                Tokens ({holdings.tokenBalances.length})
-              </div>
-              {holdings.tokenBalances.length === 0 ? (
-                <p className="hc-thread-meta text-sm">
-                  No ERC-20 balances in this wallet yet.
-                </p>
-              ) : (
-                <div className="flex flex-col gap-1.5">
-                  {holdings.tokenBalances.map((token) => {
-                    const label =
-                      token.symbol ??
-                      token.name ??
-                      truncateAddress(token.contractAddress);
-                    const amount =
-                      token.decimals !== null
-                        ? formatTokenAmount(token.balance, token.decimals)
-                        : `${BigInt(token.balance).toString()} (raw units)`;
-                    return (
-                      <div
-                        key={token.contractAddress}
-                        className="flex items-center justify-between font-mono text-xs"
-                      >
-                        <span>{label}</span>
-                        <span className="hc-thread-meta">{amount}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            <WalletHoldingsView
+              nfts={holdings.nfts}
+              tokenBalances={holdings.tokenBalances}
+            />
           </>
         )}
       </main>

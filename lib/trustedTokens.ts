@@ -20,8 +20,18 @@ export interface TrustedToken {
 // identified and vetted (e.g. { address: "0x...", symbol: "USDG" }).
 export const TRUSTED_TOKENS: TrustedToken[] = [];
 
+// Same idea as TRUSTED_TOKENS but for NFT collection contracts - the wallet
+// explorer (app/wallet/[tokenId]/page.tsx) uses this to hide spam-airdropped
+// NFT collections behind a toggle by default, same as spam ERC-20s. Also
+// hand-maintained, also empty until real collections get vetted.
+export const TRUSTED_NFT_COLLECTIONS: string[] = [];
+
 const TRUSTED_BY_ADDRESS = new Map(
   TRUSTED_TOKENS.map((t) => [t.address.toLowerCase(), t.symbol]),
+);
+
+const TRUSTED_NFT_SET = new Set(
+  TRUSTED_NFT_COLLECTIONS.map((address) => address.toLowerCase()),
 );
 
 export function trustedSymbolFor(address: string): string | null {
@@ -30,4 +40,8 @@ export function trustedSymbolFor(address: string): string | null {
 
 export function isTrustedToken(address: string): boolean {
   return TRUSTED_BY_ADDRESS.has(address.toLowerCase());
+}
+
+export function isTrustedNftCollection(address: string): boolean {
+  return TRUSTED_NFT_SET.has(address.toLowerCase());
 }
