@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@pixelpushin/tba-kit": "github:Pixelpushin/tba-kit",
     "@reown/appkit": "^1.8.23",
     "@reown/appkit-adapter-ethers": "^1.8.23",
     "@vercel/analytics": "^2.0.1",
