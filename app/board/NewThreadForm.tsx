@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
 import { useActivePersona } from "@/lib/usePersona";
+import { useWalletAddress } from "@/lib/useWalletAddress";
 import { postJsonAsPersona } from "@/lib/postAsPersona";
 import { useDraftField } from "@/lib/useDraft";
 import type { Thread, Post } from "@/lib/store";
@@ -14,6 +15,7 @@ const BODY_DRAFT_KEY = "h00dchan:draft:new-thread:body";
 export function NewThreadForm() {
   const router = useRouter();
   const { persona, reauthorize } = useActivePersona();
+  const address = useWalletAddress();
   const [subject, setSubject] = useDraftField(SUBJECT_DRAFT_KEY);
   const [body, setBody] = useDraftField(BODY_DRAFT_KEY);
   const [submitting, setSubmitting] = useState(false);
@@ -22,14 +24,33 @@ export function NewThreadForm() {
   // useActivePersona's server snapshot is always null, matching this
   // "not claimed" branch - so SSR and the first client paint always agree,
   // and it upgrades to the form below shortly after mount if a persona is
-  // actually present (see lib/usePersona.ts).
+  // actually present (see lib/usePersona.ts). Wallet connection (AppKit,
+  // persists across tabs) and "which anon am I posting as" (sessionStorage,
+  // per-TAB) are separate - a real, already-claimed holder still lands
+  // here in any fresh tab, so this only tells them to "connect + claim"
+  // when there's genuinely no wallet connected, not when they've simply
+  // never picked an anon in this specific tab (see ReplyForm for the same
+  // fix, caught live from a real user's report).
   if (!persona) {
     return (
       <div className="hc-box p-4 text-sm">
-        <Link href="/" className="hc-link">
-          Connect your wallet and claim a token
-        </Link>{" "}
-        to start a thread.
+        {address ? (
+          <>
+            Your wallet&apos;s connected, but you haven&apos;t picked which anon
+            to post as in this tab yet.{" "}
+            <Link href="/" className="hc-link">
+              Pick one on the home page
+            </Link>{" "}
+            to start a thread.
+          </>
+        ) : (
+          <>
+            <Link href="/" className="hc-link">
+              Connect your wallet and claim a token
+            </Link>{" "}
+            to start a thread.
+          </>
+        )}
       </div>
     );
   }
