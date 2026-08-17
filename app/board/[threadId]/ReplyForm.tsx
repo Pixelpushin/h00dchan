@@ -5,12 +5,15 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useActivePersona } from "@/lib/usePersona";
 import { postJsonAsPersona } from "@/lib/postAsPersona";
+import { useDraftField } from "@/lib/useDraft";
 import type { Post } from "@/lib/store";
 
 export function ReplyForm({ threadId }: { threadId: string }) {
   const router = useRouter();
   const { persona, reauthorize } = useActivePersona();
-  const [body, setBody] = useState("");
+  // Keyed per-thread - replying in two different threads shouldn't share
+  // or clobber each other's draft.
+  const [body, setBody] = useDraftField(`h00dchan:draft:reply:${threadId}`);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

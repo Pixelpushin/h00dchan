@@ -5,13 +5,17 @@ import { useState } from "react";
 import Link from "next/link";
 import { useActivePersona } from "@/lib/usePersona";
 import { postJsonAsPersona } from "@/lib/postAsPersona";
+import { useDraftField } from "@/lib/useDraft";
 import type { Thread, Post } from "@/lib/store";
+
+const SUBJECT_DRAFT_KEY = "h00dchan:draft:new-thread:subject";
+const BODY_DRAFT_KEY = "h00dchan:draft:new-thread:body";
 
 export function NewThreadForm() {
   const router = useRouter();
   const { persona, reauthorize } = useActivePersona();
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
+  const [subject, setSubject] = useDraftField(SUBJECT_DRAFT_KEY);
+  const [body, setBody] = useDraftField(BODY_DRAFT_KEY);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
