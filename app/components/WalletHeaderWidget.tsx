@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { connectWallet, disconnectWallet } from "@/lib/wallet";
 import { useWalletAddress } from "@/lib/useWalletAddress";
 import { useHasNewActivity } from "@/lib/useHasNewActivity";
-import { robinhoodChain } from "@/lib/appkit";
+import { BLOCK_EXPLORER_URL } from "@/lib/chain";
 
 function truncateAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -79,7 +79,7 @@ export function WalletHeaderWidget() {
     );
   }
 
-  const explorerUrl = `${robinhoodChain.blockExplorers?.default.url}/address/${address}`;
+  const explorerUrl = `${BLOCK_EXPLORER_URL}/address/${address}`;
 
   return (
     <div className="hc-wallet-widget" ref={rootRef}>

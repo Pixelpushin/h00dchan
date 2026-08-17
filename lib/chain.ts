@@ -19,6 +19,13 @@
 export const RPC_URL = "https://rpc.mainnet.chain.robinhood.com";
 export const CONTRACT = "0x774Db2207D26570F5638028839c816702A40aBC2";
 export const CHAIN_ID_HEX = "0x1237"; // 4663
+// Plain string, deliberately not re-exported from lib/appkit.ts's
+// robinhoodChain object - that module is "use client" (Reown/AppKit touches
+// window), so importing it into a Server Component doesn't carry the real
+// value across the boundary and silently resolves to undefined instead of
+// throwing. Server-rendered pages that link out to the explorer (e.g.
+// app/wallet/[tokenId]/page.tsx) must use this constant instead.
+export const BLOCK_EXPLORER_URL = "https://robinhoodchain.blockscout.com";
 
 const SELECTOR_OWNER_OF = "6352211e"; // ownerOf(uint256)
 const SELECTOR_TOKEN_URI = "c87b56dd"; // tokenURI(uint256)
