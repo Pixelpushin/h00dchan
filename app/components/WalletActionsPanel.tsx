@@ -19,6 +19,7 @@ import {
 } from "@/lib/tba";
 import { readOwnerOf, BLOCK_EXPLORER_URL } from "@/lib/chain";
 import type { WalletHoldings } from "@/lib/alchemy";
+import { WalletIcon } from "@/app/components/Icons";
 
 interface AssetOption {
   key: string; // "eth" or the ERC-20 contract address
@@ -269,7 +270,7 @@ export function WalletActionsPanel({
 
   return (
     <div className="hc-box p-4 flex flex-col gap-3">
-      <div className="hc-thread-meta text-xs">wallet actions</div>
+      <div className="hc-thread-meta text-xs">Token Bound Wallet</div>
 
       {!connectedAddress && (
         <p className="hc-thread-meta text-sm">
@@ -287,7 +288,7 @@ export function WalletActionsPanel({
       {connectedAddress && isOwner && !activated && (
         <div className="flex flex-col gap-2">
           <p className="hc-thread-meta text-sm">
-            This wallet can already receive assets. Activating it (one-time,
+            This wallet can already receive assets. Enabling sending (one-time,
             your gas) lets it send/spend too.
           </p>
           <button
@@ -296,7 +297,14 @@ export function WalletActionsPanel({
             disabled={busy}
             onClick={handleActivate}
           >
-            {busy ? "Working..." : "Activate this wallet"}
+            {busy ? (
+              "Working..."
+            ) : (
+              <>
+                <WalletIcon className="hc-btn-icon" />
+                Enable Sending
+              </>
+            )}
           </button>
         </div>
       )}

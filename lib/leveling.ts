@@ -39,7 +39,7 @@ const MILESTONE_QUESTS: MilestoneQuest[] = [
   },
   {
     id: "activate-wallet",
-    label: "Turn on this anon's wallet (can send, not just receive)",
+    label: "Enable sending for this anon's wallet",
     xp: 50,
     isDone: (i) => i.walletActivated,
   },

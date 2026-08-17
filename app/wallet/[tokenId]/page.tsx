@@ -105,12 +105,20 @@ export default async function WalletPage({
 
         <div className="hc-box flex flex-col gap-4 p-4 sm:flex-row">
           {metadata && (
-            <PostImage
-              rawImageUri={rawImageUri}
-              fallbackSrc={metadata.image}
-              alt={metadata.name}
-              className="hc-post-image hc-profile-avatar w-28 h-28 sm:w-36 sm:h-36 shrink-0 object-cover mx-auto sm:mx-0"
-            />
+            <div className="hc-profile-card shrink-0 mx-auto sm:mx-0">
+              <PostImage
+                rawImageUri={rawImageUri}
+                fallbackSrc={metadata.image}
+                alt={metadata.name}
+                className="hc-post-image hc-profile-avatar w-32 h-32 sm:w-44 sm:h-44 object-cover"
+              />
+              <div className="hc-profile-card-plate">
+                <span className="hc-profile-card-name">Anon #{tokenId}</span>
+                <span className="hc-profile-card-level">
+                  Lv. {levelProgress.level}
+                </span>
+              </div>
+            </div>
           )}
           <div className="flex-1 flex flex-col gap-2 min-w-0">
             <h1 className="hc-title text-2xl">Anon #{tokenId}</h1>
@@ -138,12 +146,10 @@ export default async function WalletPage({
                     borderColor: "var(--hc-greentext)",
                   }}
                 >
-                  ● smart wallet active
+                  ● Sending Enabled
                 </span>
               ) : (
-                <span className="hc-badge opacity-70">
-                  ● wallet receive-only
-                </span>
+                <span className="hc-badge opacity-70">● Sending Disabled</span>
               )}
               <span className="hc-badge opacity-70">{postCount} posts</span>
             </div>

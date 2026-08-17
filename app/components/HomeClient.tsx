@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { WalletIcon, ChatIcon } from "@/app/components/Icons";
 import { onAccountsChanged, signMessage } from "@/lib/wallet";
 import { WhatIsHoodchan } from "@/app/components/WhatIsHoodchan";
 import { AdBanner, type PaidAd } from "@/app/components/AdBanner";
@@ -581,14 +582,16 @@ export default function HomeClient({
                       >
                         <Link
                           href={`/wallet/${token.tokenId}`}
-                          className="block"
+                          className="hc-profile-card block w-full"
                         >
                           <TokenImage token={token} />
+                          <div className="hc-profile-card-plate">
+                            <span className="hc-profile-card-name">
+                              Anon #{token.tokenId}
+                            </span>
+                          </div>
                         </Link>
                         <div className="p-2 text-center">
-                          <div className="hc-post-tokenid text-sm mb-2">
-                            Anon #{token.tokenId}
-                          </div>
                           {wallet && (
                             // A status button, not a "tap to do X" text
                             // link - the earlier version promised an
@@ -600,22 +603,35 @@ export default function HomeClient({
                             // clicking does (view/manage this wallet) while
                             // still being a clear, simple, non-jargon
                             // status at a glance - green/red reads
-                            // correctly with zero English needed.
-                            <Link
-                              href={`/wallet/${token.tokenId}`}
-                              className={`hc-wallet-status-btn mb-2 ${wallet.activated ? "hc-wallet-status-active" : "hc-wallet-status-inactive"}`}
-                              title={wallet.address}
-                            >
-                              {wallet.activated
-                                ? "✓ Wallet Active"
-                                : "Wallet Inactive"}
-                            </Link>
+                            // correctly with zero English needed. Label
+                            // above it names the concept ("Token Bound
+                            // Wallet") since this app now has two
+                            // completely different things people call
+                            // "activate" (this wallet vs. the anon's
+                            // posting identity below) - same wording used
+                            // for the badge on /wallet/[tokenId].
+                            <div className="mb-2">
+                              <div className="hc-thread-meta text-[0.65rem] mb-0.5">
+                                Token Bound Wallet
+                              </div>
+                              <Link
+                                href={`/wallet/${token.tokenId}`}
+                                className={`hc-wallet-status-btn ${wallet.activated ? "hc-wallet-status-active" : "hc-wallet-status-inactive"}`}
+                                title={wallet.address}
+                              >
+                                <WalletIcon className="hc-btn-icon" />
+                                {wallet.activated
+                                  ? "Sending Enabled"
+                                  : "Sending Disabled"}
+                              </Link>
+                            </div>
                           )}
                           {isActivePersona ? (
                             <button
                               onClick={handleChat}
                               className="hc-button w-full text-xs"
                             >
+                              <ChatIcon className="hc-btn-icon" />
                               Chat as this anon
                             </button>
                           ) : isClaimed ? (
@@ -640,6 +656,15 @@ export default function HomeClient({
                             </div>
                           ) : (
                             <>
+                              {/* "AI Active" today means the ghost-posting
+                                  persona - once an Alpha Bot feature ships,
+                                  this single line is the only thing that
+                                  needs to change ("Alpha Bot Enabled" once
+                                  claimed, etc.), not the button/logic
+                                  around it. */}
+                              <div className="hc-thread-meta text-[0.65rem] mb-1">
+                                AI Active. Activate to silence.
+                              </div>
                               <button
                                 onClick={() => handleClaim(token)}
                                 disabled={isClaiming}

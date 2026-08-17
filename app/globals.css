@@ -402,10 +402,73 @@ body {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
 }
 
+/* Trading-card-style nameplate baked into the bottom of the profile
+   avatar (name + level), instead of separate text elsewhere on the page -
+   requested explicitly as a "lower third, like a Magic card" treatment. */
+/* No width set here on purpose - the profile hero relies on being a flex
+   item (shrink-wraps to the fixed-size avatar automatically), the home
+   grid and other full-width usages add Tailwind's w-full themselves. */
+.hc-profile-card {
+  position: relative;
+  display: block;
+}
+
+.hc-profile-card .hc-profile-avatar {
+  display: block;
+}
+
+.hc-profile-card-plate {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  min-height: 42px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.4rem;
+  padding: 0.35rem 0.55rem 0.35rem;
+  /* Broadcast-style "lower third", not just a soft image fade - a crisp
+     accent line at the top edge separates the plate from the art
+     cleanly, and the band itself is a flatter, more solid fill (short
+     fade distance) instead of a long gradient smear. */
+  border-top: 2px solid var(--hc-header-to);
+  background: linear-gradient(
+    to top,
+    rgba(20, 12, 8, 0.92) 0%,
+    rgba(20, 12, 8, 0.92) 70%,
+    rgba(20, 12, 8, 0) 100%
+  );
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+
+.hc-profile-card-name {
+  flex-shrink: 0;
+  color: #fff5e6;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+.hc-profile-card-level {
+  flex-shrink: 0;
+  color: #ffd97a;
+  font-weight: 700;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
 /* Home token grid - wallet active/inactive status button (traffic-light
    red/green, no English required to read it at a glance). */
 .hc-wallet-status-btn {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
   width: 100%;
   border-radius: 3px;
   padding: 0.35rem 0.5rem;
@@ -413,6 +476,15 @@ body {
   font-weight: 700;
   text-align: center;
   color: #fff;
+}
+
+/* Shared icon sizing for hc-button/hc-wallet-status-btn - inline SVGs
+   from app/components/Icons.tsx, sized to sit on the button's text
+   baseline without a library or extra markup per icon. */
+.hc-btn-icon {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex-shrink: 0;
 }
 
 .hc-wallet-status-active {
@@ -449,6 +521,10 @@ body {
 }
 
 .hc-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
   background: var(--hc-header-to);
   color: #fff7e6;
   border: 1px solid var(--hc-maroon);
