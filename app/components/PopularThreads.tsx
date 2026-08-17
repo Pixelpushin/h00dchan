@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getOrFetchTokenMetadata, listThreads } from "@/lib/store";
+import { getOrFetchTokenMetadata, type ThreadWithCounts } from "@/lib/store";
 import { PostImage } from "@/app/components/PostImage";
 
 // Front-page preview for logged-out visitors - previously the home page
@@ -11,11 +11,16 @@ import { PostImage } from "@/app/components/PostImage";
 // UI needed for a single board, just the thread list itself.
 const PREVIEW_COUNT = 6;
 
-export async function PopularThreads() {
-  const threads = await listThreads().catch((err) => {
-    console.error("PopularThreads: listThreads failed", err);
-    return [];
-  });
+// Takes the full thread list as a prop rather than calling listThreads()
+// itself - this used to fetch independently, which meant every home page
+// load ran the full (expensive, per-thread) board scan twice, once here
+// and once in the sibling HumanThreads component. app/page.tsx now fetches
+// once and hands the same array to both.
+export async function PopularThreads({
+  threads,
+}: {
+  threads: ThreadWithCounts[];
+}) {
   if (threads.length === 0) return null;
 
   const popular = [...threads]

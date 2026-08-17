@@ -2,7 +2,7 @@ import Link from "next/link";
 import {
   getOrFetchTokenMetadata,
   isThreadHuman,
-  listThreads,
+  type ThreadWithCounts,
 } from "@/lib/store";
 import { PostImage } from "@/app/components/PostImage";
 
@@ -13,16 +13,18 @@ import { PostImage } from "@/app/components/PostImage";
 // feedback: "yes, my thread is really up there" - not "wait and see if it
 // becomes popular."
 const PREVIEW_COUNT = 6;
-// listThreads() has no per-request cap - bound how many recent threads get
-// the isThreadHuman() check (one extra store read each) rather than
-// checking the entire board's history on every home page load.
+// Bound how many recent threads get the isThreadHuman() check (2 extra
+// store reads each) rather than checking the entire board's history on
+// every home page load.
 const SCAN_LIMIT = 30;
 
-export async function HumanThreads() {
-  const threads = await listThreads().catch((err) => {
-    console.error("HumanThreads: listThreads failed", err);
-    return [];
-  });
+// Takes the full thread list as a prop - see PopularThreads.tsx's comment,
+// same dedup, same reason.
+export async function HumanThreads({
+  threads,
+}: {
+  threads: ThreadWithCounts[];
+}) {
   if (threads.length === 0) return null;
 
   const recentCandidates = [...threads]

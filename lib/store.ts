@@ -281,6 +281,7 @@ async function writeThread(thread: Thread): Promise<void> {
 async function writePost(post: Post): Promise<void> {
   await redisCommand("SET", `post:${post.id}`, JSON.stringify(post));
   await redisCommand("RPUSH", `posts:${post.threadId}`, post.id);
+  invalidateListThreadsCache();
 }
 
 // Creates a thread and its OP post together - a thread with zero posts is
@@ -327,22 +328,70 @@ export async function isThreadHuman(threadId: string): Promise<boolean> {
   return op.isAi !== true;
 }
 
+// Every thread needs 2 Redis calls (GET the thread, LLEN its post list) -
+// firing all of them at once via a single unbounded Promise.all was
+// verified live to cause the home page's TTFB to swing from ~1s to ~9s:
+// with ~330 threads that's up to 660 simultaneous REST calls to Upstash in
+// one burst, and if even one straggler gets throttled, the whole
+// Promise.all (and therefore the whole page) waits on redisCommand's
+// retry/timeout (up to 16s) for that one call. Chunking bounds the burst
+// size instead of removing concurrency entirely - same pattern as
+// lib/chain.ts's OWNERSHIP_CHECK_CONCURRENCY for the same class of problem
+// against a different flaky-under-load API.
+const THREAD_FETCH_CONCURRENCY = 20;
+
+// Short shared cache, not a source of truth - collapses the burst of
+// concurrent home/board page loads that would otherwise each independently
+// re-run the full per-thread scan above into one shared fetch. 5s is long
+// enough to matter under real traffic, short enough that a freshly posted
+// thread still appears within one page reload for everyone else.
+const LIST_THREADS_CACHE_MS = 5_000;
+interface ListThreadsCacheGlobal {
+  __h00dchanListThreadsCache?: { at: number; value: ThreadWithCounts[] } | null;
+}
+const listThreadsCacheHolder = globalThis as ListThreadsCacheGlobal;
+
+// Called from every write path that changes what listThreads() would
+// return (new thread, new reply changing a replyCount, a deletion) - keeps
+// the cache from serving stale data to the person who just posted, while
+// still collapsing concurrent reads from everyone else in between writes.
+function invalidateListThreadsCache(): void {
+  listThreadsCacheHolder.__h00dchanListThreadsCache = null;
+}
+
 export async function listThreads(): Promise<ThreadWithCounts[]> {
+  const cached = listThreadsCacheHolder.__h00dchanListThreadsCache;
+  if (cached && Date.now() - cached.at < LIST_THREADS_CACHE_MS) {
+    return cached.value;
+  }
+
   const ids = (await redisCommand(
     "ZREVRANGE",
     "threads:index",
     0,
     -1,
   )) as string[];
-  const threads = await Promise.all(
-    ids.map(async (id) => {
-      const thread = await readThread(id);
-      if (!thread) return null;
-      const postCount = (await redisCommand("LLEN", `posts:${id}`)) as number;
-      return { ...thread, replyCount: Math.max(0, postCount - 1) };
-    }),
-  );
-  return threads.filter((t): t is ThreadWithCounts => t !== null);
+
+  const threads: (ThreadWithCounts | null)[] = [];
+  for (let i = 0; i < ids.length; i += THREAD_FETCH_CONCURRENCY) {
+    const batch = ids.slice(i, i + THREAD_FETCH_CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map(async (id) => {
+        const thread = await readThread(id);
+        if (!thread) return null;
+        const postCount = (await redisCommand("LLEN", `posts:${id}`)) as number;
+        return { ...thread, replyCount: Math.max(0, postCount - 1) };
+      }),
+    );
+    threads.push(...batchResults);
+  }
+
+  const result = threads.filter((t): t is ThreadWithCounts => t !== null);
+  listThreadsCacheHolder.__h00dchanListThreadsCache = {
+    at: Date.now(),
+    value: result,
+  };
+  return result;
 }
 
 export async function getThread(id: string): Promise<Thread | null> {
@@ -366,6 +415,7 @@ export async function deleteThread(threadId: string): Promise<void> {
   }
   await redisCommand("DEL", `posts:${threadId}`, `thread:${threadId}`);
   await redisCommand("ZREM", "threads:index", threadId);
+  invalidateListThreadsCache();
 }
 
 export class CannotDeleteOpError extends Error {
@@ -400,6 +450,7 @@ export async function deletePost(
   }
   await redisCommand("LREM", `posts:${threadId}`, 0, postId);
   await redisCommand("DEL", `post:${postId}`);
+  invalidateListThreadsCache();
 }
 
 export async function addReply(
