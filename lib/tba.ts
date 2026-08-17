@@ -12,6 +12,28 @@
 // already used.
 import { CONTRACT, CHAIN_ID_HEX } from "@/lib/chain";
 import * as tbaKit from "@pixelpushin/tba-kit";
+import { Interface } from "ethers";
+
+// execute()/transfer() encoding - local to h00dchan, not in @pixelpushin/
+// tba-kit (that package's README explicitly says spend/execute isn't in
+// there yet: "no project in this ecosystem has built the frontend for it
+// yet"). Every Tokenbound V3 account exposes execute(address,uint256,
+// bytes,uint8) - confirmed live against the deployed implementation on
+// Robinhood Chain (0x51945447, its 4-byte selector, is present in the
+// contract's own eth_getCode dump, not just assumed from the ABI).
+const ACCOUNT_ABI = [
+  "function execute(address to, uint256 value, bytes data, uint8 operation) payable returns (bytes)",
+];
+const ERC20_ABI = [
+  "function transfer(address to, uint256 amount) returns (bool)",
+];
+const accountInterface = new Interface(ACCOUNT_ABI);
+const erc20Interface = new Interface(ERC20_ABI);
+
+// operation 0 = plain CALL (the only one Tokenbound's guardian allows a
+// regular EOA owner to use - 1/2/3 are DELEGATECALL/CREATE/CREATE2, gated
+// behind stricter permissions this app has no need for).
+const OPERATION_CALL = 0;
 
 export const REGISTRY_ADDRESS = tbaKit.REGISTRY_ADDRESS;
 export const IMPLEMENTATION_ADDRESS = tbaKit.IMPLEMENTATION_ADDRESS;
@@ -31,11 +53,9 @@ export async function isTbaActivated(tbaAddress: string): Promise<boolean> {
 }
 
 // {to, data} for the registry's createAccount(...) - the connected wallet
-// signs and sends this itself. NOT wired to any UI action yet: calling
-// this today would revert, since IMPLEMENTATION_ADDRESS has no deployed
-// code on this chain yet - only build a button around this once that
-// one-time implementation deployment has been explicitly approved and
-// done.
+// signs and sends this itself. The implementation contract deployed on
+// Robinhood Chain 2026-08-17 (confirmed live via eth_getCode), so this is
+// now safe to wire up to a real UI action.
 export function buildCreateAccountTx(tokenId: number | string | bigint): {
   to: string;
   data: string;
@@ -45,4 +65,49 @@ export function buildCreateAccountTx(tokenId: number | string | bigint): {
     tokenId,
     chainIdHex: CHAIN_ID_HEX,
   });
+}
+
+// {to, data} to send native ETH out of an activated TBA - the connected
+// wallet (which must be the account's authorized owner/signer) calls
+// execute() ON the TBA itself, which then forwards `valueWei` of its own
+// held ETH to `to`. The outer transaction's own value stays 0 - no ETH
+// leaves the caller's wallet, only the TBA's.
+export function buildSendEthTx(
+  tbaAddress: string,
+  to: string,
+  valueWei: bigint,
+): { to: string; data: string } {
+  return {
+    to: tbaAddress,
+    data: accountInterface.encodeFunctionData("execute", [
+      to,
+      valueWei,
+      "0x",
+      OPERATION_CALL,
+    ]),
+  };
+}
+
+// Same idea, but for an ERC-20 balance the TBA holds: execute() tells the
+// TBA to call transfer() on the token contract itself, moving tokens out
+// of the TBA's own balance.
+export function buildSendTokenTx(
+  tbaAddress: string,
+  tokenContract: string,
+  to: string,
+  amountRaw: bigint,
+): { to: string; data: string } {
+  const transferData = erc20Interface.encodeFunctionData("transfer", [
+    to,
+    amountRaw,
+  ]);
+  return {
+    to: tbaAddress,
+    data: accountInterface.encodeFunctionData("execute", [
+      tokenContract,
+      BigInt(0),
+      transferData,
+      OPERATION_CALL,
+    ]),
+  };
 }

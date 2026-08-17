@@ -108,6 +108,38 @@ export async function signMessage(
   return signer.signMessage(message);
 }
 
+// Sends a real on-chain transaction from the connected wallet - used for
+// TBA wallet actions (activate via createAccount, send via execute()).
+// Same BrowserProvider/getSigner pattern as signMessage, just
+// sendTransaction instead of signMessage. Returns the tx hash immediately
+// (not waiting for confirmation) so the caller can decide how to show
+// pending state; wait for it with a receipt poll if needed.
+export async function sendTransaction(
+  address: string,
+  tx: { to: string; data: string; value?: string },
+): Promise<string> {
+  const modal = getAppKit();
+  const account = modal.getAccount();
+  if (!account?.isConnected) {
+    throw new Error("No wallet connected - click Connect Wallet first.");
+  }
+
+  const walletProvider = modal.getWalletProvider() as
+    Eip1193Provider | undefined;
+  if (!walletProvider) {
+    throw new Error("No wallet provider available - reconnect your wallet.");
+  }
+
+  const browserProvider = new BrowserProvider(walletProvider);
+  const signer = await browserProvider.getSigner(address);
+  const response = await signer.sendTransaction({
+    to: tx.to,
+    data: tx.data,
+    value: tx.value ?? BigInt(0),
+  });
+  return response.hash;
+}
+
 // Synchronous read of whatever AppKit already knows about the current
 // session (it persists connection state itself across reloads).
 export function getConnectedAddress(): string | null {

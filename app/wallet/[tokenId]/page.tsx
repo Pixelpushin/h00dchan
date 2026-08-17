@@ -7,6 +7,7 @@ import { fetchWalletHoldings, type WalletHoldings } from "@/lib/alchemy";
 import { PostImage } from "@/app/components/PostImage";
 import { BLOCK_EXPLORER_URL } from "@/lib/chain";
 import { WalletHoldingsView } from "@/app/components/WalletHoldingsView";
+import { WalletActionsPanel } from "@/app/components/WalletActionsPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -100,6 +101,14 @@ export default async function WalletPage({
                 {formatEth(holdings.ethBalanceWei)} ETH
               </div>
             </div>
+
+            <WalletActionsPanel
+              tokenId={tokenId}
+              tbaAddress={tbaAddress}
+              initialActivated={activated}
+              ethBalanceWei={holdings.ethBalanceWei}
+              tokenBalances={holdings.tokenBalances}
+            />
 
             <WalletHoldingsView
               nfts={holdings.nfts}
