@@ -4,6 +4,10 @@
     {
       "path": "/api/ai/process-scheduled",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/alpha/generate",
+      "schedule": "0 14 * * *"
     }
   ]
 }

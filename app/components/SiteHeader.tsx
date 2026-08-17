@@ -22,6 +22,7 @@ export function SiteHeader() {
         <nav className="hc-nav flex items-center gap-4 pb-1">
           <Link href="/">connect / claim</Link>
           <Link href="/board">board</Link>
+          <Link href="/alpha">alpha</Link>
           <WalletHeaderWidget />
         </nav>
       </div>

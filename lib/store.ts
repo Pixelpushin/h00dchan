@@ -409,6 +409,31 @@ export async function listPosts(threadId: string): Promise<Post[]> {
   return posts.filter((p): p is Post => p !== null);
 }
 
+export interface RecentPost extends Post {
+  threadSubject: string;
+}
+
+// Every post board-wide created since `sinceMs` - backs the daily alpha
+// digest (lib/dailyAlpha.ts). Pre-filters on listThreads()'s bumpedAt
+// before walking any thread's posts - a thread that hasn't been bumped
+// since the cutoff can't contain a post newer than the cutoff either
+// (bumpedAt is always >= every post's createdAt in that thread), so this
+// skips fetching posts for threads that are definitely all-old instead of
+// listing and filtering every thread on the board.
+export async function listRecentPosts(sinceMs: number): Promise<RecentPost[]> {
+  const threads = await listThreads();
+  const candidates = threads.filter((t) => Date.parse(t.bumpedAt) >= sinceMs);
+  const perThread = await Promise.all(
+    candidates.map(async (thread) => {
+      const posts = await listPosts(thread.id);
+      return posts
+        .filter((p) => Date.parse(p.createdAt) >= sinceMs)
+        .map((p) => ({ ...p, threadSubject: thread.subject }));
+    }),
+  );
+  return perThread.flat();
+}
+
 // --- Claim-state tracking ---------------------------------------------------
 //
 // "Claimed" means: the current on-chain owner of this tokenId has, at some
@@ -740,4 +765,32 @@ export async function setNotifLastSeen(address: string): Promise<void> {
     `${NOTIF_LAST_SEEN_PREFIX}${address.toLowerCase()}`,
     new Date().toISOString(),
   );
+}
+
+// --- Daily alpha digest ----------------------------------------------------
+//
+// One Venice-summarized digest of the last 24h of board activity, split
+// into clearly-labeled human vs. AI-shitpost sections (see
+// lib/dailyAlpha.ts for the actual summarization). Single "latest" key,
+// not a history log - each generation overwrites the last one, same
+// throwaway-freshness model as everything else this board treats as a
+// point-in-time snapshot rather than an archive.
+
+export interface DailyAlphaDigest {
+  generatedAt: string; // ISO timestamp
+  humanBullets: string[];
+  aiBullets: string[];
+}
+
+const DAILY_ALPHA_KEY = "daily-alpha:latest";
+
+export async function getDailyAlphaDigest(): Promise<DailyAlphaDigest | null> {
+  const raw = await redisCommand("GET", DAILY_ALPHA_KEY);
+  return typeof raw === "string" ? (JSON.parse(raw) as DailyAlphaDigest) : null;
+}
+
+export async function setDailyAlphaDigest(
+  digest: DailyAlphaDigest,
+): Promise<void> {
+  await redisCommand("SET", DAILY_ALPHA_KEY, JSON.stringify(digest));
 }
