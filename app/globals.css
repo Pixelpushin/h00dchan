@@ -84,16 +84,24 @@ body {
   opacity: 0.9;
 }
 
+/* Same pill-button look as hc-wallet-connect-btn (Connect Wallet), so the
+   nav reads as a row of buttons instead of a row of plain text links. */
 .hc-nav a {
+  display: inline-flex;
+  align-items: center;
   color: #fff7e6;
-  font-weight: 600;
-  font-size: 0.85rem;
+  font-weight: 700;
+  font-size: 0.75rem;
   text-decoration: none;
-  border-bottom: 1px dotted transparent;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 247, 230, 0.55);
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  line-height: 1;
 }
 
 .hc-nav a:hover {
-  border-bottom-color: #fff7e6;
+  background: rgba(0, 0, 0, 0.35);
 }
 
 /* --- Header wallet widget (app/components/WalletHeaderWidget.tsx) ------- */

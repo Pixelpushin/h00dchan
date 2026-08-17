@@ -27,7 +27,7 @@ export function SiteHeader() {
             target="_blank"
             rel="noopener noreferrer"
           >
-            artist
+            Artist page
           </a>
           <WalletHeaderWidget />
         </nav>
