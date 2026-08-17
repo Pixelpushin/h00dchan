@@ -15,6 +15,9 @@
 //   post:<id>               - JSON-encoded Post
 //   threads:index           - ZSET of thread ids, score = bumpedAt (ms)
 //   posts:<threadId>        - LIST of post ids in reply order (OP first)
+//   posts-by-token:<tokenId> - LIST of every post id an anon has ever made,
+//                              across every thread, oldest first (profile
+//                              page post history)
 //   claimed:<tokenId>       - JSON-encoded ClaimRecord (address + claimedAt)
 //   rarity-index             - JSON-encoded RarityIndex (whole-collection blob)
 //   ai-last-post:<tokenId>  - ISO timestamp string, last AI post cooldown
@@ -281,6 +284,7 @@ async function writeThread(thread: Thread): Promise<void> {
 async function writePost(post: Post): Promise<void> {
   await redisCommand("SET", `post:${post.id}`, JSON.stringify(post));
   await redisCommand("RPUSH", `posts:${post.threadId}`, post.id);
+  await redisCommand("RPUSH", `posts-by-token:${post.tokenId}`, post.id);
   invalidateListThreadsCache();
 }
 
@@ -485,6 +489,47 @@ export async function listPosts(threadId: string): Promise<Post[]> {
     }),
   );
   return posts.filter((p): p is Post => p !== null);
+}
+
+export interface PostWithThreadSubject extends Post {
+  threadSubject: string | null;
+}
+
+// Profile page post history - newest first, capped rather than the full
+// list (an active anon could rack up hundreds of posts; the profile only
+// ever shows a preview, not a full archive). Reads posts-by-token's LIST
+// directly rather than scanning listThreads()/listPosts() per-thread the
+// way an ad-hoc lookup would - that's exactly the unbounded-fan-out shape
+// this session already found and fixed once for the home page's Redis
+// load, no reason to reintroduce the same class of bug here.
+export async function listPostsByToken(
+  tokenId: string,
+  limit = 20,
+): Promise<PostWithThreadSubject[]> {
+  const ids = (await redisCommand(
+    "LRANGE",
+    `posts-by-token:${tokenId}`,
+    -limit,
+    -1,
+  )) as string[];
+  const posts = await Promise.all(
+    ids.map(async (id) => {
+      const raw = await redisCommand("GET", `post:${id}`);
+      if (typeof raw !== "string") return null;
+      const post = JSON.parse(raw) as Post;
+      const thread = await readThread(post.threadId);
+      return { ...post, threadSubject: thread?.subject ?? null };
+    }),
+  );
+  return posts.filter((p): p is PostWithThreadSubject => p !== null).reverse(); // oldest-first LIST -> newest-first for display
+}
+
+// Cheap total count for a profile page stat ("posted N times") without
+// resolving every post body - LLEN is O(1) in Redis regardless of list
+// size, unlike listPostsByToken's per-post GET fan-out above.
+export async function countPostsByToken(tokenId: string): Promise<number> {
+  const count = await redisCommand("LLEN", `posts-by-token:${tokenId}`);
+  return typeof count === "number" ? count : 0;
 }
 
 export interface RecentPost extends Post {

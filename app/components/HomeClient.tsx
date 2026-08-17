@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { onAccountsChanged, signMessage } from "@/lib/wallet";
 import { WhatIsHoodchan } from "@/app/components/WhatIsHoodchan";
 import { AdBanner, type PaidAd } from "@/app/components/AdBanner";
@@ -563,7 +564,12 @@ export default function HomeClient({
                         key={token.tokenId}
                         className="hc-box overflow-hidden"
                       >
-                        <TokenImage token={token} />
+                        <Link
+                          href={`/wallet/${token.tokenId}`}
+                          className="block"
+                        >
+                          <TokenImage token={token} />
+                        </Link>
                         <div className="p-2 text-center">
                           <div className="hc-post-tokenid text-sm mb-2">
                             Anon #{token.tokenId}

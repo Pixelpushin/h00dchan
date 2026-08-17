@@ -68,12 +68,14 @@ function PostCard({
         }
       >
         {metadata && (
-          <PostImage
-            rawImageUri={rawImageUri}
-            fallbackSrc={metadata.image}
-            alt={metadata.name}
-            className={`hc-post-image object-cover ${isOp ? "w-40 h-40 shrink-0" : "w-20 h-20 shrink-0"}`}
-          />
+          <Link href={`/wallet/${post.tokenId}`} className="shrink-0">
+            <PostImage
+              rawImageUri={rawImageUri}
+              fallbackSrc={metadata.image}
+              alt={metadata.name}
+              className={`hc-post-image object-cover ${isOp ? "w-40 h-40" : "w-20 h-20"}`}
+            />
+          </Link>
         )}
         <div className="flex-1">
           <PostBody text={post.body} />

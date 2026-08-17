@@ -50,20 +50,18 @@ export async function PopularThreads({
                 ? metadata.raw.image
                 : "";
             return (
-              <Link
-                key={thread.id}
-                href={`/board/${thread.id}`}
-                className="hc-box block overflow-hidden"
-              >
+              <div key={thread.id} className="hc-box overflow-hidden">
                 {metadata && (
-                  <PostImage
-                    rawImageUri={rawImageUri}
-                    fallbackSrc={metadata.image}
-                    alt={metadata.name}
-                    className="w-full aspect-[2/1] object-cover"
-                  />
+                  <Link href={`/wallet/${thread.tokenId}`} className="block">
+                    <PostImage
+                      rawImageUri={rawImageUri}
+                      fallbackSrc={metadata.image}
+                      alt={metadata.name}
+                      className="w-full aspect-[2/1] object-cover"
+                    />
+                  </Link>
                 )}
-                <div className="p-2">
+                <Link href={`/board/${thread.id}`} className="block p-2">
                   <div className="hc-thread-subject text-sm truncate">
                     {thread.subject}
                   </div>
@@ -73,8 +71,8 @@ export async function PopularThreads({
                       ? "1 reply"
                       : `${thread.replyCount} replies`}
                   </div>
-                </div>
-              </Link>
+                </Link>
+              </div>
             );
           })}
         </div>

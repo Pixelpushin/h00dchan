@@ -366,6 +366,42 @@ body {
   transform: translateX(15px);
 }
 
+/* Anon profile page (/wallet/[tokenId]) - status pills and avatar framing */
+.hc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--hc-box-border);
+  color: var(--hc-muted);
+  white-space: nowrap;
+}
+
+.hc-badge-human {
+  color: var(--hc-greentext);
+  border-color: var(--hc-greentext);
+}
+
+.hc-badge-ai {
+  color: var(--hc-maroon-dark);
+  border-color: var(--hc-maroon-dark);
+}
+
+.hc-badge-rare {
+  color: #8a6d1f;
+  border-color: #c9a227;
+  background: #fdf6e0;
+}
+
+.hc-profile-avatar {
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+
 .hc-post-image {
   border: 1px solid var(--hc-box-border);
   background: #fff;
