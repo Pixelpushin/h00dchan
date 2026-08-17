@@ -422,25 +422,32 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  min-height: 42px;
+  min-height: 26px;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 0.4rem;
-  padding: 0.35rem 0.55rem 0.35rem;
-  /* Broadcast-style "lower third", not just a soft image fade - a crisp
-     accent line at the top edge separates the plate from the art
-     cleanly, and the band itself is a flatter, more solid fill (short
-     fade distance) instead of a long gradient smear. */
-  border-top: 2px solid var(--hc-header-to);
-  background: linear-gradient(
-    to top,
-    rgba(20, 12, 8, 0.92) 0%,
-    rgba(20, 12, 8, 0.92) 70%,
-    rgba(20, 12, 8, 0) 100%
-  );
-  border-bottom-left-radius: 6px;
-  border-bottom-right-radius: 6px;
+  margin: 0 6px 6px;
+  padding: 0.3rem 0.6rem 0.3rem 0.75rem;
+  /* Angled "esports HUD" nameplate, not a soft image fade - a slanted
+     parallelogram bar floating just above the image's bottom edge, with
+     a diagonal accent wedge cut into its leading edge. Matches the
+     reference style explicitly requested (grey slanted bar + colored
+     accent chevron) instead of a plain rectangular gradient band. */
+  background: rgba(20, 12, 8, 0.92);
+  clip-path: polygon(10px 0%, 100% 0%, calc(100% - 10px) 100%, 0% 100%);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.hc-profile-card-plate::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  background: var(--hc-header-to);
+  clip-path: polygon(10px 0%, 100% 0%, calc(100% - 10px) 100%, 0% 100%);
 }
 
 .hc-profile-card-name {
@@ -450,7 +457,6 @@ body {
   font-weight: 700;
   font-size: 0.75rem;
   line-height: 1.2;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
 
 .hc-profile-card-level {
@@ -459,15 +465,19 @@ body {
   font-weight: 700;
   font-size: 0.7rem;
   line-height: 1.2;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
 
 /* Compact variant for small reply thumbnails (80px) - same idea, scaled
    down so the plate doesn't overwhelm a tiny image. */
 .hc-profile-card-sm .hc-profile-card-plate {
-  min-height: 22px;
-  padding: 0.15rem 0.3rem;
-  border-top-width: 1px;
+  min-height: 16px;
+  margin: 0 3px 3px;
+  padding: 0.1rem 0.3rem 0.1rem 0.4rem;
+}
+
+.hc-profile-card-sm .hc-profile-card-plate::before {
+  width: 7px;
+  left: -3px;
 }
 
 .hc-profile-card-sm .hc-profile-card-name {
