@@ -5,6 +5,7 @@ import {
   getOrFetchTokenMetadata,
   isTokenClaimed,
   listPostsByToken,
+  listThreads,
   readRarityIndex,
 } from "@/lib/store";
 import { isValidTokenId } from "@/lib/persona";
@@ -14,6 +15,7 @@ import { PostImage } from "@/app/components/PostImage";
 import { BLOCK_EXPLORER_URL, CONTRACT } from "@/lib/chain";
 import { WalletHoldingsView } from "@/app/components/WalletHoldingsView";
 import { WalletActionsPanel } from "@/app/components/WalletActionsPanel";
+import { computeLevelProgress } from "@/lib/leveling";
 
 export const dynamic = "force-dynamic";
 
@@ -53,17 +55,32 @@ export default async function WalletPage({
   const { tokenId } = await params;
   if (!isValidTokenId(tokenId)) notFound();
 
-  const [metadata, tbaAddress, claimed, rarityIndex, posts, postCount] =
-    await Promise.all([
-      getOrFetchTokenMetadata(tokenId).catch(() => null),
-      computeTbaAddress(tokenId),
-      isTokenClaimed(tokenId).catch(() => false),
-      readRarityIndex().catch(() => null),
-      listPostsByToken(tokenId, 20).catch(() => []),
-      countPostsByToken(tokenId).catch(() => 0),
-    ]);
+  const [
+    metadata,
+    tbaAddress,
+    claimed,
+    rarityIndex,
+    posts,
+    postCount,
+    threads,
+  ] = await Promise.all([
+    getOrFetchTokenMetadata(tokenId).catch(() => null),
+    computeTbaAddress(tokenId),
+    isTokenClaimed(tokenId).catch(() => false),
+    readRarityIndex().catch(() => null),
+    listPostsByToken(tokenId, 20).catch(() => []),
+    countPostsByToken(tokenId).catch(() => 0),
+    listThreads().catch(() => []),
+  ]);
 
   const activated = await isTbaActivated(tbaAddress);
+  const threadsStarted = threads.filter((t) => t.tokenId === tokenId).length;
+  const levelProgress = computeLevelProgress({
+    claimed,
+    walletActivated: activated,
+    threadsStarted,
+    totalPosts: postCount,
+  });
 
   let holdings: WalletHoldings | null = null;
   let holdingsError: string | null = null;
@@ -129,6 +146,46 @@ export default async function WalletPage({
                 </span>
               )}
               <span className="hc-badge opacity-70">{postCount} posts</span>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="hc-title" style={{ fontSize: "0.8rem" }}>
+                  Level {levelProgress.level}
+                </span>
+                <span className="hc-thread-meta">
+                  {levelProgress.xpIntoLevel} / {levelProgress.xpForNextLevel}{" "}
+                  XP
+                </span>
+              </div>
+              <div className="hc-progress-track">
+                <div
+                  className="hc-progress-fill"
+                  style={{
+                    width: `${(levelProgress.xpIntoLevel / levelProgress.xpForNextLevel) * 100}%`,
+                  }}
+                />
+              </div>
+              <details className="mt-1.5">
+                <summary className="hc-link text-xs cursor-pointer">
+                  how to level up
+                </summary>
+                <ul className="hc-thread-meta text-xs mt-1.5 flex flex-col gap-1">
+                  {levelProgress.quests.map((quest) => (
+                    <li key={quest.id}>
+                      {quest.done ? (
+                        <span style={{ color: "var(--hc-greentext)" }}>✓</span>
+                      ) : (
+                        <span className="opacity-50">☐</span>
+                      )}{" "}
+                      {quest.label} (+{quest.xp} XP)
+                    </li>
+                  ))}
+                  <li className="opacity-80">
+                    ★ every post keeps earning XP (+10 XP each, no limit)
+                  </li>
+                </ul>
+              </details>
             </div>
 
             <a
