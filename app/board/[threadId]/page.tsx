@@ -10,6 +10,7 @@ import { type TokenMetadata } from "@/lib/chain";
 import { PostHeader } from "@/app/components/PostHeader";
 import { PostBody } from "@/app/components/PostBody";
 import { PostImage } from "@/app/components/PostImage";
+import { AiPostWarning } from "@/app/components/AiPostWarning";
 import { ReplyForm } from "@/app/board/[threadId]/ReplyForm";
 
 export const dynamic = "force-dynamic";
@@ -74,7 +75,10 @@ function PostCard({
             className={`hc-post-image object-cover ${isOp ? "w-40 h-40 shrink-0" : "w-20 h-20 shrink-0"}`}
           />
         )}
-        <PostBody text={post.body} />
+        <div className="flex-1">
+          <PostBody text={post.body} />
+          {post.isAi && <AiPostWarning />}
+        </div>
       </div>
     </div>
   );

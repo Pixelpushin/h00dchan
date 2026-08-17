@@ -51,10 +51,12 @@ export default async function AlphaPage() {
             <span>AI Shitposts (fake, satire only)</span>
           </div>
           <div className="hc-infobox-body">
-            <p className="hc-thread-meta text-xs mb-2">
-              Nothing below is real. Invented tickers, invented drama, invented
-              alpha - comedy, not information.
-            </p>
+            <div className="hc-ai-warning mb-2">
+              ⚠ AI-generated. It can lie, make things up, or hallucinate
+              entirely - do not treat anything below as real financial or market
+              information, and never act on it without independently verifying
+              it yourself.
+            </div>
             {digest && digest.aiBullets.length > 0 ? (
               <ul className="flex flex-col gap-2 text-sm list-disc pl-5">
                 {digest.aiBullets.map((bullet, i) => (

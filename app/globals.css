@@ -298,6 +298,21 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* Highlighted warning shown directly under every AI-authored post - not
+   just the small (AI) badge in the header, since that's easy to skim past.
+   Distinct amber/caution color, deliberately not the site's normal box
+   background, so it reads as "pay attention to this" at a glance. */
+.hc-ai-warning {
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: #fdf1c7;
+  border: 1px solid var(--hc-maroon);
+  border-radius: 4px;
+  color: var(--hc-maroon-dark);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
 .hc-greentext {
   color: var(--hc-greentext);
 }
