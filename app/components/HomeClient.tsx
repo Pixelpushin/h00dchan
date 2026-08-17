@@ -28,10 +28,6 @@ interface TbaInfo {
   activated: boolean;
 }
 
-function truncateAddress(address: string): string {
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
-}
-
 // GET /api/claim?tokenId=X - public, read-only real claimed status (see
 // app/api/claim/route.ts). Separate from useActivePersona: that tracks
 // "which one anon am I currently posting as" (a single session-scoped
@@ -268,8 +264,21 @@ export default function HomeClient({
   // uses this to stop the batch on the first failure (most likely the user
   // rejecting a wallet prompt) instead of firing several more signature
   // requests in a row regardless.
+  //
+  // options.forceActive: only the explicit "Post as this anon instead"
+  // button (switching identity is the entire point of that click) passes
+  // this. Every other caller - activating a single newly-acquired anon, or
+  // the bulk Activate All flow below - leaves it unset, so activating a
+  // brand-new anon never silently steals the "posting as" slot away from
+  // whichever anon you were already chatting as. Real bug this fixes: a
+  // holder who bought and activated more NFTs found their active chat
+  // identity had switched to one of the new ones with no warning, because
+  // this used to call savePersona() unconditionally on every claim.
   const handleClaim = useCallback(
-    async (token: TokenMetadata): Promise<boolean> => {
+    async (
+      token: TokenMetadata,
+      options?: { forceActive?: boolean },
+    ): Promise<boolean> => {
       if (!address) return false;
       setClaimingId(token.tokenId);
       setClaimStage("preparing");
@@ -279,7 +288,7 @@ export default function HomeClient({
         const message = buildAuthMessage(token.tokenId, address, issuedAt);
         setClaimStage("signing");
         const signature = await signMessage(address, message);
-        const persona = {
+        const claim = {
           tokenId: token.tokenId,
           address,
           signature,
@@ -290,7 +299,7 @@ export default function HomeClient({
         const res = await fetch("/api/claim", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(persona),
+          body: JSON.stringify(claim),
         });
         if (!res.ok) {
           const body = await res.json().catch(() => null);
@@ -302,7 +311,9 @@ export default function HomeClient({
         }
 
         setClaimedTokens((current) => ({ ...current, [token.tokenId]: true }));
-        savePersona(persona);
+        if (options?.forceActive || !persona) {
+          savePersona(claim);
+        }
         return true;
       } catch (err) {
         setError(
@@ -316,7 +327,7 @@ export default function HomeClient({
         setClaimStage(null);
       }
     },
-    [address, savePersona],
+    [address, persona, savePersona],
   );
 
   // One signature covers every pending token (lib/persona.ts's
@@ -425,7 +436,11 @@ export default function HomeClient({
         }
       }
 
-      if (activePersona) savePersona(activePersona);
+      // Only claim the "posting as" slot if nothing was already active -
+      // same rule as handleClaim above. Bulk-activating a batch of
+      // newly-acquired anons is a "stop the AI from ghost-posting these"
+      // action, not a request to switch who you're currently chatting as.
+      if (activePersona && !persona) savePersona(activePersona);
 
       if (allFailed.length > 0) {
         setError(
@@ -443,7 +458,7 @@ export default function HomeClient({
       setBulkStage(null);
       setBulkProgress(null);
     }
-  }, [address, tokens, claimedTokens, savePersona]);
+  }, [address, tokens, claimedTokens, persona, savePersona]);
 
   const handleChat = useCallback(() => {
     router.push("/board");
@@ -575,30 +590,29 @@ export default function HomeClient({
                             Anon #{token.tokenId}
                           </div>
                           {wallet && (
-                            // "smart wallet ... deployed/not deployed", not
-                            // "active"/"not yet activated" - this is the
-                            // token-bound account's on-chain deployment
-                            // status (see lib/tba.ts), a totally separate
-                            // concept from whether you can post as this
-                            // anon (that's the claimed/Activate button
-                            // below). The old "not yet activated" wording
-                            // read as if it were blocking the Activate
-                            // button, which it never did - real user
-                            // confusion traced back to this exact label.
+                            // Plain-English status + a clear next step,
+                            // not crypto jargon ("smart wallet", "deployed")
+                            // - a holder who doesn't speak technical English
+                            // needs to know what to DO, not what the
+                            // on-chain term for it is. Separate concept from
+                            // whether you can post as this anon (that's the
+                            // claimed/Activate button below) - this link
+                            // just goes to the wallet page where the real
+                            // "turn on sending" button lives.
                             <a
                               href={`/wallet/${token.tokenId}`}
-                              className="hc-thread-meta mb-2 block font-mono text-[0.65rem] hover:underline"
+                              className="hc-thread-meta mb-2 block text-[0.7rem] hover:underline"
                               title={wallet.address}
                             >
-                              smart wallet: {truncateAddress(wallet.address)}{" "}
                               {wallet.activated ? (
                                 <span style={{ color: "var(--hc-greentext)" }}>
-                                  · deployed
+                                  ✓ this anon&apos;s wallet can send &amp;
+                                  receive money
                                 </span>
                               ) : (
-                                <span className="opacity-70">
-                                  · not deployed (optional, doesn&apos;t affect
-                                  posting)
+                                <span>
+                                  this anon has a wallet that can receive money
+                                  → tap to turn on sending
                                 </span>
                               )}
                             </a>
@@ -619,7 +633,9 @@ export default function HomeClient({
                                 ✓ Activated
                               </span>
                               <button
-                                onClick={() => handleClaim(token)}
+                                onClick={() =>
+                                  handleClaim(token, { forceActive: true })
+                                }
                                 disabled={isClaiming}
                                 className="hc-button-ghost hc-button w-full text-xs"
                               >
