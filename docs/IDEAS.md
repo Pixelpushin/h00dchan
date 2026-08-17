@@ -24,6 +24,57 @@ Two deployment steps once we're ready:
   to any UI yet). Their gas, their choice, only needed once they want to
   send/spend, not to receive.
 
+### Step A prep, confirmed live 2026-08-17
+
+Checked directly against Robinhood Chain via raw `eth_getCode`, not
+assumed:
+- The standard CREATE2 singleton factory ("Nick's Method",
+  `0x4e59b44847b379578588920cA78FbF26c0B4956C`) is **already live** on
+  Robinhood Chain with the exact expected bytecode - the prerequisite for
+  any contract to land at the same deterministic address as it does on
+  every other chain.
+- `REGISTRY_ADDRESS` (`0x000000006551c19487814612e58FE06813775758`) already
+  has real deployed code on Robinhood Chain.
+- `IMPLEMENTATION_ADDRESS` (`0x41C8f39463A868d3A88af00cd0fe7102F30E44eC`)
+  is still empty (`eth_getCode` -> `"0x"`), confirming Step A genuinely
+  hasn't happened yet.
+
+Tokenbound has an official self-serve tool for exactly this:
+**https://tokenbound-v3-deployer.vercel.app/** - inspected live (no wallet
+connected, nothing deployed by this session). It lists 7 contracts
+(Create2 Factory, ERC-6551 Registry, V3 Account Proxy, V3 Account
+Implementation, V3 Account Guardian, Authenticated Multicall, LayerZero V2
+Executor), each with its own address and a one-click "Deploy" button once
+a wallet is connected on the target chain. The addresses it lists for
+"ERC-6551 Registry" and "V3 Account Implementation" match `lib/tba.ts`'s
+`REGISTRY_ADDRESS`/`IMPLEMENTATION_ADDRESS` exactly - independent
+confirmation the hardcoded values are correct.
+
+**What Brady needs to actually do (real gas, real signature - not
+something to automate):**
+1. Have a wallet funded with a small amount of Robinhood Chain ETH for gas.
+2. On the deployer tool, click "Add a chain" -> Name `Robinhood Chain`,
+   Chain ID `4663`, RPC URL `https://rpc.mainnet.chain.robinhood.com` ->
+   switch the connected wallet to it.
+3. Connect wallet. Factory and Registry rows should already read
+   "Deployed" once the right chain is selected (both confirmed live
+   above) - skip those.
+4. Click "Deploy" on **V3 Account Proxy**, then **V3 Account
+   Implementation**, then **V3 Account Guardian**, then **Authenticated
+   Multicall**, in that order (top to bottom as listed) - 4 separate
+   signed transactions, real gas each. Skip **LayerZero V2 Executor**
+   unless cross-chain messaging is ever wanted - not needed for basic
+   same-chain send/spend.
+5. **Verification gate:** after "V3 Account Implementation" shows
+   deployed, the resulting address must read exactly
+   `0x41C8f39463A868d3A88af00cd0fe7102F30E44eC`. If it doesn't match, stop
+   and don't deploy anything else - that would mean the wrong chain was
+   selected or something else is off.
+6. Once confirmed, Step A is done - I can independently re-verify via
+   `eth_getCode` (no wallet needed for that check) and then build Step B's
+   UI (the "activate my wallet" button, code for it already exists in
+   `lib/tba.ts`'s `buildCreateAccountTx`, just never wired to anything).
+
 ### Idea: gate Step B behind burning something, instead of a free button
 
 Explored 2026-08-17. Two different versions of this came up - worth
