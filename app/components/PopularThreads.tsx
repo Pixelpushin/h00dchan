@@ -53,28 +53,22 @@ export async function PopularThreads({
               <Link
                 key={thread.id}
                 href={`/board/${thread.id}`}
-                className="hc-box hc-profile-card block overflow-hidden"
+                className="hc-box block overflow-hidden"
               >
                 {metadata && (
-                  <>
-                    <PostImage
-                      rawImageUri={rawImageUri}
-                      fallbackSrc={metadata.image}
-                      alt={metadata.name}
-                      className="w-full aspect-[2/1] object-cover"
-                    />
-                    <div className="hc-profile-card-plate">
-                      <span className="hc-profile-card-name">
-                        Anon #{thread.tokenId}
-                      </span>
-                    </div>
-                  </>
+                  <PostImage
+                    rawImageUri={rawImageUri}
+                    fallbackSrc={metadata.image}
+                    alt={metadata.name}
+                    className="w-full aspect-[2/1] object-cover"
+                  />
                 )}
                 <div className="p-2">
                   <div className="hc-thread-subject text-sm truncate">
                     {thread.subject}
                   </div>
                   <div className="hc-thread-meta">
+                    Anon #{thread.tokenId} ·{" "}
                     {thread.replyCount === 1
                       ? "1 reply"
                       : `${thread.replyCount} replies`}
