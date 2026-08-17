@@ -68,3 +68,48 @@ Neither built yet. Revisit once Step A is actually decided/scheduled.
 to test receiving into a counterfactual TBA - this already works today,
 no deployment needed. Good next step: confirm it shows up correctly on
 `/wallet/[tokenId]` once sent.
+
+## Idea: "log in with Bankr wallet" as a login option
+
+Explored 2026-08-17 (docs read: `docs.bankr.bot` - LLM Gateway, Wallet API,
+Agent API, Apps, Agent Profiles sections). The ask: let X users who already
+trade through the @bankr bot use that same wallet to log into h00dchan,
+instead of needing a separate wallet connected via WalletConnect.
+
+**What's actually there, not what was assumed:**
+- No OAuth / "Sign in with Bankr" / wallet-connect flow exists for
+  third-party sites. Checked every plausible section (`/apps`,
+  `/agent-profiles`, `/wallet-api`, `/agent-api`) - none of them document
+  one.
+- No public API to resolve "this X handle -> this wallet address" either.
+- Bankr wallets are Privy-embedded wallets controlled only through Bankr's
+  own API/agent - not a normal EOA a user can plug into MetaMask/
+  WalletConnect the way h00dchan's existing login already works for any
+  other wallet.
+- The only real API surface is the **Wallet API**
+  (`https://api.bankr.bot`): `GET /wallet/me` (address),
+  `GET /wallet/portfolio`, `POST /wallet/sign`, `POST /wallet/submit`,
+  `POST /wallet/swap`, `POST /wallet/transfer` - all gated behind one
+  bearer-style key (`X-API-Key: bk_...`) a user generates themselves at
+  bankr.bot/api-keys.
+
+**The real bridge, if we ever build this:** user pastes their own Bankr
+API key into h00dchan -> we call `/wallet/me` for their address -> call
+`/wallet/sign` with our existing SIWE challenge message -> verify that
+signature exactly like any other wallet login (`lib/auth-server.ts`
+already does this verification step for every login, wallet-agnostic).
+Technically works, slots into the existing auth path with no new backend
+concept needed.
+
+**Why this isn't a clean "connect wallet" button:** the same key that can
+sign our login challenge can also sign `/wallet/swap` and
+`/wallet/transfer` - it's not a scoped, login-only credential. A user
+pasting it into h00dchan hands us something closer to an exchange API key
+with withdraw permission than a wallet-connect session. Real, bounded risk
+if we ever build it (never store the key, use once per session, discard
+immediately, tell users to scope it to "Wallet API" only and not enable
+"Agent API" on that key) - but still a materially different trust ask than
+every other login method this site offers.
+
+**Not built. Revisit if Bankr ships a real scoped login-only flow, or if
+the bounded-risk version above becomes worth it later.**
