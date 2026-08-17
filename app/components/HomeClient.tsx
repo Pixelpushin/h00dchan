@@ -172,20 +172,57 @@ export default function HomeClient({
     setClaimedTokens({});
     try {
       const cached = readWalletCache(owner);
-      const params = new URLSearchParams({ address: owner });
-      if (cached) {
-        params.set("fromBlock", nextBlockHex(cached.lastScannedBlock));
-        params.set("knownTokenIds", cached.tokenIds.join(","));
+
+      const fetchWalletTokens = async (useCache: boolean) => {
+        const params = new URLSearchParams({ address: owner });
+        if (useCache && cached) {
+          params.set("fromBlock", nextBlockHex(cached.lastScannedBlock));
+          params.set("knownTokenIds", cached.tokenIds.join(","));
+        }
+        const res = await fetch(`/api/wallet-tokens?${params}`);
+        const body = await res.json().catch(() => null);
+        if (!res.ok) {
+          throw new Error(
+            typeof body?.error === "string"
+              ? body.error
+              : `Unable to load tokens (${res.status}).`,
+          );
+        }
+        return body as {
+          tokenIds: string[];
+          lastScannedBlock: string;
+          wallets?: Record<string, TbaInfo>;
+        };
+      };
+
+      let walletBody = await fetchWalletTokens(true);
+
+      // An incremental scan (built on a cached tokenIds list + "only scan
+      // blocks since last time") can only ever ADD tokens to what was
+      // already cached, or drop ones that sold - it can never recover from
+      // a cache that was wrong to begin with. Caught live: a real holder's
+      // browser had somehow cached an EMPTY tokenIds list (almost
+      // certainly from an earlier, now-fixed bug earlier this same
+      // session), which silently poisoned every future visit into
+      // reporting "0 tokens" forever - the incremental request kept
+      // faithfully returning "nothing new since last time" against a
+      // "last time" that was already wrong (empty), with no error anywhere
+      // to signal it. A from-scratch scan for the same address (no
+      // fromBlock/knownTokenIds - what a first-ever visit or a different
+      // browser/origin does) found the real tokens immediately.
+      //
+      // The retry below deliberately does NOT require cached.tokenIds to
+      // have been non-empty - an EMPTY cache is exactly the poisoned state
+      // this was caught with, and requiring a prior non-empty cache would
+      // have silently skipped retrying the one case that actually needed
+      // it (caught by re-testing this fix against the exact reproduction
+      // before shipping it). Any incremental scan (cached !== null) that
+      // comes back with zero tokens is worth one full-scan double-check
+      // before trusting and re-caching "you really do have zero."
+      if (cached && walletBody.tokenIds.length === 0) {
+        walletBody = await fetchWalletTokens(false);
       }
-      const walletRes = await fetch(`/api/wallet-tokens?${params}`);
-      const walletBody = await walletRes.json().catch(() => null);
-      if (!walletRes.ok) {
-        throw new Error(
-          typeof walletBody?.error === "string"
-            ? walletBody.error
-            : `Unable to load tokens (${walletRes.status}).`,
-        );
-      }
+
       const tokenIds: string[] = walletBody.tokenIds;
       const walletMap: Record<string, TbaInfo> = walletBody.wallets ?? {};
       writeWalletCache(owner, {
