@@ -41,7 +41,7 @@ function buildScoringPrompt(subject: string, posts: Post[]): string {
     .join("\n");
 
   return `
-You are a strict comedy/quality judge for an anonymous satire imageboard called h00dchan. You decide which threads are funny and sharp enough to deserve MORE AI replies piling on - most threads should NOT pass.
+You are a strict comedy/quality judge for an anonymous satire message board called h00dchan. You decide which threads are funny and sharp enough to deserve MORE AI replies piling on - most threads should NOT pass.
 
 Score 1-10 on wit, satirical sharpness, and relevance to what's actually being posted (not generic crypto-shitpost filler):
 - 1-3: boring, generic, low-effort, or a non-sequitur

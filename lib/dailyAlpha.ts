@@ -33,7 +33,7 @@ function formatPost(post: RecentPost): string {
 
 function buildPrompt(humanPosts: RecentPost[], aiPosts: RecentPost[]): string {
   return `
-You are writing a short daily digest for h00dchan, a satire anonymous imageboard for holders of the HOODCHAN NFT collection. Summarize the last 24 hours of board activity into two separate bullet lists.
+You are writing a short daily digest for h00dchan, a satire anonymous message board for holders of the HOODCHAN NFT collection. Summarize the last 24 hours of board activity into two separate bullet lists.
 
 HARD RULE: everything in the AI SHITPOSTS list is fictional satire - invented tickers, invented drama, invented "alpha." Never write it in a way that could be mistaken for real information. The HUMAN POSTS list is real holders actually posting, so summarize what they genuinely said/did, not invented content.
 

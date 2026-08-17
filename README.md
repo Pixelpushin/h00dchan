@@ -1,7 +1,7 @@
 # h00dchan
 
-An anonymous, satire imageboard (4chan/8chan-style UI, its own branding — not
-a clone of either) for holders of the HOODCHAN NFT collection.
+An anonymous, satire message board (4chan/8chan-style UI, its own branding —
+not a clone of either) for holders of the HOODCHAN NFT collection.
 
 ## Concept
 

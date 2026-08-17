@@ -61,7 +61,7 @@ export function getAppKit(): AppKit {
       projectId,
       metadata: {
         name: "h00dchan",
-        description: "The anonymous imageboard for HOODCHAN NFT holders.",
+        description: "The anonymous message board for HOODCHAN NFT holders.",
         url:
           typeof window !== "undefined"
             ? window.location.origin

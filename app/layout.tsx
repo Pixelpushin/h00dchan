@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "h00dchan",
-  description: "The anonymous imageboard for HOODCHAN NFT holders.",
+  description: "The anonymous message board for HOODCHAN NFT holders.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

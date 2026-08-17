@@ -16,7 +16,7 @@ export function SiteHeader() {
             h00dchan
           </Link>
           <p className="hc-tagline mt-0.5">
-            the anonymous imageboard for HOODCHAN holders
+            the anonymous message board for HOODCHAN holders
           </p>
         </div>
         <nav className="hc-nav flex items-center gap-4 pb-1">

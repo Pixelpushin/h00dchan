@@ -443,10 +443,20 @@ export default function HomeClient({
           <RentAdSpaceButton />
         </div>
         <AdBanner paidAds={paidAds} />
-        {!address ? (
-          <div className="w-full">{popularThreads}</div>
-        ) : (
-          <div className="w-full">
+        {address && (
+          // Collapsed by default (no `open` attribute) - the wallet/token
+          // section used to fully replace the board below whenever a
+          // wallet was connected (or even just while tokens were loading,
+          // or when none were found), so anyone who just wanted to browse
+          // lost the board entirely the moment they connected. Now it's a
+          // dismissible box that never hides anything else on the page.
+          <details className="hc-box w-full mb-4 px-4 py-3">
+            <summary className="cursor-pointer hc-title text-base">
+              Your wallet
+              {state === "ready" && tokens.length > 0
+                ? ` (${tokens.length} anon${tokens.length === 1 ? "" : "s"})`
+                : ""}
+            </summary>
             {state === "loading-tokens" && (
               <p className="text-center">
                 Scanning Robinhood Chain for your HOODCHAN tokens...
@@ -617,8 +627,10 @@ export default function HomeClient({
                 </div>
               </>
             )}
-          </div>
+          </details>
         )}
+
+        <div className="w-full">{popularThreads}</div>
 
         {error && (
           <p className="mt-6 text-sm text-center" style={{ color: "#a12b2b" }}>
