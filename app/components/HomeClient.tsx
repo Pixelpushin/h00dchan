@@ -16,10 +16,7 @@ import {
   MAX_BATCH_CLAIM_SIZE,
 } from "@/lib/persona";
 import {
-  nextBlockHex,
-  readWalletCache,
   readWalletRenderCache,
-  writeWalletCache,
   writeWalletRenderCache,
 } from "@/lib/walletCache";
 
@@ -147,39 +144,29 @@ export default function HomeClient({
     total: number;
   } | null>(null);
 
-  // Full history scan (fetchWalletTokensOnChain's eth_getLogs over the
-  // whole contract, from block 0) only ever needs to happen once per
-  // browser per address - after that, the cached token list + last scanned
-  // block let every later load (including a plain refresh, which used to
-  // re-run the full scan every single time) ask the chain for only what's
-  // changed since. Ownership is still re-verified live either way (see
-  // fetchWalletTokensOnChain), so a token sold away since the last visit is
-  // correctly dropped, not just accumulated.
-  // Wallet-token discovery (log scan + per-candidate ownerOf checks) and
+  // Wallet-token discovery (log scan + per-candidate ownerOf checks, each
+  // now retried once - see lib/chain.ts's fetchWalletTokensOnChain) and
   // TBA lookups (registry account() + getCode()) both go through
-  // /api/wallet-tokens now, server-to-server, instead of the browser
-  // calling Robinhood Chain's RPC directly - confirmed live (a real
-  // holder's browser console) that at high request volume (a wallet
-  // holding a lot of tokens generates dozens-to-hundreds of concurrent
-  // eth_calls) that RPC sometimes returns a malformed CORS header, which
-  // every browser correctly refuses and every affected request then
-  // silently drops (fetchWalletTokensOnChain's per-candidate checks
-  // catch-and-exclude failures) - tokens just quietly failed to appear,
-  // no visible error. Server-to-server fetches were never subject to that
-  // browser-only restriction in the first place.
-  // Two separate caches, two separate jobs. readWalletCache (lib/
-  // walletCache.ts) only remembers which token IDs an address holds and
-  // how far the on-chain scan got - it made repeat SCANS cheap, but every
-  // page load still re-fetched metadata/claimed-status/TBA info for every
-  // token from scratch before rendering anything, with a loading state the
-  // whole time. That's the "why is it scanning every time I open my
-  // wallet" complaint - it wasn't re-scanning the chain, but it was
-  // re-fetching everything needed to draw the grid, visibly, every time.
-  // readWalletRenderCache stores the actual last-rendered result: if
-  // present, it paints instantly (no loading state at all) while the real
-  // fetch below - still doing the real scan, still self-healing, still
-  // re-verifying ownership live - runs silently in the background and
-  // swaps in anything that actually changed once it resolves.
+  // /api/wallet-tokens, server-to-server, instead of the browser calling
+  // Robinhood Chain's RPC directly - confirmed live (a real holder's
+  // browser console) that at high request volume that RPC sometimes
+  // returns a malformed CORS header, which every browser correctly
+  // refuses; server-to-server was never subject to that restriction.
+  //
+  // Always a full scan, every time - this used to be incremental (a
+  // second cache remembering the last-scanned block + known token IDs, so
+  // a repeat visit only asked the chain for what changed), which hit the
+  // same root problem three separate times in production: an incremental
+  // result can only ever build on a cache that's already correct, and the
+  // self-heal heuristics needed to keep getting broader every time a new
+  // way for that cache to be quietly wrong turned up (poisoned-empty,
+  // then "smaller than before," ...). Removed the whole category instead
+  // of patching it a fourth time. What actually solves the UX problem
+  // incremental scanning was originally for is readWalletRenderCache
+  // below: it paints the last-known-good grid instantly, so the fetch in
+  // this function can just always be the slower-but-reliable full answer
+  // running silently in the background, with nothing for the user to
+  // wait on either way.
   const loadTokens = useCallback(async (owner: string) => {
     setError(null);
     const renderCache = readWalletRenderCache(owner);
@@ -194,77 +181,36 @@ export default function HomeClient({
       setClaimedTokens({});
     }
     try {
-      const cached = readWalletCache(owner);
-
-      const fetchWalletTokens = async (useCache: boolean) => {
-        const params = new URLSearchParams({ address: owner });
-        if (useCache && cached) {
-          params.set("fromBlock", nextBlockHex(cached.lastScannedBlock));
-          params.set("knownTokenIds", cached.tokenIds.join(","));
-        }
-        const res = await fetch(`/api/wallet-tokens?${params}`);
-        const body = await res.json().catch(() => null);
-        if (!res.ok) {
-          throw new Error(
-            typeof body?.error === "string"
-              ? body.error
-              : `Unable to load tokens (${res.status}).`,
-          );
-        }
-        return body as {
-          tokenIds: string[];
-          lastScannedBlock: string;
-          wallets?: Record<string, TbaInfo>;
-        };
-      };
-
-      let walletBody = await fetchWalletTokens(true);
-
-      // An incremental scan (built on a cached tokenIds list + "only scan
-      // blocks since last time") can only ever ADD tokens to what was
-      // already cached, or drop ones that sold - it can never recover from
-      // a cache that was wrong to begin with. Caught live: a real holder's
-      // browser had somehow cached an EMPTY tokenIds list (almost
-      // certainly from an earlier, now-fixed bug earlier this same
-      // session), which silently poisoned every future visit into
-      // reporting "0 tokens" forever - the incremental request kept
-      // faithfully returning "nothing new since last time" against a
-      // "last time" that was already wrong (empty), with no error anywhere
-      // to signal it. A from-scratch scan for the same address (no
-      // fromBlock/knownTokenIds - what a first-ever visit or a different
-      // browser/origin does) found the real tokens immediately.
-      //
-      // The retry below deliberately does NOT require cached.tokenIds to
-      // have been non-empty - an EMPTY cache is exactly the poisoned state
-      // this was caught with, and requiring a prior non-empty cache would
-      // have silently skipped retrying the one case that actually needed
-      // it (caught by re-testing this fix against the exact reproduction
-      // before shipping it).
-      //
-      // Broadened from "only retry on zero" after a second live report:
-      // a real 9-token wallet showed 9, then 3 on a plain reload - not
-      // zero, so the original guard didn't catch it. Root cause is one
-      // level deeper than the cache-poisoning bug above: readOwnerOf has
-      // no retry of its own, and fetchWalletTokensOnChain silently drops
-      // (catches to null) any single candidate whose live ownership
-      // recheck fails - a transient RPC blip on even one of several
-      // concurrent calls quietly shrinks the result, no error anywhere.
-      // Any incremental scan that comes back SMALLER than what was
-      // previously cached (not just empty) is exactly as suspicious - a
-      // holder is far more likely to have hit transient RPC flakiness
-      // than to have sold most of their collection in the seconds since
-      // the last visit - so it gets the same one full-scan double-check
-      // before being trusted and re-cached.
-      if (cached && walletBody.tokenIds.length < cached.tokenIds.length) {
-        walletBody = await fetchWalletTokens(false);
+      // Always a full scan now - no fromBlock/knownTokenIds. This used to
+      // be incremental (cache the last scanned block + known token IDs,
+      // only ask the chain for what changed since), which hit the same
+      // root problem three times in a row: an incremental result can only
+      // ever build on a cache that's already correct, and self-heal
+      // heuristics (retry on empty, then retry on "smaller than cached")
+      // kept needing to get broader every time a new way for the cache to
+      // be quietly wrong turned up. The instant-paint render cache above
+      // (readWalletRenderCache) is what actually solved the UX problem
+      // incremental scanning was originally for - the user already sees
+      // their last-known-good wallet immediately, so this background
+      // fetch can just always be the reliable, from-scratch answer instead
+      // of a faster-but-fragile shortcut. eth_getLogs itself is fast for a
+      // single address's Transfer history (confirmed live, ~300ms) - the
+      // per-candidate ownerOf re-verification below (now retried once per
+      // candidate) was always the real cost either way, incremental or not.
+      const res = await fetch(
+        `/api/wallet-tokens?${new URLSearchParams({ address: owner })}`,
+      );
+      const walletBody = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(
+          typeof walletBody?.error === "string"
+            ? walletBody.error
+            : `Unable to load tokens (${res.status}).`,
+        );
       }
 
       const tokenIds: string[] = walletBody.tokenIds;
       const walletMap: Record<string, TbaInfo> = walletBody.wallets ?? {};
-      writeWalletCache(owner, {
-        tokenIds,
-        lastScannedBlock: walletBody.lastScannedBlock,
-      });
 
       const [metadata, claimedFlags] = await Promise.all([
         Promise.all(tokenIds.map((id) => fetchTokenMetadataViaApi(id))),
