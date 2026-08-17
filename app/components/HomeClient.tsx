@@ -18,7 +18,9 @@ import {
 import {
   nextBlockHex,
   readWalletCache,
+  readWalletRenderCache,
   writeWalletCache,
+  writeWalletRenderCache,
 } from "@/lib/walletCache";
 
 type ClaimStage = "preparing" | "signing" | "confirming" | null;
@@ -165,11 +167,32 @@ export default function HomeClient({
   // catch-and-exclude failures) - tokens just quietly failed to appear,
   // no visible error. Server-to-server fetches were never subject to that
   // browser-only restriction in the first place.
+  // Two separate caches, two separate jobs. readWalletCache (lib/
+  // walletCache.ts) only remembers which token IDs an address holds and
+  // how far the on-chain scan got - it made repeat SCANS cheap, but every
+  // page load still re-fetched metadata/claimed-status/TBA info for every
+  // token from scratch before rendering anything, with a loading state the
+  // whole time. That's the "why is it scanning every time I open my
+  // wallet" complaint - it wasn't re-scanning the chain, but it was
+  // re-fetching everything needed to draw the grid, visibly, every time.
+  // readWalletRenderCache stores the actual last-rendered result: if
+  // present, it paints instantly (no loading state at all) while the real
+  // fetch below - still doing the real scan, still self-healing, still
+  // re-verifying ownership live - runs silently in the background and
+  // swaps in anything that actually changed once it resolves.
   const loadTokens = useCallback(async (owner: string) => {
-    setState("loading-tokens");
     setError(null);
-    setWallets({});
-    setClaimedTokens({});
+    const renderCache = readWalletRenderCache(owner);
+    if (renderCache) {
+      setTokens(renderCache.tokens as TokenMetadata[]);
+      setWallets(renderCache.wallets as Record<string, TbaInfo>);
+      setClaimedTokens(renderCache.claimedTokens);
+      setState("ready");
+    } else {
+      setState("loading-tokens");
+      setWallets({});
+      setClaimedTokens({});
+    }
     try {
       const cached = readWalletCache(owner);
 
@@ -245,7 +268,21 @@ export default function HomeClient({
       setWallets(walletMap);
       setClaimedTokens(claimedMap);
       setState("ready");
+      writeWalletRenderCache(owner, {
+        tokens: resolved,
+        wallets: walletMap,
+        claimedTokens: claimedMap,
+      });
     } catch (err) {
+      // If a render cache already painted something, a failed background
+      // refresh shouldn't blank the page out from under it - stale data
+      // the user already saw is better than replacing it with an error
+      // screen. Only show the hard error state when there was nothing on
+      // screen to begin with.
+      if (renderCache) {
+        console.error("Background wallet refresh failed", err);
+        return;
+      }
       setError(
         err instanceof Error ? err.message : "Unable to load HOODCHAN tokens.",
       );
