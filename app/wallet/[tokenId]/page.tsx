@@ -5,6 +5,7 @@ import { isValidTokenId } from "@/lib/persona";
 import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
 import { fetchWalletHoldings, type WalletHoldings } from "@/lib/alchemy";
 import { PostImage } from "@/app/components/PostImage";
+import { robinhoodChain } from "@/lib/appkit";
 
 export const dynamic = "force-dynamic";
 
@@ -77,9 +78,14 @@ export default async function WalletPage({
           )}
           <div>
             <h1 className="hc-title text-xl">Anon #{tokenId}&apos;s wallet</h1>
-            <p className="hc-thread-meta break-all font-mono text-xs">
+            <a
+              href={`${robinhoodChain.blockExplorers?.default.url}/address/${tbaAddress}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hc-link break-all font-mono text-xs block"
+            >
               {tbaAddress}
-            </p>
+            </a>
             <p className="hc-thread-meta text-xs mt-1">
               {activated ? (
                 <span style={{ color: "var(--hc-greentext)" }}>
