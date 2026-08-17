@@ -590,32 +590,26 @@ export default function HomeClient({
                             Anon #{token.tokenId}
                           </div>
                           {wallet && (
-                            // Plain-English status + a clear next step,
-                            // not crypto jargon ("smart wallet", "deployed")
-                            // - a holder who doesn't speak technical English
-                            // needs to know what to DO, not what the
-                            // on-chain term for it is. Separate concept from
-                            // whether you can post as this anon (that's the
-                            // claimed/Activate button below) - this link
-                            // just goes to the wallet page where the real
-                            // "turn on sending" button lives.
-                            <a
+                            // A status button, not a "tap to do X" text
+                            // link - the earlier version promised an
+                            // action ("tap to turn on sending") that
+                            // didn't actually happen on that tap, it just
+                            // navigated to the wallet page where the real
+                            // activation button lives. A colored
+                            // active/inactive button is honest about what
+                            // clicking does (view/manage this wallet) while
+                            // still being a clear, simple, non-jargon
+                            // status at a glance - green/red reads
+                            // correctly with zero English needed.
+                            <Link
                               href={`/wallet/${token.tokenId}`}
-                              className="hc-thread-meta mb-2 block text-[0.7rem] hover:underline"
+                              className={`hc-wallet-status-btn mb-2 ${wallet.activated ? "hc-wallet-status-active" : "hc-wallet-status-inactive"}`}
                               title={wallet.address}
                             >
-                              {wallet.activated ? (
-                                <span style={{ color: "var(--hc-greentext)" }}>
-                                  ✓ this anon&apos;s wallet can send &amp;
-                                  receive money
-                                </span>
-                              ) : (
-                                <span>
-                                  this anon has a wallet that can receive money
-                                  → tap to turn on sending
-                                </span>
-                              )}
-                            </a>
+                              {wallet.activated
+                                ? "✓ Wallet Active"
+                                : "Wallet Inactive"}
+                            </Link>
                           )}
                           {isActivePersona ? (
                             <button

@@ -402,6 +402,27 @@ body {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
 }
 
+/* Home token grid - wallet active/inactive status button (traffic-light
+   red/green, no English required to read it at a glance). */
+.hc-wallet-status-btn {
+  display: block;
+  width: 100%;
+  border-radius: 3px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-align: center;
+  color: #fff;
+}
+
+.hc-wallet-status-active {
+  background: var(--hc-greentext);
+}
+
+.hc-wallet-status-inactive {
+  background: #a12b2b;
+}
+
 .hc-post-image {
   border: 1px solid var(--hc-box-border);
   background: #fff;
