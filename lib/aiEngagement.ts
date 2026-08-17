@@ -7,6 +7,7 @@
 // entry in vercel.json and this file's own trigger* functions below.
 import { fetchBurnedTokenIds } from "@/lib/chain";
 import { generateAiPost } from "@/lib/ai-persona";
+import { getAiWalletContext } from "@/lib/aiWalletContext";
 import {
   createAiPost,
   createAiReply,
@@ -70,14 +71,16 @@ export async function pickEligibleTokenIds(count: number): Promise<string[]> {
 export async function generateAiThreadForToken(
   tokenId: string,
 ): Promise<{ thread: Thread; post: Post }> {
-  const [metadata, rare] = await Promise.all([
+  const [metadata, rare, walletContext] = await Promise.all([
     getOrFetchTokenMetadata(tokenId),
     isRareToken(tokenId),
+    getAiWalletContext(tokenId),
   ]);
   const result = await generateAiPost({
     metadata,
     isRare: rare,
     kind: "thread",
+    walletContext,
     apiKey: process.env.VENICE_API_KEY!,
   });
   const { thread, post } = await createAiPost(
@@ -93,10 +96,11 @@ export async function generateAiReplyForToken(
   tokenId: string,
   thread: Thread,
 ): Promise<Post> {
-  const [metadata, rare, existingPosts] = await Promise.all([
+  const [metadata, rare, existingPosts, walletContext] = await Promise.all([
     getOrFetchTokenMetadata(tokenId),
     isRareToken(tokenId),
     listPosts(thread.id),
+    getAiWalletContext(tokenId),
   ]);
   // OP kept separate from the truncated recent-replies window, not folded
   // into one sliced array - caught live in production (board/310): once a
@@ -118,6 +122,7 @@ export async function generateAiReplyForToken(
       op: { body: opPost?.body ?? "", isAi: opPost?.isAi === true },
       recentPosts,
     },
+    walletContext,
     apiKey: process.env.VENICE_API_KEY!,
   });
   const post = await createAiReply(thread.id, tokenId, result.body);

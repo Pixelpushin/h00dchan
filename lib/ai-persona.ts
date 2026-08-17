@@ -17,6 +17,7 @@ const VENICE_API_URL = "https://api.venice.ai/api/v1/chat/completions";
 const VENICE_MODEL = "venice-uncensored-1-2";
 
 import type { TokenAttribute, TokenMetadata } from "@/lib/chain";
+import type { AiWalletContext } from "@/lib/aiWalletContext";
 
 export interface ThreadContextPost {
   body: string;
@@ -105,17 +106,48 @@ function pickPostMode(kind: GenerationKind): string {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
+// Real (verified, trust-filtered) wallet holdings, formatted for the
+// prompt - deliberately separate from GROUNDING's fictional lore section
+// below so the model never confuses "things I actually hold" with "things
+// I made up." A wallet with nothing verified in it still gets a section
+// (not omitted) so silence doesn't read as "ignore this" - it explicitly
+// tells the model there's nothing real to reference right now.
+function formatWalletSection(
+  wallet: AiWalletContext | undefined | null,
+): string {
+  if (!wallet) {
+    return "Wallet lookup is unavailable right now - don't reference any holdings.";
+  }
+  const lines: string[] = [];
+  const ethWholeUnits = BigInt(wallet.ethWei) / BigInt(10) ** BigInt(14);
+  const ethDisplay = Number(ethWholeUnits) / 10_000; // 4 decimal places
+  if (ethDisplay > 0) lines.push(`${ethDisplay} ETH`);
+  for (const h of wallet.trustedHoldings) lines.push(`${h.amount} ${h.symbol}`);
+
+  const holdingsLine =
+    lines.length > 0
+      ? `You verifiably hold: ${lines.join(", ")}.`
+      : "You don't verifiably hold anything real right now.";
+  const spamLine =
+    wallet.spamTokenCount > 0
+      ? ` Your wallet also received ${wallet.spamTokenCount} other unverified token(s) - these are almost certainly spam/scam airdrops sent to farm attention, not real value. If you mention them at all, mock them or dismiss them as junk - never treat them as real alpha or something worth taking seriously.`
+      : "";
+  return `${holdingsLine}${spamLine}`;
+}
+
 function buildPrompt({
   metadata,
   isRare,
   kind,
   context,
+  walletContext,
   retryNote,
 }: {
   metadata: TokenMetadata;
   isRare: boolean;
   kind: GenerationKind;
   context?: ThreadContext;
+  walletContext?: AiWalletContext | null;
   retryNote?: string;
 }): string {
   const traits = traitLine(metadata.attributes);
@@ -174,6 +206,10 @@ ${traits}
 
 Let these traits silently shape temperament, humor, obsessions, and posting style - confidence, paranoia, warmth, chaos, whatever fits. Never list, describe, or refer to your own traits, art, image, or metadata. Never say what you look like.
 ${rareSection}
+YOUR REAL WALLET (verified, actually real - NOT fictional, unlike the GROUNDING section below)
+${formatWalletSection(walletContext)}
+Only reference this if it's actually relevant to the post mode below - don't force it in. Never invent additional holdings beyond what's listed here.
+
 POST MODE FOR THIS ONE POST
 ${mode}
 ${threadSection}
@@ -427,16 +463,25 @@ export async function generateAiPost({
   isRare,
   kind,
   context,
+  walletContext,
   apiKey,
 }: {
   metadata: TokenMetadata;
   isRare: boolean;
   kind: GenerationKind;
   context?: ThreadContext;
+  walletContext?: AiWalletContext | null;
   apiKey: string;
 }): Promise<AiGenerationResult> {
   const attempt = async (retryNote?: string) => {
-    const prompt = buildPrompt({ metadata, isRare, kind, context, retryNote });
+    const prompt = buildPrompt({
+      metadata,
+      isRare,
+      kind,
+      context,
+      walletContext,
+      retryNote,
+    });
     const raw = await callVenice(prompt, apiKey);
     return parseGeneration(raw);
   };
