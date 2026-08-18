@@ -181,93 +181,114 @@ export default function HomeClient({
       setClaimedTokens({});
       setLevels({});
     }
-    try {
-      // Always a full scan now - no fromBlock/knownTokenIds. This used to
-      // be incremental (cache the last scanned block + known token IDs,
-      // only ask the chain for what changed since), which hit the same
-      // root problem three times in a row: an incremental result can only
-      // ever build on a cache that's already correct, and self-heal
-      // heuristics (retry on empty, then retry on "smaller than cached")
-      // kept needing to get broader every time a new way for the cache to
-      // be quietly wrong turned up. The instant-paint render cache above
-      // (readWalletRenderCache) is what actually solved the UX problem
-      // incremental scanning was originally for - the user already sees
-      // their last-known-good wallet immediately, so this background
-      // fetch can just always be the reliable, from-scratch answer instead
-      // of a faster-but-fragile shortcut. eth_getLogs itself is fast for a
-      // single address's Transfer history (confirmed live, ~300ms) - the
-      // per-candidate ownerOf re-verification below (now retried once per
-      // candidate) was always the real cost either way, incremental or not.
-      const res = await fetch(
-        `/api/wallet-tokens?${new URLSearchParams({ address: owner })}`,
-      );
-      const walletBody = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(
-          typeof walletBody?.error === "string"
-            ? walletBody.error
-            : `Unable to load tokens (${res.status}).`,
+
+    // Plain local function, not the outer useCallback, so it can safely
+    // reference itself for the one-shot retry below without the
+    // react-hooks self-reference-in-a-memoized-callback lint concern -
+    // this is freshly created on every loadTokens() call, never a stale
+    // captured reference.
+    async function attempt(isRetry: boolean): Promise<void> {
+      try {
+        // Always a full scan now - no fromBlock/knownTokenIds. This used to
+        // be incremental (cache the last scanned block + known token IDs,
+        // only ask the chain for what changed since), which hit the same
+        // root problem three times in a row: an incremental result can only
+        // ever build on a cache that's already correct, and self-heal
+        // heuristics (retry on empty, then retry on "smaller than cached")
+        // kept needing to get broader every time a new way for the cache to
+        // be quietly wrong turned up. The instant-paint render cache above
+        // (readWalletRenderCache) is what actually solved the UX problem
+        // incremental scanning was originally for - the user already sees
+        // their last-known-good wallet immediately, so this background
+        // fetch can just always be the reliable, from-scratch answer instead
+        // of a faster-but-fragile shortcut. eth_getLogs itself is fast for a
+        // single address's Transfer history (confirmed live, ~300ms) - the
+        // per-candidate ownerOf re-verification below (now retried once per
+        // candidate) was always the real cost either way, incremental or not.
+        const res = await fetch(
+          `/api/wallet-tokens?${new URLSearchParams({ address: owner })}`,
         );
-      }
+        const walletBody = await res.json().catch(() => null);
+        if (!res.ok) {
+          throw new Error(
+            typeof walletBody?.error === "string"
+              ? walletBody.error
+              : `Unable to load tokens (${res.status}).`,
+          );
+        }
 
-      const tokenIds: string[] = walletBody.tokenIds;
-      // Merged with the render cache's last-known-good values, not a
-      // wholesale replace - the wallet-tokens API gives up on an
-      // individual token after one retry (real, accepted RPC flakiness,
-      // see that route's own comment), which silently drops it from this
-      // response. Replacing outright meant a token that successfully
-      // showed its wallet status on a previous load could regress to
-      // showing nothing on the very next background refresh, purely from
-      // one transient failure - this is exactly the "buttons/text
-      // appearing and disappearing" reported live. Freshly resolved
-      // values still win (spread order), only genuinely-missing ones
-      // fall back to what was already known.
-      const walletMap: Record<string, TbaInfo> = {
-        ...((renderCache?.wallets as Record<string, TbaInfo>) ?? {}),
-        ...(walletBody.wallets ?? {}),
-      };
-      const levelMap: Record<string, number> = {
-        ...(renderCache?.levels ?? {}),
-        ...(walletBody.levels ?? {}),
-      };
+        const tokenIds: string[] = walletBody.tokenIds;
+        // Merged with the render cache's last-known-good values, not a
+        // wholesale replace - the wallet-tokens API gives up on an
+        // individual token after one retry (real, accepted RPC flakiness,
+        // see that route's own comment), which silently drops it from this
+        // response. Replacing outright meant a token that successfully
+        // showed its wallet status on a previous load could regress to
+        // showing nothing on the very next background refresh, purely from
+        // one transient failure - this is exactly the "buttons/text
+        // appearing and disappearing" reported live. Freshly resolved
+        // values still win (spread order), only genuinely-missing ones
+        // fall back to what was already known.
+        const walletMap: Record<string, TbaInfo> = {
+          ...((renderCache?.wallets as Record<string, TbaInfo>) ?? {}),
+          ...(walletBody.wallets ?? {}),
+        };
+        const levelMap: Record<string, number> = {
+          ...(renderCache?.levels ?? {}),
+          ...(walletBody.levels ?? {}),
+        };
 
-      const [metadata, claimedFlags] = await Promise.all([
-        Promise.all(tokenIds.map((id) => fetchTokenMetadataViaApi(id))),
-        Promise.all(tokenIds.map((id) => fetchClaimedStatus(id))),
-      ]);
-      const resolved = metadata
-        .filter((m): m is TokenMetadata => m !== null)
-        .sort((a, b) => Number(a.tokenId) - Number(b.tokenId));
-      setTokens(resolved);
-      const claimedMap: Record<string, boolean> = {};
-      tokenIds.forEach((id, i) => {
-        if (claimedFlags[i]) claimedMap[id] = true;
-      });
-      setWallets(walletMap);
-      setClaimedTokens(claimedMap);
-      setLevels(levelMap);
-      setState("ready");
-      writeWalletRenderCache(owner, {
-        tokens: resolved,
-        wallets: walletMap,
-        claimedTokens: claimedMap,
-        levels: levelMap,
-      });
-    } catch (err) {
-      // If a render cache already painted something, a failed background
-      // refresh shouldn't blank the page out from under it - stale data
-      // the user already saw is better than replacing it with an error
-      // screen. Only show the hard error state when there was nothing on
-      // screen to begin with.
-      if (renderCache) {
-        console.error("Background wallet refresh failed", err);
-        return;
+        const [metadata, claimedFlags] = await Promise.all([
+          Promise.all(tokenIds.map((id) => fetchTokenMetadataViaApi(id))),
+          Promise.all(tokenIds.map((id) => fetchClaimedStatus(id))),
+        ]);
+        const resolved = metadata
+          .filter((m): m is TokenMetadata => m !== null)
+          .sort((a, b) => Number(a.tokenId) - Number(b.tokenId));
+        setTokens(resolved);
+        const claimedMap: Record<string, boolean> = {};
+        tokenIds.forEach((id, i) => {
+          if (claimedFlags[i]) claimedMap[id] = true;
+        });
+        setWallets(walletMap);
+        setClaimedTokens(claimedMap);
+        setLevels(levelMap);
+        setState("ready");
+        writeWalletRenderCache(owner, {
+          tokens: resolved,
+          wallets: walletMap,
+          claimedTokens: claimedMap,
+          levels: levelMap,
+        });
+      } catch (err) {
+        // If a render cache already painted something, a failed background
+        // refresh shouldn't blank the page out from under it - stale data
+        // the user already saw is better than replacing it with an error
+        // screen. But silently giving up forever meant a single transient
+        // RPC blip (documented elsewhere in this codebase as real,
+        // recurring flakiness) left someone stuck on a stale token count
+        // with zero indication anything failed and no recourse short of
+        // guessing to reload again - reported live as "only showing 27, I
+        // have 107" while the server-side data was already correct. One
+        // automatic retry after a short delay catches the common transient
+        // case without looping forever if the wallet genuinely can't load.
+        if (renderCache) {
+          console.error("Background wallet refresh failed", err);
+          if (!isRetry) {
+            setTimeout(() => attempt(true), 3000);
+          }
+          return;
+        }
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to load HOODCHAN tokens.",
+        );
+        setState("error");
       }
-      setError(
-        err instanceof Error ? err.message : "Unable to load HOODCHAN tokens.",
-      );
-      setState("error");
     }
+
+    await attempt(false);
   }, []);
 
   // Signs the "posting authorization" message for one token, then actually
