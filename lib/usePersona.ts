@@ -85,5 +85,31 @@ export function useActivePersona() {
     return next;
   }, [persona, savePersona]);
 
-  return { persona, savePersona, clearPersona, reauthorize };
+  // Switches the active posting identity to any tokenId the connected
+  // wallet has already claimed - signs a fresh auth message for it, same
+  // as reauthorize above, but for an arbitrary target instead of
+  // refreshing the current one. Only needs a tokenId, not a full
+  // TokenMetadata object, specifically so callers that don't already have
+  // the whole token grid loaded (WalletHeaderWidget's quick-switch list,
+  // which lives on every page, not just home) can use it without
+  // duplicating HomeClient's own claim-signing flow.
+  const switchPersona = useCallback(
+    async (tokenId: string): Promise<PersonaClaim> => {
+      const account = await connectWallet();
+      const issuedAt = new Date().toISOString();
+      const message = buildAuthMessage(tokenId, account, issuedAt);
+      const signature = await signMessage(account, message);
+      const next: PersonaClaim = {
+        tokenId,
+        address: account,
+        signature,
+        issuedAt,
+      };
+      savePersona(next);
+      return next;
+    },
+    [savePersona],
+  );
+
+  return { persona, savePersona, clearPersona, reauthorize, switchPersona };
 }

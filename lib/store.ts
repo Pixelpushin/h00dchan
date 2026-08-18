@@ -599,6 +599,46 @@ export async function markTokenClaimed(
   // for the actual AI-eligibility gate, which is what isTokenClaimed()
   // still is.
   await redisCommand("SADD", EVER_CLAIMED_SET_KEY, tokenId);
+  // Reverse index for the header identity switcher (WalletHeaderWidget) -
+  // "which anons has THIS address ever claimed" without scanning every
+  // claimed token's record. Same "ever", not "currently", caveat as
+  // EVER_CLAIMED_SET_KEY above; listMyClaimedTokens() re-checks each
+  // candidate's actual stored record before trusting it, so a resold
+  // token doesn't linger in someone's switcher forever.
+  await redisCommand(
+    "SADD",
+    `claimed-by-address:${address.toLowerCase()}`,
+    tokenId,
+  );
+}
+
+// Candidates for "your other anons" in the header switcher - re-verifies
+// each candidate's CURRENT stored claim record still points at this
+// address (not just "ever did"), so a token that got resold since drops
+// out instead of lingering as a stale switcher entry. Doesn't re-check
+// live on-chain ownership (isTokenClaimed does that, for the actual
+// AI-eligibility gate) - this is a convenience list, not a security
+// boundary, and the switch itself still requires a real signature.
+export async function listMyClaimedTokens(address: string): Promise<string[]> {
+  const candidates = (await redisCommand(
+    "SMEMBERS",
+    `claimed-by-address:${address.toLowerCase()}`,
+  )) as string[];
+  const checks = await Promise.all(
+    candidates.map(async (tokenId) => {
+      const raw = await redisCommand("GET", `claimed:${tokenId}`);
+      if (typeof raw !== "string") return null;
+      try {
+        const record = JSON.parse(raw) as ClaimRecord;
+        return record.address?.toLowerCase() === address.toLowerCase()
+          ? tokenId
+          : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return checks.filter((id): id is string => id !== null);
 }
 
 // Leaderboard candidate set - tokens worth checking for a real level at

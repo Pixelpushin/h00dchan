@@ -517,13 +517,13 @@ export default function HomeClient({
         </div>
         <AdBanner paidAds={paidAds} />
         {address && (
-          // Collapsed by default (no `open` attribute) - the wallet/token
-          // section used to fully replace the board below whenever a
-          // wallet was connected (or even just while tokens were loading,
-          // or when none were found), so anyone who just wanted to browse
-          // lost the board entirely the moment they connected. Now it's a
-          // dismissible box that never hides anything else on the page.
-          <details className="hc-box w-full mb-4 px-4 py-3">
+          // Open by default now - direct feedback that this was "buried,
+          // really hidden" when collapsed. Safe to default-open today in
+          // a way it wasn't before: this box no longer replaces the board
+          // below it when a wallet connects (that was the original reason
+          // for collapsing it), it just sits alongside Popular/Human
+          // Threads, which still render regardless.
+          <details className="hc-box w-full mb-4 px-4 py-3" open>
             <summary className="cursor-pointer hc-title text-base">
               Your wallet
               {state === "ready" && tokens.length > 0

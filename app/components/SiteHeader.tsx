@@ -30,6 +30,14 @@ export function SiteHeader() {
           >
             Artist page
           </a>
+          <a
+            href="https://fight.hoodchan.org/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hc-nav-fight"
+          >
+            ⚔️ Fight
+          </a>
           <WalletHeaderWidget />
         </nav>
       </div>

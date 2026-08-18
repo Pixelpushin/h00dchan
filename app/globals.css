@@ -104,6 +104,29 @@ body {
   background: rgba(0, 0, 0, 0.35);
 }
 
+/* Fight game link - deliberately stands out from the other plain nav
+   pills (eye-catching, per explicit request) instead of blending in. */
+.hc-nav-fight {
+  background: linear-gradient(135deg, #ff6a3d, #b91f1f) !important;
+  border-color: #fff7e6 !important;
+  animation: hc-fight-glow 1.8s ease-in-out infinite alternate;
+}
+
+.hc-nav-fight:hover {
+  background: linear-gradient(135deg, #ff8258, #d12a2a) !important;
+}
+
+@keyframes hc-fight-glow {
+  from {
+    box-shadow: 0 0 5px rgba(255, 106, 61, 0.55);
+  }
+  to {
+    box-shadow:
+      0 0 14px rgba(255, 106, 61, 0.95),
+      0 0 4px rgba(255, 255, 255, 0.6);
+  }
+}
+
 /* --- Header wallet widget (app/components/WalletHeaderWidget.tsx) ------- */
 
 .hc-wallet-widget {
@@ -113,6 +136,9 @@ body {
 
 .hc-wallet-pill {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   color: #fff7e6;
   font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
   font-size: 0.75rem;
@@ -122,6 +148,14 @@ body {
   padding: 0.3rem 0.75rem;
   line-height: 1;
   cursor: pointer;
+}
+
+.hc-wallet-pill-avatar {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 999px;
+  object-fit: cover;
+  flex-shrink: 0;
 }
 
 .hc-wallet-pill:hover {
@@ -178,6 +212,47 @@ body {
 
 .hc-wallet-menu-item-danger {
   color: #a12b2b;
+}
+
+.hc-wallet-menu-active {
+  color: var(--hc-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.5rem 0.8rem 0.3rem;
+}
+
+.hc-wallet-menu-label {
+  color: var(--hc-muted);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.4rem 0.8rem 0.15rem;
+}
+
+.hc-wallet-menu-item-switch {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+}
+
+.hc-wallet-menu-item-switch:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.hc-wallet-menu-error {
+  color: #a12b2b;
+  font-size: 0.7rem;
+  padding: 0.3rem 0.8rem;
+}
+
+.hc-wallet-menu-divider {
+  border-top: 1px solid var(--hc-box-border);
+  margin: 0.1rem 0;
 }
 
 .hc-wallet-connect-btn {
