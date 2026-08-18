@@ -601,6 +601,14 @@ export async function markTokenClaimed(
   await redisCommand("SADD", EVER_CLAIMED_SET_KEY, tokenId);
 }
 
+// Leaderboard candidate set - tokens worth checking for a real level at
+// all. Not "currently claimed" (that's isTokenClaimed, a live on-chain
+// re-check per token) - this is the cheap, already-indexed "has this
+// token ever shown any sign of life" set.
+export async function listEverClaimedTokenIds(): Promise<string[]> {
+  return (await redisCommand("SMEMBERS", EVER_CLAIMED_SET_KEY)) as string[];
+}
+
 export interface ClaimStats {
   everClaimed: number;
   total: number;

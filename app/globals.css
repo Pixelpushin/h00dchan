@@ -562,6 +562,29 @@ body {
   flex-shrink: 0;
 }
 
+.hc-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid var(--hc-box-border);
+  border-radius: 3px;
+  background: #fff7e6;
+  color: var(--hc-maroon);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.hc-copy-btn:hover {
+  background: var(--hc-box-alt);
+}
+
+.hc-copy-btn .hc-btn-icon {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
 .hc-wallet-status-active {
   background: var(--hc-greentext);
 }

@@ -16,6 +16,7 @@ import { BLOCK_EXPLORER_URL, CONTRACT } from "@/lib/chain";
 import { WalletHoldingsView } from "@/app/components/WalletHoldingsView";
 import { WalletActionsPanel } from "@/app/components/WalletActionsPanel";
 import { computeLevelProgress } from "@/lib/leveling";
+import { CopyButton } from "@/app/components/CopyButton";
 
 export const dynamic = "force-dynamic";
 
@@ -197,14 +198,17 @@ export default async function WalletPage({
               </details>
             </div>
 
-            <a
-              href={`${BLOCK_EXPLORER_URL}/address/${tbaAddress}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hc-link break-all font-mono text-xs"
-            >
-              {tbaAddress}
-            </a>
+            <div className="flex items-center gap-1.5">
+              <a
+                href={`${BLOCK_EXPLORER_URL}/address/${tbaAddress}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hc-link break-all font-mono text-xs"
+              >
+                {tbaAddress}
+              </a>
+              <CopyButton text={tbaAddress} />
+            </div>
 
             <div className="flex flex-wrap gap-2 mt-1">
               <a

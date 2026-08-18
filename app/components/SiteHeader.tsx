@@ -22,6 +22,7 @@ export function SiteHeader() {
         <nav className="hc-nav flex items-center gap-4 pb-1">
           <Link href="/board">board</Link>
           <Link href="/alpha">alpha</Link>
+          <Link href="/leaderboard">leaderboard</Link>
           <a
             href="https://www.hoodchan.website/"
             target="_blank"
