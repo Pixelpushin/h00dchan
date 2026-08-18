@@ -65,8 +65,13 @@ export async function GET(request: NextRequest) {
     // symptom: "some of my NFTs show a wallet line, some don't" - not an
     // all-or-nothing failure, a partial one). Same concurrency-chunking
     // convention as fetchWalletTokensOnChain's own ownership checks
-    // (lib/chain.ts), plus one retry per token before giving up, since a
-    // single dropped request is more likely transient than a real error.
+    // (lib/chain.ts), plus up to 2 retries per token before giving up,
+    // since a single dropped request is more likely transient than a
+    // real error. Even so, an occasional token still won't resolve in
+    // any given request - HomeClient.tsx's loadTokens merges this
+    // response with its previous render cache rather than replacing it,
+    // so a transient miss here doesn't regress something the UI already
+    // showed successfully.
     const TBA_CONCURRENCY = 8;
     const wallets: Record<string, { address: string; activated: boolean }> = {};
     const levels: Record<string, number> = {};
@@ -74,7 +79,7 @@ export async function GET(request: NextRequest) {
       const batch = tokenIds.slice(i, i + TBA_CONCURRENCY);
       const results = await Promise.all(
         batch.map(async (tokenId) => {
-          for (let attempt = 0; attempt < 2; attempt++) {
+          for (let attempt = 0; attempt < 3; attempt++) {
             try {
               const tbaAddress = await computeTbaAddress(tokenId);
               const [activated, claimed, totalPosts] = await Promise.all([

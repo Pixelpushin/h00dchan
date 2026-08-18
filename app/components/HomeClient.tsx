@@ -211,8 +211,25 @@ export default function HomeClient({
       }
 
       const tokenIds: string[] = walletBody.tokenIds;
-      const walletMap: Record<string, TbaInfo> = walletBody.wallets ?? {};
-      const levelMap: Record<string, number> = walletBody.levels ?? {};
+      // Merged with the render cache's last-known-good values, not a
+      // wholesale replace - the wallet-tokens API gives up on an
+      // individual token after one retry (real, accepted RPC flakiness,
+      // see that route's own comment), which silently drops it from this
+      // response. Replacing outright meant a token that successfully
+      // showed its wallet status on a previous load could regress to
+      // showing nothing on the very next background refresh, purely from
+      // one transient failure - this is exactly the "buttons/text
+      // appearing and disappearing" reported live. Freshly resolved
+      // values still win (spread order), only genuinely-missing ones
+      // fall back to what was already known.
+      const walletMap: Record<string, TbaInfo> = {
+        ...((renderCache?.wallets as Record<string, TbaInfo>) ?? {}),
+        ...(walletBody.wallets ?? {}),
+      };
+      const levelMap: Record<string, number> = {
+        ...(renderCache?.levels ?? {}),
+        ...(walletBody.levels ?? {}),
+      };
 
       const [metadata, claimedFlags] = await Promise.all([
         Promise.all(tokenIds.map((id) => fetchTokenMetadataViaApi(id))),
