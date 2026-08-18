@@ -56,25 +56,45 @@ export default async function WalletPage({
   const { tokenId } = await params;
   if (!isValidTokenId(tokenId)) notFound();
 
-  const [
-    metadata,
-    tbaAddress,
-    claimed,
-    rarityIndex,
-    posts,
-    postCount,
-    threads,
-  ] = await Promise.all([
-    getOrFetchTokenMetadata(tokenId).catch(() => null),
-    computeTbaAddress(tokenId),
-    isTokenClaimed(tokenId).catch(() => false),
-    readRarityIndex().catch(() => null),
-    listPostsByToken(tokenId, 20).catch(() => []),
-    countPostsByToken(tokenId).catch(() => 0),
-    listThreads().catch(() => []),
-  ]);
+  const [metadata, claimed, rarityIndex, posts, postCount, threads] =
+    await Promise.all([
+      getOrFetchTokenMetadata(tokenId).catch(() => null),
+      isTokenClaimed(tokenId).catch(() => false),
+      readRarityIndex().catch(() => null),
+      listPostsByToken(tokenId, 20).catch(() => []),
+      countPostsByToken(tokenId).catch(() => 0),
+      listThreads().catch(() => []),
+    ]);
 
-  const activated = await isTbaActivated(tbaAddress);
+  // computeTbaAddress/isTbaActivated are raw RPC calls against Robinhood
+  // Chain, which is documented elsewhere in this codebase as
+  // intermittently flaky under load. Neither had a .catch() before -
+  // confirmed live as the actual cause of a real "React error #441"
+  // (per react.dev/errors/441: "An error occurred in the Server
+  // Components render") crash reported from production, which hard-
+  // crashed the whole page and left the client-side router dead until a
+  // manual reload. Retry once (matches this repo's established pattern
+  // for the same class of transient RPC failure elsewhere), then degrade
+  // gracefully instead of crashing the page if it still fails.
+  let tbaAddress: string | null = null;
+  let activated = false;
+  let walletError: string | null = null;
+  try {
+    try {
+      tbaAddress = await computeTbaAddress(tokenId);
+    } catch {
+      tbaAddress = await computeTbaAddress(tokenId);
+    }
+    try {
+      activated = await isTbaActivated(tbaAddress);
+    } catch {
+      activated = await isTbaActivated(tbaAddress);
+    }
+  } catch {
+    walletError =
+      "Unable to load this anon's wallet info right now - try refreshing.";
+  }
+
   const threadsStarted = threads.filter((t) => t.tokenId === tokenId).length;
   const levelProgress = computeLevelProgress({
     claimed,
@@ -84,11 +104,13 @@ export default async function WalletPage({
   });
 
   let holdings: WalletHoldings | null = null;
-  let holdingsError: string | null = null;
-  try {
-    holdings = await fetchWalletHoldings(tbaAddress);
-  } catch {
-    holdingsError = "Unable to load holdings for this wallet right now.";
+  let holdingsError: string | null = walletError;
+  if (tbaAddress && !walletError) {
+    try {
+      holdings = await fetchWalletHoldings(tbaAddress);
+    } catch {
+      holdingsError = "Unable to load holdings for this wallet right now.";
+    }
   }
 
   const rawImageUri =
@@ -198,17 +220,23 @@ export default async function WalletPage({
               </details>
             </div>
 
-            <div className="flex items-center gap-1.5">
-              <a
-                href={`${BLOCK_EXPLORER_URL}/address/${tbaAddress}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hc-link break-all font-mono text-xs"
-              >
-                {tbaAddress}
-              </a>
-              <CopyButton text={tbaAddress} />
-            </div>
+            {tbaAddress ? (
+              <div className="flex items-center gap-1.5">
+                <a
+                  href={`${BLOCK_EXPLORER_URL}/address/${tbaAddress}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hc-link break-all font-mono text-xs"
+                >
+                  {tbaAddress}
+                </a>
+                <CopyButton text={tbaAddress} />
+              </div>
+            ) : (
+              <p className="text-xs" style={{ color: "#a12b2b" }}>
+                {walletError}
+              </p>
+            )}
 
             <div className="flex flex-wrap gap-2 mt-1">
               <a
@@ -219,14 +247,16 @@ export default async function WalletPage({
               >
                 View on OpenSea ↗
               </a>
-              <a
-                href={`${BLOCK_EXPLORER_URL}/address/${tbaAddress}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hc-button hc-button-ghost text-xs px-3 py-1.5"
-              >
-                View on Blockscout ↗
-              </a>
+              {tbaAddress && (
+                <a
+                  href={`${BLOCK_EXPLORER_URL}/address/${tbaAddress}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hc-button hc-button-ghost text-xs px-3 py-1.5"
+                >
+                  View on Blockscout ↗
+                </a>
+              )}
             </div>
           </div>
         </div>
@@ -237,7 +267,7 @@ export default async function WalletPage({
           </p>
         )}
 
-        {holdings && (
+        {tbaAddress && holdings && (
           <>
             <div className="hc-box p-4">
               <div className="hc-thread-meta text-xs mb-1">ETH balance</div>
