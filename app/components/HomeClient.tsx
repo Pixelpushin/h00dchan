@@ -523,7 +523,11 @@ export default function HomeClient({
           // below it when a wallet connects (that was the original reason
           // for collapsing it), it just sits alongside Popular/Human
           // Threads, which still render regardless.
-          <details className="hc-box w-full mb-4 px-4 py-3" open>
+          <details
+            id="your-wallet"
+            className="hc-box w-full mb-4 px-4 py-3 scroll-mt-24"
+            open
+          >
             <summary className="cursor-pointer hc-title text-base">
               Your wallet
               {state === "ready" && tokens.length > 0

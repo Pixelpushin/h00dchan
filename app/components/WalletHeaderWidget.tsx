@@ -7,18 +7,17 @@
 // address sat in the page body as its own line ("connected: 0xF138...ddE12"),
 // pushing everything else down and not visible from any other page.
 //
-// Once a persona is active, this widget shows THAT anon (pfp + "Anon #N")
-// instead of the raw address - direct feedback that "who am I posting as"
-// was buried behind a collapsed section only visible on the home page.
-// Design intentionally follows the Discord/Gmail account-switcher pattern:
-// a persistent badge for the current identity (recognition over recall),
-// a short quick-switch list in the dropdown for the common case, and a
-// link to the home page's full token grid for anyone with a big
-// collection who needs to browse/search - not a second copy of that grid
-// crammed into a small popover, which gets unusable past a handful of
-// items.
+// Panel design modeled directly on Google's own account switcher (shown
+// live as a reference): round avatar-only trigger button (no truncated
+// text at all once an identity is active), a centered panel below it with
+// a large avatar + name up top, then a collapsed "show other accounts"
+// toggle that expands into the switch list - not a flat list of everything
+// crammed into the dropdown by default. Recognition over recall (the
+// active identity is always visible, nothing to hunt for) plus
+// progressive disclosure (the full list is one extra click away, not
+// forced onto everyone who only has one or two anons).
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { connectWallet, disconnectWallet } from "@/lib/wallet";
 import { useWalletAddress } from "@/lib/useWalletAddress";
 import { useHasNewActivity } from "@/lib/useHasNewActivity";
@@ -26,7 +25,8 @@ import { useActivePersona } from "@/lib/usePersona";
 import { BLOCK_EXPLORER_URL } from "@/lib/chain";
 import type { TokenMetadata } from "@/lib/chain";
 
-const QUICK_SWITCH_LIMIT = 5;
+const QUICK_SWITCH_LIMIT = 8;
+const WALLET_SECTION_ID = "your-wallet";
 
 function truncateAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -45,10 +45,12 @@ async function fetchTokenMetadata(
 }
 
 export function WalletHeaderWidget() {
+  const router = useRouter();
   const address = useWalletAddress();
   const { persona, switchPersona } = useActivePersona();
   const [connecting, setConnecting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showOthers, setShowOthers] = useState(false);
   const [copied, setCopied] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
   const [switchError, setSwitchError] = useState<string | null>(null);
@@ -66,11 +68,13 @@ export function WalletHeaderWidget() {
     Record<string, TokenMetadata | null>
   >({});
 
-  // Active anon's own pfp for the badge - refetches whenever the active
-  // token changes, not on every render. No setState on the "inactive"
-  // path - JSX already gates rendering on `isActive`, so stale metadata
-  // left over from a previous active token simply never renders instead
-  // of needing an explicit synchronous clear.
+  // Active anon's own pfp - refetches whenever the active token changes.
+  // Deliberately NOT gating the "Anon #N" text on this having loaded (see
+  // JSX below) - an earlier version did, which meant a slow/failed image
+  // fetch silently hid the whole identity display and fell back to the
+  // raw address, making the feature look like it wasn't there at all.
+  // The name always shows once isActive is true; the avatar is a bonus
+  // once it resolves.
   useEffect(() => {
     if (!isActive || !persona) return;
     let cancelled = false;
@@ -85,9 +89,7 @@ export function WalletHeaderWidget() {
   // Quick-switch candidates - cheap reverse-index lookup (lib/store.ts's
   // listMyClaimedTokens), not the full on-chain wallet scan HomeClient
   // does. Fetched once per connected address, not per dropdown-open, so
-  // the menu feels instant when clicked. Same no-setState-on-the-early-
-  // path reasoning as above - rendering this list already requires
-  // `address` to exist.
+  // the panel feels instant when opened.
   useEffect(() => {
     if (!address) return;
     let cancelled = false;
@@ -172,6 +174,22 @@ export function WalletHeaderWidget() {
     [switchPersona],
   );
 
+  // A plain <Link href="/"> silently does nothing when you're already ON
+  // "/" - no navigation happens, nothing scrolls, it just "sits there"
+  // (reported live). If already home, scroll straight to the wallet
+  // section instead of relying on Next's own same-page Link behavior;
+  // otherwise navigate there with the anchor so it scrolls after landing.
+  const handleBrowseAll = useCallback(() => {
+    setMenuOpen(false);
+    if (window.location.pathname === "/") {
+      document
+        .getElementById(WALLET_SECTION_ID)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      router.push(`/#${WALLET_SECTION_ID}`);
+    }
+  }, [router]);
+
   // Click-outside-to-close - the standard behavior for this kind of small
   // header dropdown, and without it the menu would only ever close via the
   // menu's own actions.
@@ -210,67 +228,114 @@ export function WalletHeaderWidget() {
             return next;
           })
         }
-        className="hc-wallet-pill"
-        title={hasNew ? "New reply on one of your threads" : address}
+        className={isActive ? "hc-wallet-avatar-btn" : "hc-wallet-pill"}
+        title={
+          hasNew
+            ? "New reply on one of your threads"
+            : isActive
+              ? `Anon #${persona.tokenId}`
+              : address
+        }
         aria-expanded={menuOpen}
       >
-        {isActive && activeMeta ? (
-          <>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+        {isActive ? (
+          activeMeta?.image ? (
+            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={activeMeta.image}
-              alt=""
-              className="hc-wallet-pill-avatar"
+              alt={`Anon #${persona.tokenId}`}
+              className="hc-wallet-avatar-img"
             />
-            Anon #{persona.tokenId}
-          </>
+          ) : (
+            <span className="hc-wallet-avatar-fallback">
+              #{persona.tokenId}
+            </span>
+          )
         ) : (
           truncateAddress(address)
         )}
         {hasNew && <span className="hc-wallet-badge" aria-hidden="true" />}
       </button>
       {menuOpen && (
-        <div className="hc-wallet-menu">
+        <div className="hc-wallet-panel">
+          <div className="hc-wallet-panel-email">
+            {truncateAddress(address)}
+          </div>
+
           {isActive && (
-            <div className="hc-wallet-menu-active">
-              posting as Anon #{persona.tokenId}
+            <div className="hc-wallet-panel-identity">
+              {activeMeta?.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={activeMeta.image}
+                  alt={`Anon #${persona.tokenId}`}
+                  className="hc-wallet-panel-avatar"
+                />
+              ) : (
+                <div className="hc-wallet-panel-avatar hc-wallet-avatar-fallback">
+                  #{persona.tokenId}
+                </div>
+              )}
+              <div className="hc-wallet-panel-name">
+                Anon #{persona.tokenId}
+              </div>
+              <a
+                href={`/wallet/${persona.tokenId}`}
+                className="hc-wallet-panel-manage"
+                onClick={() => setMenuOpen(false)}
+              >
+                View full profile
+              </a>
             </div>
           )}
+
           {otherTokenIds.length > 0 && (
-            <>
-              <div className="hc-wallet-menu-label">switch anon</div>
-              {otherTokenIds.map((tokenId) => (
-                <button
-                  key={tokenId}
-                  onClick={() => handleSwitch(tokenId)}
-                  disabled={switching !== null}
-                  className="hc-wallet-menu-item hc-wallet-menu-item-switch"
-                >
-                  {otherMeta[tokenId]?.image && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={otherMeta[tokenId]!.image}
-                      alt=""
-                      className="hc-wallet-pill-avatar"
-                    />
-                  )}
-                  {switching === tokenId
-                    ? "Sign in wallet..."
-                    : `Anon #${tokenId}`}
-                </button>
-              ))}
-            </>
+            <div className="hc-wallet-panel-others">
+              <button
+                onClick={() => setShowOthers((v) => !v)}
+                className="hc-wallet-panel-toggle"
+              >
+                <span>
+                  {showOthers ? "Hide" : "Show"} other anons (
+                  {otherTokenIds.length})
+                </span>
+                <span aria-hidden="true">{showOthers ? "▲" : "▼"}</span>
+              </button>
+              {showOthers && (
+                <div className="hc-wallet-panel-others-list">
+                  {otherTokenIds.map((tokenId) => (
+                    <button
+                      key={tokenId}
+                      onClick={() => handleSwitch(tokenId)}
+                      disabled={switching !== null}
+                      className="hc-wallet-menu-item hc-wallet-menu-item-switch"
+                    >
+                      {otherMeta[tokenId]?.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={otherMeta[tokenId]!.image}
+                          alt=""
+                          className="hc-wallet-pill-avatar"
+                        />
+                      ) : (
+                        <span className="hc-wallet-pill-avatar hc-wallet-avatar-fallback-sm" />
+                      )}
+                      {switching === tokenId
+                        ? "Sign in wallet..."
+                        : `Anon #${tokenId}`}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
           {switchError && (
             <div className="hc-wallet-menu-error">{switchError}</div>
           )}
-          <Link
-            href="/"
-            className="hc-wallet-menu-item"
-            onClick={() => setMenuOpen(false)}
-          >
+
+          <button onClick={handleBrowseAll} className="hc-wallet-menu-item">
             Browse all your anons →
-          </Link>
+          </button>
           <div className="hc-wallet-menu-divider" />
           <button onClick={handleCopy} className="hc-wallet-menu-item">
             {copied ? "Copied!" : "Copy address"}
