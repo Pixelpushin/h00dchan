@@ -285,6 +285,21 @@ async function writePost(post: Post): Promise<void> {
   await redisCommand("SET", `post:${post.id}`, JSON.stringify(post));
   await redisCommand("RPUSH", `posts:${post.threadId}`, post.id);
   await redisCommand("RPUSH", `posts-by-token:${post.tokenId}`, post.id);
+  // Separate human-only index for leveling (lib/leveling.ts) - an
+  // unclaimed anon's AI ghost-posts must never earn it XP, only what its
+  // real holder actually writes. Cheap to maintain (one more RPUSH at the
+  // same write site every post already goes through) vs. filtering by
+  // isAi at read time, which would mean fetching and inspecting every
+  // post just to count them - exactly the kind of per-request fan-out
+  // this session already root-caused and fixed once for a different
+  // feature.
+  if (!post.isAi) {
+    await redisCommand(
+      "RPUSH",
+      `human-posts-by-token:${post.tokenId}`,
+      post.id,
+    );
+  }
   invalidateListThreadsCache();
 }
 
@@ -309,6 +324,10 @@ export async function createThread(
   const postId = await nextId("post:counter");
   const post: Post = { id: postId, threadId, tokenId, body, createdAt: now };
   await writePost(post);
+  // Human-thread tracking for leveling (lib/leveling.ts) - this is the
+  // one function only a real human-authored thread ever goes through
+  // (createAiPost is the AI's equivalent, deliberately not tracked here).
+  await redisCommand("RPUSH", `human-threads-by-token:${tokenId}`, threadId);
 
   return { thread, post };
 }
@@ -529,6 +548,27 @@ export async function listPostsByToken(
 // size, unlike listPostsByToken's per-post GET fan-out above.
 export async function countPostsByToken(tokenId: string): Promise<number> {
   const count = await redisCommand("LLEN", `posts-by-token:${tokenId}`);
+  return typeof count === "number" ? count : 0;
+}
+
+// Human-authored posts only - see writePost's human-posts-by-token
+// comment. Used for leveling (lib/leveling.ts), not for the profile
+// page's "N posts" display count, which intentionally still shows every
+// post (AI-authored history included) as real activity on that anon.
+export async function countHumanPostsByToken(tokenId: string): Promise<number> {
+  const count = await redisCommand("LLEN", `human-posts-by-token:${tokenId}`);
+  return typeof count === "number" ? count : 0;
+}
+
+// Human-started threads only - tracked explicitly at the one place a
+// human actually starts a thread (createThread below), not derived from
+// scanning threads and checking each OP post's isAi flag (would mean an
+// extra read per candidate thread just to answer "did a human start
+// this").
+export async function countHumanThreadsByToken(
+  tokenId: string,
+): Promise<number> {
+  const count = await redisCommand("LLEN", `human-threads-by-token:${tokenId}`);
   return typeof count === "number" ? count : 0;
 }
 

@@ -24,9 +24,22 @@ import { useHasNewActivity } from "@/lib/useHasNewActivity";
 import { useActivePersona } from "@/lib/usePersona";
 import { BLOCK_EXPLORER_URL } from "@/lib/chain";
 import type { TokenMetadata } from "@/lib/chain";
+import { PostImage } from "@/app/components/PostImage";
 
 const QUICK_SWITCH_LIMIT = 8;
 const WALLET_SECTION_ID = "your-wallet";
+
+// IPFS gateways are observably flaky per-request (documented throughout
+// this codebase) - a plain <img src={metadata.image}> can and did fail
+// live in production while a second <img> using the exact same URL
+// elsewhere on the same page succeeded, because each request independently
+// hits whichever gateway happens to be slow/down at that moment. PostImage
+// is this repo's established fix (cycles through backup gateways on
+// error) - every other avatar/thumbnail on the site already goes through
+// it; these were the one place that didn't.
+function rawImageUriFrom(metadata: TokenMetadata): string {
+  return typeof metadata.raw.image === "string" ? metadata.raw.image : "";
+}
 
 function truncateAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -240,9 +253,9 @@ export function WalletHeaderWidget() {
       >
         {isActive ? (
           activeMeta?.image ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={activeMeta.image}
+            <PostImage
+              rawImageUri={rawImageUriFrom(activeMeta)}
+              fallbackSrc={activeMeta.image}
               alt={`Anon #${persona.tokenId}`}
               className="hc-wallet-avatar-img"
             />
@@ -265,9 +278,9 @@ export function WalletHeaderWidget() {
           {isActive && (
             <div className="hc-wallet-panel-identity">
               {activeMeta?.image ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={activeMeta.image}
+                <PostImage
+                  rawImageUri={rawImageUriFrom(activeMeta)}
+                  fallbackSrc={activeMeta.image}
                   alt={`Anon #${persona.tokenId}`}
                   className="hc-wallet-panel-avatar"
                 />
@@ -311,9 +324,9 @@ export function WalletHeaderWidget() {
                       className="hc-wallet-menu-item hc-wallet-menu-item-switch"
                     >
                       {otherMeta[tokenId]?.image ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={otherMeta[tokenId]!.image}
+                        <PostImage
+                          rawImageUri={rawImageUriFrom(otherMeta[tokenId]!)}
+                          fallbackSrc={otherMeta[tokenId]!.image}
                           alt=""
                           className="hc-wallet-pill-avatar"
                         />

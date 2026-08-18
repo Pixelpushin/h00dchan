@@ -9,6 +9,13 @@
 // one-time quest later (e.g. "sent your first transaction" once execute()
 // UI exists) is just adding an entry here - the profile page's checklist
 // and the XP total both pick it up automatically.
+// threadsStarted/totalPosts must be HUMAN-authored counts only (see
+// lib/store.ts's human-posts-by-token / human-threads-by-token) - an
+// unclaimed anon's AI ghost-posts must never earn it XP. Callers must use
+// countHumanPostsByToken/countHumanThreadsByToken, not the plain
+// countPostsByToken/listThreads-derived counts used for display
+// elsewhere (e.g. the profile page's "N posts" badge, which
+// intentionally still counts everything as real activity history).
 export interface QuestInput {
   claimed: boolean;
   walletActivated: boolean;

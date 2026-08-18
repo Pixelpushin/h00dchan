@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
+  countHumanPostsByToken,
+  countHumanThreadsByToken,
   countPostsByToken,
   getOrFetchTokenMetadata,
   isTokenClaimed,
   listPostsByToken,
-  listThreads,
   readRarityIndex,
 } from "@/lib/store";
 import { isValidTokenId } from "@/lib/persona";
@@ -56,15 +57,23 @@ export default async function WalletPage({
   const { tokenId } = await params;
   if (!isValidTokenId(tokenId)) notFound();
 
-  const [metadata, claimed, rarityIndex, posts, postCount, threads] =
-    await Promise.all([
-      getOrFetchTokenMetadata(tokenId).catch(() => null),
-      isTokenClaimed(tokenId).catch(() => false),
-      readRarityIndex().catch(() => null),
-      listPostsByToken(tokenId, 20).catch(() => []),
-      countPostsByToken(tokenId).catch(() => 0),
-      listThreads().catch(() => []),
-    ]);
+  const [
+    metadata,
+    claimed,
+    rarityIndex,
+    posts,
+    postCount,
+    humanPostCount,
+    humanThreadsStarted,
+  ] = await Promise.all([
+    getOrFetchTokenMetadata(tokenId).catch(() => null),
+    isTokenClaimed(tokenId).catch(() => false),
+    readRarityIndex().catch(() => null),
+    listPostsByToken(tokenId, 20).catch(() => []),
+    countPostsByToken(tokenId).catch(() => 0),
+    countHumanPostsByToken(tokenId).catch(() => 0),
+    countHumanThreadsByToken(tokenId).catch(() => 0),
+  ]);
 
   // computeTbaAddress/isTbaActivated are raw RPC calls against Robinhood
   // Chain, which is documented elsewhere in this codebase as
@@ -95,12 +104,11 @@ export default async function WalletPage({
       "Unable to load this anon's wallet info right now - try refreshing.";
   }
 
-  const threadsStarted = threads.filter((t) => t.tokenId === tokenId).length;
   const levelProgress = computeLevelProgress({
     claimed,
     walletActivated: activated,
-    threadsStarted,
-    totalPosts: postCount,
+    threadsStarted: humanThreadsStarted,
+    totalPosts: humanPostCount,
   });
 
   let holdings: WalletHoldings | null = null;

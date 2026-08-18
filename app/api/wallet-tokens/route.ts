@@ -18,7 +18,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchWalletTokensOnChain, readBlockNumber } from "@/lib/chain";
 import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
-import { countPostsByToken, isTokenClaimed, listThreads } from "@/lib/store";
+import {
+  countHumanPostsByToken,
+  countHumanThreadsByToken,
+  isTokenClaimed,
+} from "@/lib/store";
 import { computeLevelProgress } from "@/lib/leveling";
 
 export const runtime = "nodejs";
@@ -40,22 +44,10 @@ export async function GET(request: NextRequest) {
     : undefined;
 
   try {
-    const [tokenIds, lastScannedBlock, threads] = await Promise.all([
+    const [tokenIds, lastScannedBlock] = await Promise.all([
       fetchWalletTokensOnChain(address, { fromBlock, knownTokenIds }),
       readBlockNumber(),
-      // Fetched once for the whole wallet, not per-token - listThreads()
-      // is already cache-backed (see lib/store.ts), so this is cheap
-      // regardless of how many tokens this address holds. Used below to
-      // derive each token's threadsStarted count for its level.
-      listThreads().catch(() => []),
     ]);
-    const threadsStartedByToken = new Map<string, number>();
-    for (const thread of threads) {
-      threadsStartedByToken.set(
-        thread.tokenId,
-        (threadsStartedByToken.get(thread.tokenId) ?? 0) + 1,
-      );
-    }
 
     // Chunked, not one unbounded Promise.all across every token - a
     // holder with a lot of tokens (2 RPC calls each: account() + getCode())
@@ -82,16 +74,18 @@ export async function GET(request: NextRequest) {
           for (let attempt = 0; attempt < 3; attempt++) {
             try {
               const tbaAddress = await computeTbaAddress(tokenId);
-              const [activated, claimed, totalPosts] = await Promise.all([
-                isTbaActivated(tbaAddress),
-                isTokenClaimed(tokenId).catch(() => false),
-                countPostsByToken(tokenId).catch(() => 0),
-              ]);
+              const [activated, claimed, humanTotalPosts, humanThreadsStarted] =
+                await Promise.all([
+                  isTbaActivated(tbaAddress),
+                  isTokenClaimed(tokenId).catch(() => false),
+                  countHumanPostsByToken(tokenId).catch(() => 0),
+                  countHumanThreadsByToken(tokenId).catch(() => 0),
+                ]);
               const level = computeLevelProgress({
                 claimed,
                 walletActivated: activated,
-                threadsStarted: threadsStartedByToken.get(tokenId) ?? 0,
-                totalPosts,
+                threadsStarted: humanThreadsStarted,
+                totalPosts: humanTotalPosts,
               }).level;
               return [
                 tokenId,

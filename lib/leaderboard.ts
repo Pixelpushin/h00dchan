@@ -12,7 +12,8 @@ import {
   listEverClaimedTokenIds,
   listThreads,
   isTokenClaimed,
-  countPostsByToken,
+  countHumanPostsByToken,
+  countHumanThreadsByToken,
 } from "@/lib/store";
 import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
 import { computeLevelProgress, type LevelProgress } from "@/lib/leveling";
@@ -44,16 +45,16 @@ export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
     listThreads(),
   ]);
 
-  const threadsStartedByToken = new Map<string, number>();
-  for (const thread of threads) {
-    threadsStartedByToken.set(
-      thread.tokenId,
-      (threadsStartedByToken.get(thread.tokenId) ?? 0) + 1,
-    );
-  }
+  // Only used to widen the candidate set (any token that has EVER started
+  // a thread, human or AI, is worth a real level check) - NOT used for
+  // the actual XP calculation below anymore, which needs human-only
+  // counts (countHumanThreadsByToken/countHumanPostsByToken) so an
+  // unclaimed anon's AI-authored thread doesn't itself earn XP once
+  // someone claims it.
+  const threadStarterIds = new Set(threads.map((t) => t.tokenId));
 
   const candidateIds = new Set<string>(everClaimed);
-  for (const tokenId of threadsStartedByToken.keys()) candidateIds.add(tokenId);
+  for (const tokenId of threadStarterIds) candidateIds.add(tokenId);
   const candidates = [...candidateIds];
 
   const entries: LeaderboardEntry[] = [];
@@ -63,16 +64,22 @@ export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
       batch.map(async (tokenId): Promise<LeaderboardEntry | null> => {
         try {
           const tbaAddress = await computeTbaAddress(tokenId);
-          const [claimed, walletActivated, totalPosts] = await Promise.all([
+          const [
+            claimed,
+            walletActivated,
+            humanTotalPosts,
+            humanThreadsStarted,
+          ] = await Promise.all([
             isTokenClaimed(tokenId).catch(() => false),
             isTbaActivated(tbaAddress).catch(() => false),
-            countPostsByToken(tokenId).catch(() => 0),
+            countHumanPostsByToken(tokenId).catch(() => 0),
+            countHumanThreadsByToken(tokenId).catch(() => 0),
           ]);
           const progress: LevelProgress = computeLevelProgress({
             claimed,
             walletActivated,
-            threadsStarted: threadsStartedByToken.get(tokenId) ?? 0,
-            totalPosts,
+            threadsStarted: humanThreadsStarted,
+            totalPosts: humanTotalPosts,
           });
           return {
             tokenId,
