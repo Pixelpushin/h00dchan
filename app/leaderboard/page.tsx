@@ -29,9 +29,12 @@ export default async function LeaderboardPage() {
           <h1 className="hc-title text-2xl">Leaderboard</h1>
           <p className="hc-thread-meta text-sm mt-1">
             Ranked by XP - claim your anon, enable its wallet, post and reply to
-            climb. Only anons that have claimed or posted at least once are
-            ranked here - a wallet-only activation with no other activity
-            won&apos;t show up yet.
+            climb. Hold without selling for weekly bonus XP (flippers earn
+            none), hold other anons for a collector bonus, or stash a HOODCHAN
+            inside your own anon&apos;s wallet for a nested-holding bonus. Only
+            anons that have claimed or posted at least once are ranked here - a
+            wallet-only activation with no other activity won&apos;t show up
+            yet.
           </p>
         </div>
 
@@ -76,6 +79,20 @@ export default async function LeaderboardPage() {
                     {entry.walletActivated && (
                       <span style={{ color: "var(--hc-greentext)" }}>
                         ● sending enabled
+                      </span>
+                    )}
+                    {entry.isTopHolder && (
+                      <span style={{ color: "var(--hc-header-to)" }}>
+                        ★ top holder
+                      </span>
+                    )}
+                    {entry.hodlerWeeks > 0 && (
+                      <span>💎 {entry.hodlerWeeks}w held</span>
+                    )}
+                    {entry.nestedHoldingCount > 0 && (
+                      <span>
+                        📦 {entry.nestedHoldingCount} nested anon
+                        {entry.nestedHoldingCount === 1 ? "" : "s"}
                       </span>
                     )}
                   </div>

@@ -24,6 +24,13 @@ import {
   isTokenClaimed,
 } from "@/lib/store";
 import { computeLevelProgress } from "@/lib/leveling";
+import {
+  getCollectionSnapshot,
+  weeksHeld,
+  extraCollectionTokens,
+  isTopHolder,
+  nestedHoldingCount,
+} from "@/lib/collectionSnapshot";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,9 +51,10 @@ export async function GET(request: NextRequest) {
     : undefined;
 
   try {
-    const [tokenIds, lastScannedBlock] = await Promise.all([
+    const [tokenIds, lastScannedBlock, snapshot] = await Promise.all([
       fetchWalletTokensOnChain(address, { fromBlock, knownTokenIds }),
       readBlockNumber(),
+      getCollectionSnapshot().catch(() => null),
     ]);
 
     // Chunked, not one unbounded Promise.all across every token - a
@@ -81,11 +89,30 @@ export async function GET(request: NextRequest) {
                   countHumanPostsByToken(tokenId).catch(() => 0),
                   countHumanThreadsByToken(tokenId).catch(() => 0),
                 ]);
+              // hasSentTransaction is deliberately left false here rather
+              // than paying one more eth_getTransactionCount call per
+              // token - this route already fires 2+ RPC calls per token
+              // for a holder's full wallet list (confirmed live earlier
+              // this session as the exact class of endpoint that trips
+              // Robinhood Chain's RPC under burst), and that one milestone
+              // isn't worth tripling the load here. hodler/collector/top-
+              // holder/nested are free (one shared cached snapshot, O(1)
+              // lookups), so those stay accurate. The dedicated profile
+              // page and leaderboard both compute the real value.
               const level = computeLevelProgress({
                 claimed,
                 walletActivated: activated,
                 threadsStarted: humanThreadsStarted,
                 totalPosts: humanTotalPosts,
+                hasSentTransaction: false,
+                hodlerWeeks: snapshot ? weeksHeld(snapshot, tokenId) : 0,
+                extraCollectionTokens: snapshot
+                  ? extraCollectionTokens(snapshot, tokenId)
+                  : 0,
+                isTopHolder: snapshot ? isTopHolder(snapshot, tokenId) : false,
+                nestedHoldingCount: snapshot
+                  ? nestedHoldingCount(snapshot, tbaAddress)
+                  : 0,
               }).level;
               return [
                 tokenId,

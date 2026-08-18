@@ -17,6 +17,14 @@ import {
 } from "@/lib/store";
 import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
 import { computeLevelProgress, type LevelProgress } from "@/lib/leveling";
+import { rpcCall } from "@/lib/chain";
+import {
+  getCollectionSnapshot,
+  weeksHeld,
+  extraCollectionTokens,
+  isTopHolder,
+  nestedHoldingCount,
+} from "@/lib/collectionSnapshot";
 
 export interface LeaderboardEntry {
   tokenId: string;
@@ -24,6 +32,10 @@ export interface LeaderboardEntry {
   totalXp: number;
   claimed: boolean;
   walletActivated: boolean;
+  breakdown: LevelProgress["breakdown"];
+  hodlerWeeks: number;
+  isTopHolder: boolean;
+  nestedHoldingCount: number;
 }
 
 const CANDIDATE_CONCURRENCY = 10;
@@ -40,9 +52,10 @@ export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
     return cached.value;
   }
 
-  const [everClaimed, threads] = await Promise.all([
+  const [everClaimed, threads, snapshot] = await Promise.all([
     listEverClaimedTokenIds(),
     listThreads(),
+    getCollectionSnapshot().catch(() => null),
   ]);
 
   // Only used to widen the candidate set (any token that has EVER started
@@ -69,17 +82,35 @@ export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
             walletActivated,
             humanTotalPosts,
             humanThreadsStarted,
+            txCountHex,
           ] = await Promise.all([
             isTokenClaimed(tokenId).catch(() => false),
             isTbaActivated(tbaAddress).catch(() => false),
             countHumanPostsByToken(tokenId).catch(() => 0),
             countHumanThreadsByToken(tokenId).catch(() => 0),
+            rpcCall<string>("eth_getTransactionCount", [
+              tbaAddress,
+              "latest",
+            ]).catch(() => "0x0"),
           ]);
+          // Everything below comes free from the one shared, cached
+          // collection scan above - no per-candidate RPC calls needed for
+          // hodler/collector/top-holder/nested, unlike the isTbaActivated
+          // and tx-count calls above which genuinely need a live check.
           const progress: LevelProgress = computeLevelProgress({
             claimed,
             walletActivated,
             threadsStarted: humanThreadsStarted,
             totalPosts: humanTotalPosts,
+            hasSentTransaction: BigInt(txCountHex) > BigInt(0),
+            hodlerWeeks: snapshot ? weeksHeld(snapshot, tokenId) : 0,
+            extraCollectionTokens: snapshot
+              ? extraCollectionTokens(snapshot, tokenId)
+              : 0,
+            isTopHolder: snapshot ? isTopHolder(snapshot, tokenId) : false,
+            nestedHoldingCount: snapshot
+              ? nestedHoldingCount(snapshot, tbaAddress)
+              : 0,
           });
           return {
             tokenId,
@@ -87,6 +118,12 @@ export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
             totalXp: progress.totalXp,
             claimed,
             walletActivated,
+            breakdown: progress.breakdown,
+            hodlerWeeks: snapshot ? weeksHeld(snapshot, tokenId) : 0,
+            isTopHolder: snapshot ? isTopHolder(snapshot, tokenId) : false,
+            nestedHoldingCount: snapshot
+              ? nestedHoldingCount(snapshot, tbaAddress)
+              : 0,
           };
         } catch {
           return null;

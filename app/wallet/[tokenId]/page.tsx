@@ -13,10 +13,17 @@ import { isValidTokenId } from "@/lib/persona";
 import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
 import { fetchWalletHoldings, type WalletHoldings } from "@/lib/alchemy";
 import { PostImage } from "@/app/components/PostImage";
-import { BLOCK_EXPLORER_URL, CONTRACT } from "@/lib/chain";
+import { BLOCK_EXPLORER_URL, CONTRACT, rpcCall } from "@/lib/chain";
 import { WalletHoldingsView } from "@/app/components/WalletHoldingsView";
 import { WalletActionsPanel } from "@/app/components/WalletActionsPanel";
 import { computeLevelProgress } from "@/lib/leveling";
+import {
+  getCollectionSnapshot,
+  weeksHeld,
+  extraCollectionTokens,
+  isTopHolder,
+  nestedHoldingCount,
+} from "@/lib/collectionSnapshot";
 import { CopyButton } from "@/app/components/CopyButton";
 
 export const dynamic = "force-dynamic";
@@ -104,11 +111,50 @@ export default async function WalletPage({
       "Unable to load this anon's wallet info right now - try refreshing.";
   }
 
+  // Gamified-holding metrics (hodler streak, collector count, top-holder
+  // crown, nested holdings) all come from one shared, cached collection
+  // scan (lib/collectionSnapshot.ts) - cheap regardless of how many
+  // profile pages request it in the same 5-minute window. "Sent a
+  // transaction" is the one metric that still needs its own live call
+  // (a TBA's own tx count), same retry-once pattern as the wallet lookups
+  // above - degrades to "not done yet" rather than crashing the page.
+  let hasSentTransaction = false;
+  let hodlerWeeks = 0;
+  let extraTokens = 0;
+  let topHolder = false;
+  let nestedCount = 0;
+  try {
+    const snapshot = await getCollectionSnapshot();
+    hodlerWeeks = weeksHeld(snapshot, tokenId);
+    extraTokens = extraCollectionTokens(snapshot, tokenId);
+    topHolder = isTopHolder(snapshot, tokenId);
+    if (tbaAddress) nestedCount = nestedHoldingCount(snapshot, tbaAddress);
+  } catch {
+    // Snapshot scan failed (e.g. Alchemy hiccup) - holding metrics degrade
+    // to 0 for this render rather than crashing the whole profile page.
+  }
+  if (tbaAddress) {
+    try {
+      const txCount = await rpcCall<string>("eth_getTransactionCount", [
+        tbaAddress,
+        "latest",
+      ]);
+      hasSentTransaction = BigInt(txCount) > BigInt(0);
+    } catch {
+      // stays false - not a hard failure, just an unearned milestone
+    }
+  }
+
   const levelProgress = computeLevelProgress({
     claimed,
     walletActivated: activated,
     threadsStarted: humanThreadsStarted,
     totalPosts: humanPostCount,
+    hasSentTransaction,
+    hodlerWeeks,
+    extraCollectionTokens: extraTokens,
+    isTopHolder: topHolder,
+    nestedHoldingCount: nestedCount,
   });
 
   let holdings: WalletHoldings | null = null;
@@ -223,6 +269,26 @@ export default async function WalletPage({
                   ))}
                   <li className="opacity-80">
                     ★ every post keeps earning XP (+10 XP each, no limit)
+                  </li>
+                  <li className="opacity-80">
+                    💎 hold without selling: +100 XP/week (
+                    {levelProgress.breakdown.hodlerXp} XP so far - flippers earn
+                    none, resets on sale)
+                  </li>
+                  <li className="opacity-80">
+                    📚 hold other anons: +20 XP each, up to 5 (
+                    {levelProgress.breakdown.collectorXp} XP so far)
+                  </li>
+                  <li className="opacity-80">
+                    ★ top holder collection-wide: +50 XP (
+                    {levelProgress.breakdown.topHolderXp > 0
+                      ? "earned"
+                      : "not yet"}
+                    )
+                  </li>
+                  <li className="opacity-80">
+                    📦 stash a HOODCHAN inside this anon&apos;s own wallet: +30
+                    XP each ({levelProgress.breakdown.nestedXp} XP so far)
                   </li>
                 </ul>
               </details>
