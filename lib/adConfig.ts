@@ -19,7 +19,11 @@ export const AD_SLOT_DAYS = 7;
 // Priced in USD, paid in whatever's whitelisted below - lib/priceFeed.ts
 // converts to a live token amount at both quote-display and payment-
 // verification time, so this number doesn't go stale as ETH's price moves.
-export const AD_PRICE_USD = 25;
+// Temporarily dropped from $25 to make real end-to-end testing (the new
+// pay-via-wallet-popup flow, see RentAdSpaceButton.tsx) cheap while
+// there's real ETH on the line - raise this back before announcing the
+// feature publicly.
+export const AD_PRICE_USD = 0.25;
 
 export interface AdPriceEntry {
   symbol: string;

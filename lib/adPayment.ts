@@ -2,11 +2,33 @@
 // submission form does not "confirm" anything client-side; this is the
 // actual verification. Raw RPC via lib/chain.ts's rpcCall, same pattern as
 // lib/tba.ts. No escrow contract (see lib/adConfig.ts's own comment): a
-// submitter pays AD_TREASURY_ADDRESS directly and pastes the resulting tx
-// hash here.
+// submitter pays AD_TREASURY_ADDRESS directly and this looks up the
+// resulting tx hash (see app/components/RentAdSpaceButton.tsx - the site
+// itself sends the payment and captures the hash now, rather than asking
+// someone to paste one in by hand).
 import { rpcCall } from "@/lib/chain";
 import { AD_PRICE_USD, AD_TREASURY_ADDRESS, findAdPrice } from "@/lib/adConfig";
 import { usdToTokenAmount } from "@/lib/priceFeed";
+
+// Confirmed live in production: a single unretried rpcCall against
+// Robinhood Chain's documented-flaky public RPC surfaced as "Unable to
+// look up that transaction right now" for a REAL payment a real user had
+// just made - the exact class of bug already fixed elsewhere in this
+// codebase (lib/chain.ts's fetchWalletTokensOnChain, etc), just not here
+// yet. Real money on the line makes this the highest-priority place for
+// it. One retry with a short backoff, not a full gateway swap - this file
+// only ever makes two RPC calls per verification (cheap either way).
+async function retryRpcCall<T>(method: string, params: unknown[]): Promise<T> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await rpcCall<T>(method, params);
+    } catch (err) {
+      if (attempt === 2) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+    }
+  }
+  throw new Error("unreachable");
+}
 
 // Payments are allowed to clear at slightly less than the live-quoted
 // amount - the advertiser sent a fixed token amount based on whatever the
@@ -65,9 +87,10 @@ export async function verifyAdPayment(
 
   let receipt: TxReceipt | null;
   try {
-    receipt = await rpcCall<TxReceipt | null>("eth_getTransactionReceipt", [
-      txHash,
-    ]);
+    receipt = await retryRpcCall<TxReceipt | null>(
+      "eth_getTransactionReceipt",
+      [txHash],
+    );
   } catch {
     return {
       ok: false,
@@ -106,7 +129,7 @@ export async function verifyAdPayment(
     // Native ETH transfer - value lives on the tx itself, not the receipt.
     let tx: Tx | null;
     try {
-      tx = await rpcCall<Tx | null>("eth_getTransactionByHash", [txHash]);
+      tx = await retryRpcCall<Tx | null>("eth_getTransactionByHash", [txHash]);
     } catch {
       return {
         ok: false,
