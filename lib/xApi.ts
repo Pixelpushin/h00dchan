@@ -34,6 +34,16 @@ export async function fetchXUserBio(handle: string): Promise<XUserBio | null> {
   );
   if (res.status === 404) return null;
   if (!res.ok) {
+    // 402 specifically means the X dev account's Pay Per Use credits ran
+    // out (confirmed live: a fresh app with $0 balance returns exactly
+    // this) - surfaced distinctly since it's a real, permanent-until-
+    // topped-up condition, not the transient blip the generic message
+    // below implies to callers.
+    if (res.status === 402) {
+      throw new Error(
+        "X API credits depleted - add credits at console.x.com before bio checks will work.",
+      );
+    }
     throw new Error(`X API lookup failed for @${username} (${res.status})`);
   }
   const body = await res.json();
