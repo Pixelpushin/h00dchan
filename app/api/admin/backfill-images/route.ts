@@ -142,7 +142,7 @@ async function handle(request: NextRequest) {
     failed: results.filter((r) => r.status === "failed").length,
     failedIds: results
       .filter((r) => r.status === "failed")
-      .map((r) => r.tokenId),
+      .map((r) => ({ tokenId: r.tokenId, error: r.error })),
     nextStart: end < MAX_TOKEN_ID ? end + 1 : null,
   };
 
