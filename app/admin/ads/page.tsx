@@ -31,21 +31,43 @@ function subscribe(callback: () => void) {
   return () => listeners.delete(callback);
 }
 
+// useSyncExternalStore requires getSnapshot to return a REFERENTIALLY
+// STABLE value when nothing has actually changed - React calls it on every
+// render to check for tearing, and treats any new object reference as "the
+// store changed," re-rendering again, forever (confirmed live in
+// production: this exact bug shipped as a real Minified React error #185,
+// "Maximum update depth exceeded" - the earlier version parsed a fresh
+// object out of sessionStorage on every single call, so even an unchanged
+// value never compared equal). Caching the last-seen raw string and only
+// re-parsing when it actually differs is the fix - same reasoning as the
+// original secret-based version being safe (a raw string primitive IS
+// stable across calls when unchanged; JSON.parse(raw) on every call is
+// not).
+let cachedRaw: string | null = null;
+let cachedSnapshot: AdminSession | null = null;
+
 function getSnapshot(): AdminSession | null {
   const raw = window.sessionStorage.getItem(SESSION_KEY);
-  if (!raw) return null;
+  if (raw === cachedRaw) return cachedSnapshot;
+  cachedRaw = raw;
+
+  if (!raw) {
+    cachedSnapshot = null;
+    return null;
+  }
   try {
     const session = JSON.parse(raw) as AdminSession;
     // Expire client-side too (matches ADMIN_SESSION_MAX_AGE_MS server-side)
     // so a stale session shows the connect screen again instead of firing
     // requests that'll just 401.
-    if (Date.now() - Date.parse(session.issuedAt) > ADMIN_SESSION_MAX_AGE_MS) {
-      return null;
-    }
-    return session;
+    cachedSnapshot =
+      Date.now() - Date.parse(session.issuedAt) > ADMIN_SESSION_MAX_AGE_MS
+        ? null
+        : session;
   } catch {
-    return null;
+    cachedSnapshot = null;
   }
+  return cachedSnapshot;
 }
 
 function getServerSnapshot(): AdminSession | null {
