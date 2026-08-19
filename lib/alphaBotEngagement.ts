@@ -8,10 +8,15 @@
 // (this is a paid-API experiment, not a guaranteed-forever feature) before
 // anything gets generated or posted.
 import { CONTRACT, CHAIN_ID_HEX } from "@/lib/chain";
-import { getCollectionSnapshot, weeksHeld } from "@/lib/collectionSnapshot";
 import {
+  getCollectionSnapshot,
+  nestedHoldingCount,
+} from "@/lib/collectionSnapshot";
+import {
+  ALPHA_BOT_ATTRIBUTION,
+  ALPHA_BOT_DISCLAIMER,
+  ALPHA_BOT_SNAPSHOT_CUTOFF_MS,
   MAX_ALPHA_BOT_EVENTS_PER_DAY,
-  MIN_HOLD_WEEKS_FOR_ALPHA_BOT,
 } from "@/lib/alphaBotConfig";
 import {
   consumeDailyAlphaBotBudget,
@@ -43,7 +48,7 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   throw new Error("unreachable");
 }
 
-async function resolveTbaAddress(tokenId: string): Promise<string> {
+export async function resolveTbaAddress(tokenId: string): Promise<string> {
   return withRetry(() =>
     tbaKit.computeTbaAddress({
       tokenContract: CONTRACT,
@@ -54,27 +59,48 @@ async function resolveTbaAddress(tokenId: string): Promise<string> {
   );
 }
 
-async function qualifies(tokenId: string): Promise<boolean> {
+// Two independent ways in: (a) already held this specific anon as of the
+// fixed launch snapshot (rewards existing believers, permanently, not a
+// rolling window - see lib/alphaBotConfig.ts's own comment on why this
+// replaced an earlier hold-duration rule), or (b) currently has another
+// HOODCHAN NFT nested inside this anon's own token-bound wallet - "anyone
+// with nested NFTs," a direct reward for actually locking assets into the
+// TBA rather than just holding the outer NFT in an EOA.
+export async function alphaBotQualifies(
+  tokenId: string,
+  tbaAddress: string,
+): Promise<boolean> {
   if (!process.env.VENICE_API_KEY || !process.env.NANSEN_API_KEY) return false;
   const snapshot = await getCollectionSnapshot();
-  return weeksHeld(snapshot, tokenId) >= MIN_HOLD_WEEKS_FOR_ALPHA_BOT;
+  const acquiredAtMs = snapshot.acquiredAtMs.get(tokenId);
+  const heldSinceSnapshot =
+    acquiredAtMs !== undefined && acquiredAtMs <= ALPHA_BOT_SNAPSHOT_CUTOFF_MS;
+  const hasNestedNfts = nestedHoldingCount(snapshot, tbaAddress) > 0;
+  return heldSinceSnapshot || hasNestedNfts;
 }
 
-async function getOrRefreshEntry(tokenId: string): Promise<AlphaBotEntry> {
+export async function getOrRefreshAlphaBotEntry(
+  tokenId: string,
+  tbaAddress: string,
+): Promise<AlphaBotEntry> {
   const existing = await getAlphaBotEntry(tokenId);
   const fresh =
     existing &&
     Date.now() - Date.parse(existing.generatedAt) < RESEARCH_COOLDOWN_MS;
   if (fresh) return existing;
-  const tbaAddress = await resolveTbaAddress(tokenId);
   return generateAlphaBotResearch(tokenId, tbaAddress);
 }
 
-function appendDyor(bullets: string[]): string[] {
-  if (bullets.length === 0) return bullets;
-  const last = bullets[bullets.length - 1];
-  if (/\bDYOR\b/i.test(last)) return bullets;
-  return [...bullets.slice(0, -1), `${last} DYOR.`];
+// Every single Alpha Bot post carries the full warning, not a soft "DYOR"
+// tacked onto just one desk's last line - "every post go hard so people
+// know this may not be accurate and may be bad advice" (explicit
+// instruction, not a one-time footer). Also carries the Nansen attribution
+// line every time, not once per thread - Nansen's own terms require
+// attribution "in a reasonably visible location" anywhere their data is
+// publicly displayed, and each of these posts is its own standalone public
+// display of it.
+function deskPostBody(deskName: string, bullets: string[]): string {
+  return `**${deskName}:**\n${bullets.map((b) => `- ${b}`).join("\n")}\n\n${ALPHA_BOT_ATTRIBUTION} ${ALPHA_BOT_DISCLAIMER}`;
 }
 
 // Fired once per qualifying new thread (app/api/threads/route.ts's after()
@@ -85,19 +111,19 @@ export async function triggerAlphaBotThreadReplies(
   tokenId: string,
 ): Promise<void> {
   try {
-    if (!(await qualifies(tokenId))) return;
+    const tbaAddress = await resolveTbaAddress(tokenId);
+    if (!(await alphaBotQualifies(tokenId, tbaAddress))) return;
     if (!(await consumeDailyAlphaBotBudget(MAX_ALPHA_BOT_EVENTS_PER_DAY)))
       return;
 
-    const entry = await getOrRefreshEntry(tokenId);
+    const entry = await getOrRefreshAlphaBotEntry(tokenId, tbaAddress);
     for (const desk of entry.desks) {
       if (desk.bullets.length === 0) continue;
-      const bullets =
-        desk === entry.desks[entry.desks.length - 1]
-          ? appendDyor(desk.bullets)
-          : desk.bullets;
-      const body = `**${desk.name}:**\n${bullets.map((b) => `- ${b}`).join("\n")}`;
-      await addAlphaBotReply(thread.id, tokenId, body);
+      await addAlphaBotReply(
+        thread.id,
+        tokenId,
+        deskPostBody(desk.name, desk.bullets),
+      );
     }
   } catch (error) {
     console.error(`Alpha Bot thread replies failed for #${tokenId}`, error);
@@ -115,7 +141,8 @@ export async function triggerAlphaBotFollowUp(
   ownerMessage: string,
 ): Promise<void> {
   try {
-    if (!(await qualifies(tokenId))) return;
+    const tbaAddress = await resolveTbaAddress(tokenId);
+    if (!(await alphaBotQualifies(tokenId, tbaAddress))) return;
     // A follow-up only makes sense once there's already research to talk
     // back from - no cached entry means this owner hasn't triggered the
     // opening round yet (or it's expired past recall), nothing to
@@ -127,9 +154,11 @@ export async function triggerAlphaBotFollowUp(
 
     const desk = await generateAlphaBotFollowUp(entry, ownerMessage);
     if (desk.bullets.length === 0) return;
-    const bullets = appendDyor(desk.bullets);
-    const body = `**${desk.name}:**\n${bullets.map((b) => `- ${b}`).join("\n")}`;
-    await addAlphaBotReply(thread.id, tokenId, body);
+    await addAlphaBotReply(
+      thread.id,
+      tokenId,
+      deskPostBody(desk.name, desk.bullets),
+    );
   } catch (error) {
     console.error(`Alpha Bot follow-up failed for #${tokenId}`, error);
   }

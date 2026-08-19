@@ -85,6 +85,26 @@ interface NansenLabelItem {
   category?: string;
 }
 
+// Nansen's Data Redistribution Guidelines (docs.nansen.ai/guides/
+// data-redistribution-guidelines, incorporated into the API Terms of
+// Service at nansen.ai/legal/api) single out "smart_money" as their most
+// protected label category - redistribution requires prior written
+// approval AND significant transformation, and some of it is "not allowed
+// under any circumstances." Alpha Bot has neither of those, so smart_money
+// labels are dropped here, at the data-fetch boundary, before anything
+// downstream (the Venice prompt, a public board post) ever sees them -
+// every other category (behavioral/defi/cefi/nft/social/others) is a
+// simple factual tag (e.g. "high balance," "NFT collector"), not Nansen's
+// proprietary trader/fund classification.
+const REDISTRIBUTABLE_LABEL_CATEGORIES = new Set([
+  "behavioral",
+  "defi",
+  "cefi",
+  "nft",
+  "social",
+  "others",
+]);
+
 export async function fetchAddressLabels(
   address: string,
 ): Promise<NansenLabel[]> {
@@ -95,6 +115,9 @@ export async function fetchAddressLabels(
   return (result.data ?? [])
     .filter((item): item is Required<NansenLabelItem> =>
       Boolean(item.label && item.category),
+    )
+    .filter((item) =>
+      REDISTRIBUTABLE_LABEL_CATEGORIES.has(item.category.toLowerCase()),
     )
     .map((item) => ({ label: item.label, category: item.category }));
 }

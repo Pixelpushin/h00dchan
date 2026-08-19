@@ -379,11 +379,7 @@ export default async function WalletPage({
           </>
         )}
 
-        <AlphaResearchPanel
-          tokenId={tokenId}
-          initialEntry={alphaBotEntry}
-          hodlerWeeks={hodlerWeeks}
-        />
+        <AlphaResearchPanel tokenId={tokenId} initialEntry={alphaBotEntry} />
 
         <div className="hc-infobox">
           <div className="hc-infobox-header">

@@ -3,56 +3,29 @@
 // clanker is reused here as general proof-of-ownership, not a new signing
 // flow. No cron, no public trigger: every call here spends real Nansen
 // credits (and a Venice call), so only the anon's actual current owner can
-// fire it, and only once per 24h per anon (checked below) regardless of
-// how many times they click.
+// fire it. Shares its eligibility/budget/TBA-resolution logic with lib/
+// alphaBotEngagement.ts (the auto-reply-on-post path) rather than
+// maintaining a second copy that could quietly drift out of agreement with
+// it - both should always answer "does this anon qualify" identically.
 import { NextRequest, NextResponse } from "next/server";
 import { verifyPersonaClaim } from "@/lib/auth-server";
 import { checkWriteRateLimit } from "@/lib/rate-limit";
-import { CONTRACT, CHAIN_ID_HEX } from "@/lib/chain";
-import { getCollectionSnapshot, weeksHeld } from "@/lib/collectionSnapshot";
-import { MIN_HOLD_WEEKS_FOR_ALPHA_BOT } from "@/lib/alphaBotConfig";
-import { getAlphaBotEntry } from "@/lib/alphaBotStore";
-import { generateAlphaBotResearch } from "@/lib/alphaBotResearch";
-import * as tbaKit from "@pixelpushin/tba-kit";
+import { MAX_ALPHA_BOT_EVENTS_PER_DAY } from "@/lib/alphaBotConfig";
+import {
+  consumeDailyAlphaBotBudget,
+  getAlphaBotEntry,
+} from "@/lib/alphaBotStore";
+import {
+  alphaBotQualifies,
+  getOrRefreshAlphaBotEntry,
+  resolveTbaAddress,
+} from "@/lib/alphaBotEngagement";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const RESEARCH_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-
-// This route spends real money per call (Nansen credits + a Venice call),
-// unlike the read-heavy paths elsewhere in this app that got the
-// Alchemy+retry reliability fix purely to avoid mis-displaying data - here
-// a flaky public-RPC failure would waste an actual paid research run, so
-// this gets its own reliable TBA lookup rather than lib/tba.ts's
-// public-RPC default.
-const ALCHEMY_RPC_URL = process.env.ALCHEMY_API_KEY
-  ? `https://robinhood-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`
-  : undefined;
-
-async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      if (attempt === 2) throw err;
-      await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
-    }
-  }
-  throw new Error("unreachable");
-}
-
-async function resolveTbaAddress(tokenId: string): Promise<string> {
-  return withRetry(() =>
-    tbaKit.computeTbaAddress({
-      tokenContract: CONTRACT,
-      tokenId,
-      chainIdHex: CHAIN_ID_HEX,
-      rpcUrl: ALCHEMY_RPC_URL,
-    }),
-  );
-}
 
 export async function POST(request: NextRequest) {
   let payload: unknown;
@@ -106,21 +79,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // The real gate this feature exists for: only an owner who has actually
-  // held this specific anon for a while gets Alpha Bot access - explicit
-  // product decision to reward long-term holding, not just current
-  // ownership. weeksHeld resets to 0 the instant a token changes hands
-  // (see lib/collectionSnapshot.ts), so a same-day buy-then-claim can't
-  // qualify no matter how it's timed.
-  const snapshot = await getCollectionSnapshot();
-  const weeks = weeksHeld(snapshot, tokenId);
-  if (weeks < MIN_HOLD_WEEKS_FOR_ALPHA_BOT) {
+  let tbaAddress: string;
+  try {
+    tbaAddress = await resolveTbaAddress(tokenId);
+  } catch (error) {
+    console.error(`Alpha Bot TBA lookup failed for #${tokenId}`, error);
+    return NextResponse.json(
+      { error: "Unable to resolve this anon's wallet - try again shortly." },
+      { status: 500 },
+    );
+  }
+
+  if (!(await alphaBotQualifies(tokenId, tbaAddress))) {
     return NextResponse.json(
       {
-        error: `Alpha Bot is for long-term holders - hold this anon for ${MIN_HOLD_WEEKS_FOR_ALPHA_BOT} weeks to unlock it (currently ${weeks}).`,
-        code: "HOLD_TOO_SHORT",
-        weeksHeld: weeks,
-        weeksRequired: MIN_HOLD_WEEKS_FOR_ALPHA_BOT,
+        error:
+          "Alpha Bot is reserved for anons held since the launch snapshot, or that have another HOODCHAN nested in their own token-bound wallet.",
+        code: "NOT_ELIGIBLE",
       },
       { status: 403 },
     );
@@ -134,9 +109,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ entry: existing, cached: true });
   }
 
+  if (!(await consumeDailyAlphaBotBudget(MAX_ALPHA_BOT_EVENTS_PER_DAY))) {
+    return NextResponse.json(
+      {
+        error:
+          "Alpha Bot has hit its site-wide daily research budget - try again tomorrow.",
+        code: "DAILY_BUDGET_EXHAUSTED",
+      },
+      { status: 429 },
+    );
+  }
+
   try {
-    const tbaAddress = await resolveTbaAddress(tokenId);
-    const entry = await generateAlphaBotResearch(tokenId, tbaAddress);
+    const entry = await getOrRefreshAlphaBotEntry(tokenId, tbaAddress);
     return NextResponse.json({ entry, cached: false });
   } catch (error) {
     console.error(`Alpha Bot research failed for #${tokenId}`, error);

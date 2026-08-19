@@ -6,11 +6,19 @@
 // this anon, not a separate signing flow (see app/api/alpha/research/
 // route.ts's own comment on why that's the right amount of auth here).
 // Anyone can view a wallet page; only the anon's current owner (the one
-// actually signed in as it) sees the trigger button.
+// actually signed in as it) sees the trigger button. Eligibility itself
+// (launch-snapshot holder, or has a nested HOODCHAN in their TBA) is a
+// server-side check with no simple client-displayable countdown, so this
+// panel doesn't try to predict it - it shows the button to any owner and
+// surfaces the server's real answer (including a clear "not eligible"
+// message) after a click.
 import { useState } from "react";
 import { useActivePersona } from "@/lib/usePersona";
 import type { AlphaBotEntry } from "@/lib/alphaBotStore";
-import { MIN_HOLD_WEEKS_FOR_ALPHA_BOT } from "@/lib/alphaBotConfig";
+import {
+  ALPHA_BOT_ATTRIBUTION,
+  ALPHA_BOT_DISCLAIMER,
+} from "@/lib/alphaBotConfig";
 
 const COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
@@ -32,18 +40,9 @@ function hoursRemaining(generatedAtIso: string, now: number): number {
 export function AlphaResearchPanel({
   tokenId,
   initialEntry,
-  hodlerWeeks,
 }: {
   tokenId: string;
   initialEntry: AlphaBotEntry | null;
-  // How long the CURRENT owner has held this specific anon (lib/
-  // collectionSnapshot.ts's weeksHeld, same source the leveling system's
-  // Hodler XP already uses) - resets to 0 on transfer, so a same-day
-  // buy-then-claim can't qualify. Server-computed on the wallet page and
-  // passed down rather than recomputed here, and re-enforced server-side
-  // in app/api/alpha/research/route.ts regardless (this prop only decides
-  // what the UI shows before a click, it isn't the real gate).
-  hodlerWeeks: number;
 }) {
   const { persona } = useActivePersona();
   const [entry, setEntry] = useState(initialEntry);
@@ -57,7 +56,6 @@ export function AlphaResearchPanel({
   const [now] = useState(() => Date.now());
 
   const isOwner = persona?.tokenId === tokenId;
-  const qualifies = hodlerWeeks >= MIN_HOLD_WEEKS_FOR_ALPHA_BOT;
   const isFresh = entry && now - Date.parse(entry.generatedAt) < COOLDOWN_MS;
 
   const handleResearch = async () => {
@@ -132,22 +130,19 @@ export function AlphaResearchPanel({
               })}
             </p>
           )}
+          <p className="hc-thread-meta text-[0.65rem] mt-2 leading-relaxed">
+            {ALPHA_BOT_ATTRIBUTION} {ALPHA_BOT_DISCLAIMER}
+          </p>
         </>
       ) : (
         <p className="hc-thread-meta text-sm mb-2">
           Not researched yet - real on-chain data from Nansen, grounded, not
-          invented.
+          invented. Reserved for anons held since launch, or with a nested
+          HOODCHAN in their own token-bound wallet.
         </p>
       )}
 
-      {isOwner && !qualifies && (
-        <p className="hc-thread-meta text-xs mt-2">
-          🔒 For long-term holders only - hold this anon for{" "}
-          {MIN_HOLD_WEEKS_FOR_ALPHA_BOT} weeks to unlock Alpha Bot (currently{" "}
-          {hodlerWeeks}/{MIN_HOLD_WEEKS_FOR_ALPHA_BOT}).
-        </p>
-      )}
-      {isOwner && qualifies && (!entry || !isFresh) && (
+      {isOwner && (!entry || !isFresh) && (
         <button
           onClick={handleResearch}
           disabled={loading}
@@ -160,7 +155,7 @@ export function AlphaResearchPanel({
               : "Run Nansen research"}
         </button>
       )}
-      {isOwner && qualifies && entry && isFresh && (
+      {isOwner && entry && isFresh && (
         <p className="hc-thread-meta text-xs mt-2">
           Can refresh again in about {hoursRemaining(entry.generatedAt, now)}h.
         </p>

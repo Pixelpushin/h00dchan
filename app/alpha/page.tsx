@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { getDailyAlphaDigest } from "@/lib/store";
 import { listRecentAlphaBotEntries } from "@/lib/alphaBotStore";
+import {
+  ALPHA_BOT_ATTRIBUTION,
+  ALPHA_BOT_DISCLAIMER,
+} from "@/lib/alphaBotConfig";
 
 export const dynamic = "force-dynamic";
 
@@ -92,9 +96,13 @@ export default async function AlphaPage() {
             <p className="hc-thread-meta text-xs mb-2">
               A small research desk (Research/Risk/Skeptic) narrating real
               Nansen data on each anon&apos;s actual token-bound wallet - not
-              satire, not invented. Reserved for holders who&apos;ve actually
-              held their anon 4+ weeks: start a thread and your desk jumps in,
-              reply in your own thread and they talk back. DYOR always applies.
+              satire, not invented. Reserved for anons held since the launch
+              snapshot, or with another HOODCHAN nested inside their own
+              token-bound wallet: start a thread and your desk jumps in, reply
+              in your own thread and they talk back.
+            </p>
+            <p className="hc-thread-meta text-[0.65rem] mb-3 leading-relaxed">
+              {ALPHA_BOT_ATTRIBUTION} {ALPHA_BOT_DISCLAIMER}
             </p>
             {alphaBotEntries.length > 0 ? (
               <div className="flex flex-col gap-3">
