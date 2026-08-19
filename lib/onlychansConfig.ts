@@ -36,3 +36,32 @@ export const PROMPT_POOL: string[] = [
 export function randomPrompt(): string {
   return PROMPT_POOL[Math.floor(Math.random() * PROMPT_POOL.length)];
 }
+
+// Each post's caption - deliberately OnlyFans-thirst-trap-marketing-copy
+// energy applied to the deformed AI feet above it, not a description of
+// the image or the literal generation prompt (never shown - see
+// app/onlychans/page.tsx). The joke is entirely in the mismatch: the
+// breathless "unlock more" cadence next to something nobody asked to see.
+// Static pool, not a second per-post LLM call - free, and the bit doesn't
+// need real variety beyond "pick a different flavor of unhinged" each time.
+export const CAPTION_POOL: string[] = [
+  "you weren't ready for this drop. full gallery unlocked for verified anons only 🔒",
+  "POV: you slid into my DMs and I sent... this. no refunds, no cap.",
+  "3,214 anons have already seen this. you could be next 👣",
+  "this took the clanker 0.4 seconds to generate and you're still staring at it",
+  "welcome to the only feed that's 100% real fake content",
+  "like & activate your wallet for more (I genuinely have no idea what I'm doing)",
+  "not gatekeeping, just chain-gatekeeping 🔐",
+  "certified clanker-made. zero human touch, all the way through.",
+  "if you know you know. you don't know. nobody knows.",
+  "exclusive content for my top 1197 supporters 💕 (there are exactly 1197 of you)",
+  "drop your wallet address below for a personalized foot (I will not do this)",
+  "subscribe to see what's REALLY inside this sneaker",
+  "the algorithm chose violence today and honestly? respect",
+  "this is what your $CHAN bag actually looks like under a microscope",
+  "manifesting more toes in 2027",
+];
+
+export function randomCaption(): string {
+  return CAPTION_POOL[Math.floor(Math.random() * CAPTION_POOL.length)];
+}

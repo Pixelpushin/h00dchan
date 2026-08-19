@@ -7,7 +7,7 @@
 // trigger generation - keeps OpenAI spend bounded to the cron schedule.
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminAuth";
-import { randomPrompt } from "@/lib/onlychansConfig";
+import { randomCaption, randomPrompt } from "@/lib/onlychansConfig";
 import { generateOnlyChanImage } from "@/lib/onlychansImage";
 import { createOnlyChanPost } from "@/lib/onlychansStore";
 
@@ -22,7 +22,11 @@ async function handle(request: NextRequest): Promise<NextResponse> {
   const prompt = randomPrompt();
   try {
     const { blobUrl } = await generateOnlyChanImage(prompt);
-    const post = await createOnlyChanPost({ imageUrl: blobUrl, prompt });
+    const post = await createOnlyChanPost({
+      imageUrl: blobUrl,
+      prompt,
+      caption: randomCaption(),
+    });
     return NextResponse.json({ ok: true, post });
   } catch (error) {
     console.error("onlyChans generate failed", error);

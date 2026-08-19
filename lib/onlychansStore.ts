@@ -7,6 +7,7 @@ export interface OnlyChanPost {
   id: string;
   imageUrl: string;
   prompt: string;
+  caption: string;
   createdAt: string;
 }
 
