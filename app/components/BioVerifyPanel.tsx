@@ -9,10 +9,15 @@
 // alone doesn't count - the phrase mentions posting one too, but only for
 // extra reach, since a tweet scrolls away and a bio doesn't). See
 // app/api/bio-verify/start and /check for the server side.
+//
+// One primary action per step, not a row of separate buttons - copying the
+// phrase and opening the bio-edit page used to be two clicks (a copy
+// button plus a separate link), collapsed into one here. Tweeting stays
+// available but as a plain inline link, not a full button, since it's
+// explicitly optional bonus reach, not a required step.
 import { useState } from "react";
 import { connectWallet, signMessage } from "@/lib/wallet";
 import { buildBioVerifyAuthMessage } from "@/lib/persona";
-import { CopyButton } from "@/app/components/CopyButton";
 
 interface BioVerifyPanelProps {
   tokenId: string;
@@ -36,6 +41,7 @@ export function BioVerifyPanel({
   const [phrase, setPhrase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const handleStart = async () => {
     const handle = xHandle.trim().replace(/^@/, "");
@@ -70,6 +76,21 @@ export function BioVerifyPanel({
       setError(err instanceof Error ? err.message : "Failed to start.");
       setStage("idle");
     }
+  };
+
+  const handleCopyAndOpenBio = async (phraseText: string) => {
+    try {
+      await navigator.clipboard.writeText(phraseText);
+      setCopied(true);
+    } catch {
+      // Clipboard permission can be denied - the phrase is still visible
+      // and selectable in the code block, so this isn't a dead end.
+    }
+    window.open(
+      "https://x.com/settings/profile",
+      "_blank",
+      "noopener,noreferrer",
+    );
   };
 
   const handleCheck = async () => {
@@ -113,36 +134,28 @@ export function BioVerifyPanel({
       <div className="hc-box p-3 flex flex-col gap-2">
         <p className="text-xs font-medium">Almost done - one more step</p>
         <p className="hc-thread-meta text-xs">
-          Paste this into your X <strong>bio</strong> (that&apos;s the part
-          that&apos;s actually checked) within an hour. Tweeting it too is
-          optional, just for extra reach - it doesn&apos;t count on its own.
+          This goes in your X <strong>bio</strong> (that&apos;s the part
+          that&apos;s actually checked), not just a tweet.
         </p>
-        <div className="flex items-center gap-2">
-          <code className="text-sm flex-1">{phrase}</code>
-          <CopyButton text={phrase} />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <a
-            href="https://x.com/settings/profile"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hc-button-ghost hc-button text-xs"
-          >
-            Edit my X bio ↗
-          </a>
-          <a
-            href={tweetIntentUrl(phrase)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hc-button-ghost hc-button text-xs"
-          >
-            Also tweet it ↗
-          </a>
-        </div>
+        <code className="text-sm">{phrase}</code>
+        <button
+          onClick={() => handleCopyAndOpenBio(phrase)}
+          className="hc-button text-xs self-start"
+        >
+          {copied ? "Copied - opening your bio..." : "Copy & open my X bio"}
+        </button>
+        <a
+          href={tweetIntentUrl(phrase)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hc-link text-xs self-start"
+        >
+          or tweet it too, optional, for extra reach
+        </a>
         <button
           onClick={handleCheck}
           disabled={checking}
-          className="hc-button text-xs self-start"
+          className="hc-button-ghost hc-button text-xs self-start"
         >
           {checking ? "Checking..." : "I updated my bio, check now"}
         </button>

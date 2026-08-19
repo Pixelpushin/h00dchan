@@ -652,36 +652,30 @@ export default function HomeClient({
                         </Link>
                         <div className="p-2 text-center">
                           {wallet && (
-                            // A status button, not a "tap to do X" text
-                            // link - the earlier version promised an
-                            // action ("tap to turn on sending") that
-                            // didn't actually happen on that tap, it just
-                            // navigated to the wallet page where the real
-                            // activation button lives. A colored
-                            // active/inactive button is honest about what
-                            // clicking does (view/manage this wallet) while
-                            // still being a clear, simple, non-jargon
-                            // status at a glance - green/red reads
-                            // correctly with zero English needed. Label
-                            // above it names the concept ("Token Bound
-                            // Wallet") since this app now has two
-                            // completely different things people call
-                            // "activate" (this wallet vs. the anon's
-                            // posting identity below) - same wording used
-                            // for the badge on /wallet/[tokenId].
+                            // Every wallet in this collection is activated
+                            // today (batch-activated collection-wide), so a
+                            // permanent "Sending Enabled" badge on every
+                            // single card was just noise stating something
+                            // universally true. Still kept conditional, not
+                            // hardcoded - a future collection/drop that
+                            // isn't pre-activated needs the real status
+                            // back, which is why the button text itself
+                            // (not a separate label line above it) still
+                            // branches on wallet.activated.
                             <div className="mb-2">
-                              <div className="hc-thread-meta text-[0.65rem] mb-0.5">
-                                Token Bound Wallet
-                              </div>
                               <Link
                                 href={`/wallet/${token.tokenId}`}
-                                className={`hc-wallet-status-btn ${wallet.activated ? "hc-wallet-status-active" : "hc-wallet-status-inactive"}`}
+                                className={
+                                  wallet.activated
+                                    ? "hc-button-ghost hc-button w-full text-xs"
+                                    : "hc-wallet-status-btn hc-wallet-status-inactive"
+                                }
                                 title={wallet.address}
                               >
                                 <WalletIcon className="hc-btn-icon" />
                                 {wallet.activated
-                                  ? "Sending Enabled"
-                                  : "Sending Disabled"}
+                                  ? "Go to profile"
+                                  : "Activate wallet"}
                               </Link>
                             </div>
                           )}
@@ -715,15 +709,16 @@ export default function HomeClient({
                             </div>
                           ) : (
                             <>
-                              {/* "AI Active" today means the ghost-posting
-                                  persona - once an Alpha Bot feature ships,
-                                  this single line is the only thing that
-                                  needs to change ("Alpha Bot Enabled" once
-                                  claimed, etc.), not the button/logic
-                                  around it. */}
-                              <div className="hc-thread-meta text-[0.65rem] mb-1">
-                                AI Active. Activate to silence.
-                              </div>
+                              {/* No separate "AI Active" label above this
+                                  anymore - the button's own text carries
+                                  the state (idle vs. mid-claim vs. what
+                                  claiming does), same "conditional text on
+                                  the button, not a static line above it"
+                                  fix as the wallet status button. "Silence"
+                                  today means the ghost-posting persona -
+                                  once an Alpha Bot feature ships, this
+                                  label is the only thing that needs to
+                                  change, not the button/logic around it. */}
                               <button
                                 onClick={() => handleClaim(token)}
                                 disabled={isClaiming}
@@ -735,7 +730,7 @@ export default function HomeClient({
                                     : claimStage === "confirming"
                                       ? "Silencing clanker..."
                                       : "Preparing..."
-                                  : "Activate this Anon"}
+                                  : "Claim & silence AI"}
                               </button>
                               {isClaiming && (
                                 <div
