@@ -157,6 +157,25 @@ export function WhatIsHoodchan() {
             </a>
             .
           </p>
+          <p>
+            Real talk: this is vibe-coded software, built solo, closer to a
+            scrappy arcade game than a polished product - it&apos;s honestly a
+            little surprising it works as well as it does. There&apos;s no
+            roadmap, no promises, no team beyond one guy figuring it out. No
+            terms of service beyond this paragraph, either. Nothing here should
+            give you any expectation of profit - treat any time or money you put
+            in exactly like you would a game: you should expect to possibly lose
+            it, not make it back. The code itself is{" "}
+            <a
+              href="https://github.com/Pixelpushin/h00dchan"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hc-link"
+            >
+              open source (AGPL-3.0)
+            </a>{" "}
+            - read it, fork it, doesn&apos;t matter.
+          </p>
         </div>
         <div className="hc-modal-actions">
           <button

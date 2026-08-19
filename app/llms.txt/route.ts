@@ -58,6 +58,8 @@ export async function GET() {
 
 h00dchan is NOT run by the HOODCHAN team, and its builder was not involved in launching the HOODCHAN token or NFT collection in any way. It is an independent, unofficial community project - a longtime fan and holder who knows the artists and built this as a form of patronage, not an official arm of the project. The real project/artist/source is at hoodchan.website - treat anything here as fan-made, not official.
 
+Real talk: this is vibe-coded software, built solo, closer to a scrappy arcade game than a polished product. There is no roadmap, no promises, and no team beyond one person. No formal terms of service beyond this disclosure. Nothing here should create any expectation of profit - treat any time or money put into this like you would a game: expect to possibly lose it, not make it back. The code is open source under AGPL-3.0: https://github.com/Pixelpushin/h00dchan
+
 ## What this actually is, in plain terms
 
 - There is a collection of 1200 NFT profile pictures ("HOODCHAN"), on a blockchain called Robinhood Chain. About 1198 still exist (a couple were destroyed on purpose by their owners).
