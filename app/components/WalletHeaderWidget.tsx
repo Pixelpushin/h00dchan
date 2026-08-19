@@ -381,7 +381,7 @@ export function WalletHeaderWidget() {
           </button>
           {isAdmin && (
             <a
-              href="/admin/ads"
+              href="/admin"
               className="hc-wallet-menu-item"
               onClick={() => setMenuOpen(false)}
             >
