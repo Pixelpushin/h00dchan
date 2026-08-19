@@ -3,6 +3,7 @@ import { verifyPersonaClaim } from "@/lib/auth-server";
 import { checkWriteRateLimit } from "@/lib/rate-limit";
 import { addReply, getThread, listPosts, markTokenClaimed } from "@/lib/store";
 import { triggerAiReply } from "@/lib/aiEngagement";
+import { triggerAlphaBotFollowUp } from "@/lib/alphaBotEngagement";
 import {
   claimRewardSlot,
   REWARD_REPLY_COUNT,
@@ -123,10 +124,16 @@ export async function POST(
   // Venice-call latency to the human's own reply.
   after(async () => {
     // listPosts already includes this reply - addReply's writePost/RPUSH
-    // already landed before this after() callback runs.
+    // already landed before this after() callback runs. The desk only
+    // talks back when this reply is from the thread's OWN OP token - "only
+    // talk to the owner of the bots nested in the wallet," never to random
+    // other posters replying in someone else's thread.
     const [, allPosts] = await Promise.all([
       triggerAiReply(thread),
       listPosts(threadId),
+      tokenId === thread.tokenId
+        ? triggerAlphaBotFollowUp(thread, tokenId, body.trim())
+        : Promise.resolve(),
     ]);
     const quality = await scoreThreadQuality(thread.subject, allPosts);
     if (quality.passed && (await claimRewardSlot(threadId))) {

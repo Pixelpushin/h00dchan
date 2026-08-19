@@ -3,6 +3,7 @@ import { verifyPersonaClaim } from "@/lib/auth-server";
 import { checkWriteRateLimit } from "@/lib/rate-limit";
 import { createThread, listThreads, markTokenClaimed } from "@/lib/store";
 import { triggerAiThread } from "@/lib/aiEngagement";
+import { triggerAlphaBotThreadReplies } from "@/lib/alphaBotEngagement";
 import {
   claimRewardSlot,
   REWARD_REPLY_COUNT,
@@ -142,6 +143,11 @@ export async function POST(request: NextRequest) {
     const [quality] = await Promise.all([
       scoreThreadQuality(thread.subject, [post]),
       triggerAiThread(),
+      // Own try/catch internally (lib/alphaBotEngagement.ts) - qualifies()
+      // no-ops for anyone under the hold-duration bar or once today's
+      // site-wide budget is spent, so this is a cheap no-op far more often
+      // than it's a real Nansen+Venice spend.
+      triggerAlphaBotThreadReplies(thread, tokenId),
     ]);
     if (quality.passed && (await claimRewardSlot(thread.id))) {
       await scheduleStaggeredReplies(

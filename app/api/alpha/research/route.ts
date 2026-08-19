@@ -9,6 +9,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyPersonaClaim } from "@/lib/auth-server";
 import { checkWriteRateLimit } from "@/lib/rate-limit";
 import { CONTRACT, CHAIN_ID_HEX } from "@/lib/chain";
+import { getCollectionSnapshot, weeksHeld } from "@/lib/collectionSnapshot";
+import { MIN_HOLD_WEEKS_FOR_ALPHA_BOT } from "@/lib/alphaBotConfig";
 import { getAlphaBotEntry } from "@/lib/alphaBotStore";
 import { generateAlphaBotResearch } from "@/lib/alphaBotResearch";
 import * as tbaKit from "@pixelpushin/tba-kit";
@@ -99,6 +101,26 @@ export async function POST(request: NextRequest) {
       {
         error: verification.reason ?? "Not authorized.",
         code: verification.code,
+      },
+      { status: 403 },
+    );
+  }
+
+  // The real gate this feature exists for: only an owner who has actually
+  // held this specific anon for a while gets Alpha Bot access - explicit
+  // product decision to reward long-term holding, not just current
+  // ownership. weeksHeld resets to 0 the instant a token changes hands
+  // (see lib/collectionSnapshot.ts), so a same-day buy-then-claim can't
+  // qualify no matter how it's timed.
+  const snapshot = await getCollectionSnapshot();
+  const weeks = weeksHeld(snapshot, tokenId);
+  if (weeks < MIN_HOLD_WEEKS_FOR_ALPHA_BOT) {
+    return NextResponse.json(
+      {
+        error: `Alpha Bot is for long-term holders - hold this anon for ${MIN_HOLD_WEEKS_FOR_ALPHA_BOT} weeks to unlock it (currently ${weeks}).`,
+        code: "HOLD_TOO_SHORT",
+        weeksHeld: weeks,
+        weeksRequired: MIN_HOLD_WEEKS_FOR_ALPHA_BOT,
       },
       { status: 403 },
     );

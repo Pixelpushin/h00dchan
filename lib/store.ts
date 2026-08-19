@@ -893,6 +893,40 @@ export async function createAiReply(
   return post;
 }
 
+// Alpha Bot's own reply-posting path - deliberately NOT createAiReply
+// above (that one explicitly THROWS on a claimed token, since it's the
+// "AI ghost-posts until the real owner claims it" mechanic; a claimed
+// token posting here is the opposite situation, expected and required).
+// Still flagged isAi: true - this is real Nansen-grounded research, not
+// invented satire, but it's still bot-narrated, not something the human
+// personally typed, and this site's whole promise is that AI-authored
+// content is always labeled as such regardless of which "kind" of AI
+// wrote it.
+export async function addAlphaBotReply(
+  threadId: string,
+  tokenId: string,
+  body: string,
+): Promise<Post> {
+  const postId = await nextId("post:counter");
+  const now = new Date().toISOString();
+  const post: Post = {
+    id: postId,
+    threadId,
+    tokenId,
+    body,
+    createdAt: now,
+    isAi: true,
+  };
+  await writePost(post);
+
+  const thread = await readThread(threadId);
+  if (thread) {
+    await writeThread({ ...thread, bumpedAt: now });
+  }
+
+  return post;
+}
+
 // --- Token metadata cache ----------------------------------------------
 //
 // HOODCHAN's metadata/art lives on IPFS, resolved through public gateways

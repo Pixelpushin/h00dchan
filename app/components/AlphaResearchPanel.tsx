@@ -10,6 +10,7 @@
 import { useState } from "react";
 import { useActivePersona } from "@/lib/usePersona";
 import type { AlphaBotEntry } from "@/lib/alphaBotStore";
+import { MIN_HOLD_WEEKS_FOR_ALPHA_BOT } from "@/lib/alphaBotConfig";
 
 const COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
@@ -31,9 +32,18 @@ function hoursRemaining(generatedAtIso: string, now: number): number {
 export function AlphaResearchPanel({
   tokenId,
   initialEntry,
+  hodlerWeeks,
 }: {
   tokenId: string;
   initialEntry: AlphaBotEntry | null;
+  // How long the CURRENT owner has held this specific anon (lib/
+  // collectionSnapshot.ts's weeksHeld, same source the leveling system's
+  // Hodler XP already uses) - resets to 0 on transfer, so a same-day
+  // buy-then-claim can't qualify. Server-computed on the wallet page and
+  // passed down rather than recomputed here, and re-enforced server-side
+  // in app/api/alpha/research/route.ts regardless (this prop only decides
+  // what the UI shows before a click, it isn't the real gate).
+  hodlerWeeks: number;
 }) {
   const { persona } = useActivePersona();
   const [entry, setEntry] = useState(initialEntry);
@@ -47,6 +57,7 @@ export function AlphaResearchPanel({
   const [now] = useState(() => Date.now());
 
   const isOwner = persona?.tokenId === tokenId;
+  const qualifies = hodlerWeeks >= MIN_HOLD_WEEKS_FOR_ALPHA_BOT;
   const isFresh = entry && now - Date.parse(entry.generatedAt) < COOLDOWN_MS;
 
   const handleResearch = async () => {
@@ -95,12 +106,21 @@ export function AlphaResearchPanel({
             Last researched {timeAgo(entry.generatedAt, now)} · real Nansen
             data, narrated by AI - not a fake shitpost.
           </p>
-          {entry.bullets.length > 0 ? (
-            <ul className="flex flex-col gap-1.5 text-sm list-disc pl-5">
-              {entry.bullets.map((bullet, i) => (
-                <li key={i}>{bullet}</li>
+          {entry.desks.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              {entry.desks.map((desk) => (
+                <div key={desk.name}>
+                  <div className="hc-thread-subject text-xs mb-1">
+                    {desk.name}
+                  </div>
+                  <ul className="flex flex-col gap-1 text-sm list-disc pl-5">
+                    {desk.bullets.map((bullet, i) => (
+                      <li key={i}>{bullet}</li>
+                    ))}
+                  </ul>
+                </div>
               ))}
-            </ul>
+            </div>
           ) : (
             <p className="hc-thread-meta text-sm">Nothing notable found.</p>
           )}
@@ -120,7 +140,14 @@ export function AlphaResearchPanel({
         </p>
       )}
 
-      {isOwner && (!entry || !isFresh) && (
+      {isOwner && !qualifies && (
+        <p className="hc-thread-meta text-xs mt-2">
+          🔒 For long-term holders only - hold this anon for{" "}
+          {MIN_HOLD_WEEKS_FOR_ALPHA_BOT} weeks to unlock Alpha Bot (currently{" "}
+          {hodlerWeeks}/{MIN_HOLD_WEEKS_FOR_ALPHA_BOT}).
+        </p>
+      )}
+      {isOwner && qualifies && (!entry || !isFresh) && (
         <button
           onClick={handleResearch}
           disabled={loading}
@@ -133,7 +160,7 @@ export function AlphaResearchPanel({
               : "Run Nansen research"}
         </button>
       )}
-      {isOwner && entry && isFresh && (
+      {isOwner && qualifies && entry && isFresh && (
         <p className="hc-thread-meta text-xs mt-2">
           Can refresh again in about {hoursRemaining(entry.generatedAt, now)}h.
         </p>

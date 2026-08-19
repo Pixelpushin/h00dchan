@@ -1,15 +1,21 @@
 // The actual "Alpha Bot": takes a claimed anon's real token-bound wallet
 // address, pulls its real cross-chain holdings + Nansen labels, and has
-// Venice narrate them into a few short bullets - the one part of this
-// app's AI writing that is grounded in real data end to end, unlike the
-// "AI shitposts" bucket (lib/dailyAlpha.ts, lib/ai-persona.ts), which is
-// deliberately fictional satire. Same Venice call shape as
-// lib/dailyAlpha.ts (same model, same response_format: json_object
-// convention) - not extracted into a shared helper, this repo already
-// tolerates that duplication elsewhere for the same "server-only vs.
-// client-safe module boundary" reasons documented on lib/leaderboard.ts.
+// Venice narrate them as a small trade-room desk (Research/Risk/Skeptic)
+// cross-referencing the same real data from different angles - not a
+// single dry bullet list. This is the one part of this app's AI writing
+// that is grounded in real data end to end, unlike the "AI shitposts"
+// bucket (lib/dailyAlpha.ts, lib/ai-persona.ts), which is deliberately
+// fictional satire. Same Venice call shape as lib/dailyAlpha.ts (same
+// model, same response_format: json_object convention) - not extracted
+// into a shared helper, this repo already tolerates that duplication
+// elsewhere for the same "server-only vs. client-safe module boundary"
+// reasons documented on lib/leaderboard.ts.
 import { fetchAddressBalances, fetchAddressLabels } from "@/lib/nansen";
-import { saveAlphaBotEntry, type AlphaBotEntry } from "@/lib/alphaBotStore";
+import {
+  saveAlphaBotEntry,
+  type AlphaBotEntry,
+  type AlphaDesk,
+} from "@/lib/alphaBotStore";
 
 const VENICE_API_URL = "https://api.venice.ai/api/v1/chat/completions";
 const VENICE_MODEL = "venice-uncensored-1-2";
@@ -30,8 +36,8 @@ async function callVenice(prompt: string, apiKey: string): Promise<string> {
     body: JSON.stringify({
       model: VENICE_MODEL,
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.6,
-      max_tokens: 500,
+      temperature: 0.7,
+      max_tokens: 700,
       venice_parameters: { include_venice_system_prompt: false },
       response_format: { type: "json_object" },
     }),
@@ -61,23 +67,22 @@ function cleanJsonText(value: string): string {
     .trim();
 }
 
-function buildPrompt(
+interface HoldingLine {
+  chain: string;
+  tokenSymbol: string;
+  tokenName: string;
+  amount: number;
+  valueUsd: number;
+}
+
+function formatDataBlock(
   tokenId: string,
   address: string,
-  topHoldings: Array<{
-    chain: string;
-    tokenSymbol: string;
-    tokenName: string;
-    amount: number;
-    valueUsd: number;
-  }>,
+  topHoldings: HoldingLine[],
   totalValueUsd: number,
   labels: string[],
 ): string {
-  return `
-You are the "Alpha Bot" for h00dchan, an anonymous message board for HOODCHAN NFT holders. Unlike every other AI-written thing on this site (which is deliberate fake satire), your job is to summarize REAL on-chain research data pulled from Nansen about one specific anon's real crypto wallet. Never invent a holding, label, or number that isn't in the data below - if the data is sparse, say so plainly instead of padding it out.
-
-Anon #${tokenId}, wallet ${address}.
+  return `Anon #${tokenId}, wallet ${address}.
 
 Total portfolio value across all chains: $${totalValueUsd.toFixed(2)}
 
@@ -94,14 +99,31 @@ ${
 }
 
 Nansen labels on this address (${labels.length}):
-${labels.length > 0 ? labels.join(", ") : "(none)"}
+${labels.length > 0 ? labels.join(", ") : "(none)"}`;
+}
+
+function buildDeskPrompt(dataBlock: string): string {
+  return `
+You are three people at a small crypto trading desk, riffing on ONE real wallet's real on-chain data pulled from Nansen for h00dchan (an anonymous message board for HOODCHAN NFT holders). Unlike every other AI-written thing on this site (which is deliberate fake satire), this is real research on a real wallet - never invent a holding, label, or number that isn't in the data below. If the data is sparse, say so plainly instead of padding it out.
+
+The three voices:
+- "Research Desk" - states what's actually in the wallet, plainly, like reading off a terminal. Casual trader voice, not corporate: e.g. "smart money label on this one, for what it's worth" or "seeing a decent NFT stack on Robinhood chain here."
+- "Risk Desk" - flags anything worth a second look purely from the data (concentration in one asset, an unusual/negative label, a near-empty wallet, thin liquidity implied by small positions) - or says there's nothing notable if that's true.
+- "Skeptic" - pushes back or cross-checks the other two, out loud, in the same casual voice - "can't confirm that's actually smart money just from one label," "wallet's too quiet to say much," that kind of thing. Directly reference what Research Desk or Risk Desk just said.
+
+Real data:
+${dataBlock}
 
 Return valid JSON only, matching this shape:
 {
-  "bullets": ["short factual bullet grounded only in the data above", ...]
+  "desks": [
+    { "name": "Research Desk", "bullets": ["...", ...] },
+    { "name": "Risk Desk", "bullets": ["...", ...] },
+    { "name": "Skeptic", "bullets": ["...", ...] }
+  ]
 }
 
-Write 2-5 bullets, each under 30 words, dry and factual (this is real research, not a joke) but you can have a LITTLE personality - a bit deadpan is fine. If there's genuinely nothing interesting (empty/near-empty wallet, no labels), one honest bullet saying so is correct - do not stretch to fill more.
+1-3 short bullets per desk, each under 30 words, casual trading-desk tone (contractions fine, a little dry humor fine) but grounded ONLY in the real data above - do not invent anything. The LAST bullet of the Skeptic desk must always end with "DYOR." as its own short closing line, since none of this is financial advice even though it's real data.
 `.trim();
 }
 
@@ -123,27 +145,78 @@ export async function generateAlphaBotResearch(
     .slice(0, MAX_HOLDINGS_IN_PROMPT);
   const labels = labelResults.map((l) => l.label);
 
-  const prompt = buildPrompt(
+  const dataBlock = formatDataBlock(
     tokenId,
     address,
     topHoldings,
     totalValueUsd,
     labels,
   );
-  const raw = await callVenice(prompt, veniceApiKey);
-  const parsed = JSON.parse(cleanJsonText(raw)) as { bullets?: unknown };
-  const bullets = Array.isArray(parsed.bullets)
-    ? parsed.bullets.filter((b): b is string => typeof b === "string")
+  const raw = await callVenice(buildDeskPrompt(dataBlock), veniceApiKey);
+  const parsed = JSON.parse(cleanJsonText(raw)) as { desks?: unknown };
+
+  const desks: AlphaDesk[] = Array.isArray(parsed.desks)
+    ? parsed.desks
+        .filter(
+          (d): d is { name: unknown; bullets: unknown } =>
+            typeof d === "object" && d !== null,
+        )
+        .map((d) => ({
+          name: typeof d.name === "string" ? d.name : "Desk",
+          bullets: Array.isArray(d.bullets)
+            ? d.bullets.filter((b): b is string => typeof b === "string")
+            : [],
+        }))
+        .filter((d) => d.bullets.length > 0)
     : [];
 
   const entry: AlphaBotEntry = {
     tokenId,
     address,
     generatedAt: new Date().toISOString(),
-    bullets,
+    desks,
+    bullets: desks.flatMap((d) => d.bullets),
     totalValueUsd,
     labels,
   };
   await saveAlphaBotEntry(entry);
   return entry;
+}
+
+// For the in-thread "talk back" continuation (owner replies again in
+// their own thread) - reuses the SAME real data already pulled for the
+// cached entry (no extra Nansen spend), just asks Venice for a fresh,
+// short in-character response from ONE desk voice to what the owner just
+// said. Deliberately narrow: this only ever fires when the reply is from
+// the thread's own OP token (see lib/alphaBotEngagement.ts) - the desks
+// talk to their own owner, not to random other posters in the thread.
+export async function generateAlphaBotFollowUp(
+  entry: AlphaBotEntry,
+  ownerMessage: string,
+): Promise<AlphaDesk> {
+  const veniceApiKey = process.env.VENICE_API_KEY;
+  if (!veniceApiKey) throw new Error("VENICE_API_KEY is not configured.");
+
+  const dataBlock = `Total portfolio value across all chains: $${(entry.totalValueUsd ?? 0).toFixed(2)}
+Labels: ${entry.labels.length > 0 ? entry.labels.join(", ") : "(none)"}
+Prior desk notes:
+${entry.bullets.map((b) => `- ${b}`).join("\n")}`;
+
+  const prompt = `
+You are "Research Desk" at a small crypto trading desk, continuing a conversation with the actual owner of the wallet you already researched for h00dchan. They just replied in their own thread. Respond directly to what they said, casually, grounded ONLY in the real data already gathered below - never invent a new holding or label that wasn't already found. If their message asks about something not in the data, say you don't have that, don't make it up.
+
+${dataBlock}
+
+Owner just said: "${ownerMessage}"
+
+Return valid JSON only:
+{ "bullets": ["1-2 short casual replies, under 30 words each, last one ending with DYOR."] }
+`.trim();
+
+  const raw = await callVenice(prompt, veniceApiKey);
+  const parsed = JSON.parse(cleanJsonText(raw)) as { bullets?: unknown };
+  const bullets = Array.isArray(parsed.bullets)
+    ? parsed.bullets.filter((b): b is string => typeof b === "string")
+    : [];
+  return { name: "Research Desk", bullets };
 }

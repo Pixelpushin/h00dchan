@@ -90,9 +90,11 @@ export default async function AlphaPage() {
           </div>
           <div className="hc-infobox-body">
             <p className="hc-thread-meta text-xs mb-2">
-              Real Nansen data on each anon&apos;s actual token-bound wallet,
-              narrated by AI - not satire, not invented. Any owner can run it
-              from their own anon&apos;s wallet page (once per 24h).
+              A small research desk (Research/Risk/Skeptic) narrating real
+              Nansen data on each anon&apos;s actual token-bound wallet - not
+              satire, not invented. Reserved for holders who&apos;ve actually
+              held their anon 4+ weeks: start a thread and your desk jumps in,
+              reply in your own thread and they talk back. DYOR always applies.
             </p>
             {alphaBotEntries.length > 0 ? (
               <div className="flex flex-col gap-3">
@@ -106,12 +108,21 @@ export default async function AlphaPage() {
                       Anon #{entry.tokenId} · researched{" "}
                       {timeAgo(entry.generatedAt)}
                     </div>
-                    {entry.bullets.length > 0 ? (
-                      <ul className="flex flex-col gap-1 text-sm list-disc pl-5">
-                        {entry.bullets.map((bullet, i) => (
-                          <li key={i}>{bullet}</li>
+                    {entry.desks.length > 0 ? (
+                      <div className="flex flex-col gap-2">
+                        {entry.desks.map((desk) => (
+                          <div key={desk.name}>
+                            <div className="hc-thread-subject text-xs mb-0.5">
+                              {desk.name}
+                            </div>
+                            <ul className="flex flex-col gap-1 text-sm list-disc pl-5">
+                              {desk.bullets.map((bullet, i) => (
+                                <li key={i}>{bullet}</li>
+                              ))}
+                            </ul>
+                          </div>
                         ))}
-                      </ul>
+                      </div>
                     ) : (
                       <p className="hc-thread-meta text-sm">
                         Nothing notable found.
