@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { requireAdmin } from "@/lib/adminAuth";
 import { getOrFetchTokenMetadata, cacheTokenMetadata } from "@/lib/store";
+import { ipfsGatewayUrls } from "@/lib/chain";
 
 // One-time (re-runnable) backfill: copies every token's image from a live
 // IPFS gateway to Vercel Blob storage, then rewrites the cached
@@ -30,13 +31,51 @@ export const maxDuration = 60;
 
 const MAX_TOKEN_ID = 1200;
 const CONCURRENCY = 6;
-const MAX_COUNT = 40;
-const DEFAULT_COUNT = 25;
-const FETCH_TIMEOUT_MS = 15_000;
+// Worst case (a token where every gateway fails) costs one full
+// FETCH_TIMEOUT_MS per round - count/CONCURRENCY rounds must stay well
+// under maxDuration=60s. 30 tokens / 6 concurrency = 5 rounds * 10s = 50s,
+// leaving real margin (confirmed live: this margin matters - the earlier
+// single-gateway version already ate the full budget on some tokens).
+const MAX_COUNT = 30;
+const DEFAULT_COUNT = 20;
+const FETCH_TIMEOUT_MS = 10_000;
 
 // Vercel Blob public URLs are always on this domain - cheap way to detect
 // "already backfilled" without a second API call per token.
 const BLOB_HOSTNAME_MARKER = ".public.blob.vercel-storage.com/";
+
+// Races every known IPFS gateway concurrently for the image bytes,
+// exactly like lib/chain.ts's own fetchIpfsJson does for metadata JSON -
+// fetching only the single pre-resolved metadata.image URL (the first
+// gateway that happened to win when metadata was first cached) is exactly
+// what caused the 504s/timeouts seen live in production: whichever
+// gateway is currently having a bad day for THIS specific CID stays the
+// only one ever tried. Needs the original unresolved ipfs:// URI
+// (metadata.raw.image), not the already-resolved metadata.image, since
+// resolveIpfsUri collapses the gateway list down to just its first entry.
+async function fetchImageBytes(
+  rawImageUri: unknown,
+): Promise<{ bytes: ArrayBuffer; contentType: string; url: string }> {
+  if (typeof rawImageUri !== "string" || !rawImageUri) {
+    throw new Error("No raw image URI in metadata.");
+  }
+  const urls = ipfsGatewayUrls(rawImageUri);
+  const attempts = urls.map(async (url) => {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(`Image fetch failed (${res.status})`);
+    const bytes = await res.arrayBuffer();
+    return { bytes, contentType: res.headers.get("content-type") ?? "", url };
+  });
+  try {
+    return await Promise.any(attempts);
+  } catch (err) {
+    throw new Error(
+      `All IPFS gateways failed: ${err instanceof AggregateError ? err.errors.map((e) => e?.message ?? String(e)).join("; ") : String(err)}`,
+    );
+  }
+}
 
 function guessContentType(url: string, fallback: string): string {
   const ext = url.split("?")[0].split(".").pop()?.toLowerCase();
@@ -94,16 +133,16 @@ async function handle(request: NextRequest) {
         }
 
         try {
-          const res = await fetch(metadata.image, {
-            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-          });
-          if (!res.ok) throw new Error(`Image fetch failed (${res.status})`);
+          const {
+            bytes,
+            contentType: rawContentType,
+            url: wonUrl,
+          } = await fetchImageBytes(metadata.raw.image);
           const contentType = guessContentType(
-            metadata.image,
-            res.headers.get("content-type") ?? "image/png",
+            wonUrl,
+            rawContentType || "image/png",
           );
           const extension = contentType.split("/")[1]?.split("+")[0] ?? "png";
-          const bytes = await res.arrayBuffer();
 
           const blob = await put(
             `hoodchan/token-${tokenId}.${extension}`,
