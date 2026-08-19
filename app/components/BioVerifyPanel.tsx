@@ -3,9 +3,12 @@
 // Lets a holder prove they control a real X account whose bio names
 // hoodchan.org - no OAuth, no account linking. They sign a message proving
 // wallet ownership (same personal_sign flow as claiming), get back a
-// random, funny, on-brand phrase (lib/bioVerifyPhrase.ts), post it
-// themselves wherever they want, then this checks whether it's actually
-// there. See app/api/bio-verify/start and /check for the server side.
+// random, funny, on-brand phrase (lib/bioVerifyPhrase.ts) that always
+// includes the site's own URL, post it themselves wherever they want, then
+// this checks whether it's actually in their BIO specifically (a tweet
+// alone doesn't count - the phrase mentions posting one too, but only for
+// extra reach, since a tweet scrolls away and a bio doesn't). See
+// app/api/bio-verify/start and /check for the server side.
 import { useState } from "react";
 import { connectWallet, signMessage } from "@/lib/wallet";
 import { buildBioVerifyAuthMessage } from "@/lib/persona";
@@ -17,6 +20,10 @@ interface BioVerifyPanelProps {
 }
 
 type Stage = "idle" | "connecting" | "awaiting-post" | "checking" | "verified";
+
+function tweetIntentUrl(phrase: string): string {
+  return `https://twitter.com/intent/tweet?text=${encodeURIComponent(phrase)}`;
+}
 
 export function BioVerifyPanel({
   tokenId,
@@ -33,7 +40,7 @@ export function BioVerifyPanel({
   const handleStart = async () => {
     const handle = xHandle.trim().replace(/^@/, "");
     if (!handle) {
-      setError("Enter your X handle first.");
+      setError("Enter your X (Twitter) username first - the part after the @.");
       return;
     }
     setStage("connecting");
@@ -80,7 +87,7 @@ export function BioVerifyPanel({
         setStage("verified");
       } else {
         setError(
-          "Not seeing it yet - make sure you posted the exact phrase, then try again.",
+          "Not seeing it in your bio yet - a tweet alone doesn't count, it needs to be in your actual bio text. Give X a minute to update, then try again.",
         );
       }
     } catch (err) {
@@ -96,7 +103,7 @@ export function BioVerifyPanel({
         className="hc-thread-meta text-xs"
         style={{ color: "var(--hc-greentext)" }}
       >
-        ✓ Bio verified - +200 XP
+        ✓ X bio verified - +200 XP
       </div>
     );
   }
@@ -104,20 +111,40 @@ export function BioVerifyPanel({
   if (stage === "awaiting-post" && phrase) {
     return (
       <div className="hc-box p-3 flex flex-col gap-2">
+        <p className="text-xs font-medium">Almost done - one more step</p>
         <p className="hc-thread-meta text-xs">
-          Post this exact phrase to your X bio (a tweet too, for extra reach)
-          within an hour, then check:
+          Paste this into your X <strong>bio</strong> (that&apos;s the part
+          that&apos;s actually checked) within an hour. Tweeting it too is
+          optional, just for extra reach - it doesn&apos;t count on its own.
         </p>
         <div className="flex items-center gap-2">
           <code className="text-sm flex-1">{phrase}</code>
           <CopyButton text={phrase} />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href="https://x.com/settings/profile"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hc-button-ghost hc-button text-xs"
+          >
+            Edit my X bio ↗
+          </a>
+          <a
+            href={tweetIntentUrl(phrase)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hc-button-ghost hc-button text-xs"
+          >
+            Also tweet it ↗
+          </a>
         </div>
         <button
           onClick={handleCheck}
           disabled={checking}
           className="hc-button text-xs self-start"
         >
-          {checking ? "Checking..." : "I posted it, check now"}
+          {checking ? "Checking..." : "I updated my bio, check now"}
         </button>
         {error && (
           <p className="text-xs" style={{ color: "#a12b2b" }}>
@@ -130,12 +157,20 @@ export function BioVerifyPanel({
 
   return (
     <div className="flex flex-col gap-2">
+      <p className="text-xs font-medium">
+        Verify your X (Twitter) account - +200 XP
+      </p>
+      <p className="hc-thread-meta text-xs">
+        Prove you control a real X account by putting a short phrase in your
+        bio. No login, no permissions - we never touch your account, we just
+        check your public bio text.
+      </p>
       <div className="flex items-center gap-2">
         <input
           type="text"
           value={xHandle}
           onChange={(e) => setXHandle(e.target.value)}
-          placeholder="@yourhandle"
+          placeholder="your X username, e.g. hoodchan"
           className="hc-form-input text-sm"
         />
         <button
@@ -143,7 +178,7 @@ export function BioVerifyPanel({
           disabled={stage === "connecting"}
           className="hc-button-ghost hc-button text-xs shrink-0"
         >
-          {stage === "connecting" ? "Connecting..." : "Verify bio (+200 XP)"}
+          {stage === "connecting" ? "Connecting..." : "Verify"}
         </button>
       </div>
       {error && (

@@ -4,7 +4,16 @@
 // post, matching the site's own "cartoon NFT confidently wrong about
 // invented crypto lore" voice (see lib/ai-persona.ts's system prompt).
 // Template-based (SUBJECT + VERB + OBJECT) rather than 3 unrelated random
-// words, so it reads as one coherent absurd sentence, not word salad.
+// words, so it reads as one coherent absurd sentence, not word salad -
+// every entry below is a plain noun phrase specifically so ANY
+// combination stays grammatically coherent (a parenthetical aside baked
+// into one slot reads fine alone but confusing once combined with an
+// unrelated verb/object - confirmed live, cut those out).
+//
+// Always ends with "- hoodchan.org" so the phrase itself carries the
+// traffic-driving link, not just the meme text - the whole point of this
+// feature is getting the URL in front of the poster's followers, not just
+// proving wallet ownership.
 //
 // Client-safe (no secrets, no randomness that needs to match server-side -
 // the actual challenge is generated server-side in lib/bioVerifyStore.ts
@@ -17,11 +26,10 @@ export const SUBJECTS = [
   "the rug committee",
   "three anons in a trenchcoat",
   "the boardroom pigeons",
-  "my TBA wallet",
+  "my own TBA wallet",
   "the Robinhood Chain illuminati",
   "a suspiciously calm dev",
   "the OpenSea royalties board",
-  "my seed phrase (not really)",
   "a discord mod with no life",
   "the clanker uprising",
   "an anon who's never sold",
@@ -39,14 +47,12 @@ export const VERBS = [
   "insider-traded",
   "shorted",
   "manifested",
-  "rugged",
   "vibe-checked",
   "front-ran",
   "unionized against",
   "livestreamed",
   "quietly deleted",
   "screenshotted",
-  "audited (badly)",
   "ghost-posted about",
   "subtweeted",
   "staged a coup over",
@@ -54,7 +60,7 @@ export const VERBS = [
 
 export const OBJECTS = [
   "the moonstone reserve",
-  "my gas fees",
+  "a rug that wasn't real",
   "the secret roadmap",
   "a fake whitepaper",
   "the anon census",
@@ -62,14 +68,14 @@ export const OBJECTS = [
   "the OpenSea royalties",
   "a burner wallet",
   "the top holder crown",
-  "my level 2 badge",
+  "a level 2 badge",
   "the nested-holding glitch",
-  "a rug that wasn't real",
   "the hodler streak leaderboard",
-  "the community treasury (nonexistent)",
   "a whale's bag",
   "the last activated wallet",
 ];
+
+const SITE_TAG = "hoodchan.org";
 
 export function assemblePhrase(
   subjectIndex: number,
@@ -79,7 +85,9 @@ export function assemblePhrase(
   const subject = SUBJECTS[subjectIndex % SUBJECTS.length];
   const verb = VERBS[verbIndex % VERBS.length];
   const object = OBJECTS[objectIndex % OBJECTS.length];
-  return `${subject} ${verb} ${object}`;
+  const sentence = `${subject} ${verb} ${object}`;
+  const capitalized = sentence.charAt(0).toUpperCase() + sentence.slice(1);
+  return `${capitalized} - ${SITE_TAG}`;
 }
 
 // Total distinct phrases - used to size the random index space server-side.
