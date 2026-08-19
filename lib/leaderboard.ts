@@ -8,6 +8,7 @@
 // listThreads()). A token that ONLY activated its wallet and never
 // claimed or posted won't appear here - a real, disclosed limitation
 // (surfaced in the leaderboard page's own copy), not a silent gap.
+import { after } from "next/server";
 import {
   listEverClaimedTokenIds,
   listThreads,
@@ -96,19 +97,21 @@ export interface LeaderboardEntry {
 const CANDIDATE_CONCURRENCY = 10;
 const CACHE_MS = 60_000;
 // Confirmed live: a cold real-user request measured 10s+ end to end
-// (~560 candidates, 3 RPC calls each, batched 10 at a time). The
-// in-memory globalThis cache below never helped most visitors, because
-// Vercel serverless instances don't stay warm reliably - each cold
-// invocation started from zero regardless of how recently someone else
-// had just paid the same 10s cost. This Redis-backed cache is the actual
-// fix: durable across invocations, so only the first visitor after a
-// 5-minute window pays the real computation cost, everyone else gets an
-// instant cached read.
+// (~560 candidates, 3 RPC calls each, batched 10 at a time). A plain
+// Redis cache with a TTL (the first fix here) still meant the first
+// visitor after every 5-minute window paid that full cost synchronously -
+// fine on a busy site, genuinely bad on a low-traffic one, where "the
+// first visitor after 5 quiet minutes" is most visitors. This is now
+// stale-while-revalidate instead: ANY cached value, however old, is
+// served immediately; a background refresh (after(), doesn't block the
+// response) keeps it from going stale forever. Only a true first-ever
+// computation (no cache at all) makes a real visitor wait.
 const REDIS_CACHE_KEY = "leaderboard:cache";
 const REDIS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface LeaderboardCacheGlobal {
   __h00dchanLeaderboardCache?: { at: number; value: LeaderboardEntry[] } | null;
+  __h00dchanLeaderboardRefreshing?: boolean;
 }
 const cacheHolder = globalThis as LeaderboardCacheGlobal;
 
@@ -119,12 +122,28 @@ async function readRedisCache(): Promise<{
   try {
     const raw = await redisCommand("GET", REDIS_CACHE_KEY);
     if (typeof raw !== "string") return null;
-    const parsed = JSON.parse(raw) as { at: number; value: LeaderboardEntry[] };
-    if (Date.now() - parsed.at > REDIS_CACHE_TTL_MS) return null;
-    return parsed;
+    return JSON.parse(raw) as { at: number; value: LeaderboardEntry[] };
   } catch {
     return null;
   }
+}
+
+// Same in-memory refresh-lock reasoning as lib/collectionSnapshot.ts's
+// in-flight de-dupe - without it, a burst of concurrent requests all
+// hitting a just-expired cache on the same warm instance would each kick
+// off their own redundant ~10s recompute instead of sharing one.
+function refreshInBackground(): void {
+  if (cacheHolder.__h00dchanLeaderboardRefreshing) return;
+  cacheHolder.__h00dchanLeaderboardRefreshing = true;
+  after(async () => {
+    try {
+      await recomputeLeaderboard();
+    } catch (err) {
+      console.error("Leaderboard background refresh failed", err);
+    } finally {
+      cacheHolder.__h00dchanLeaderboardRefreshing = false;
+    }
+  });
 }
 
 export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
@@ -136,9 +155,18 @@ export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
   const redisCached = await readRedisCache();
   if (redisCached) {
     cacheHolder.__h00dchanLeaderboardCache = redisCached;
+    if (Date.now() - redisCached.at > REDIS_CACHE_TTL_MS) {
+      refreshInBackground();
+    }
     return redisCached.value;
   }
 
+  // No cache anywhere (first-ever call) - only path a real visitor
+  // actually waits on.
+  return recomputeLeaderboard();
+}
+
+async function recomputeLeaderboard(): Promise<LeaderboardEntry[]> {
   const [everClaimed, threads, snapshot] = await Promise.all([
     listEverClaimedTokenIds(),
     listThreads(),
