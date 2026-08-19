@@ -99,6 +99,36 @@ export function WalletHeaderWidget() {
     };
   }, [isActive, persona]);
 
+  // "Admin" menu item visibility only - NOT the real gate. The actual
+  // admin routes independently require a signed message from a
+  // whitelisted address (lib/adminAuth.ts); this just decides whether to
+  // show the link at all, via a cheap public endpoint that only ever
+  // answers true/false for the one address already in scope, never
+  // returns the whitelist itself.
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    // No explicit setIsAdmin(false) here for the !address case - same
+    // set-state-in-effect fix already applied twice elsewhere in this
+    // component. A stale `true` left over from a previous connected
+    // address can never actually render: the whole dropdown panel this
+    // menu item lives in is itself gated behind `if (!address)` returning
+    // the "Connect Wallet" button earlier in this same render, before
+    // isAdmin is ever read.
+    if (!address) return;
+    let cancelled = false;
+    fetch(`/api/admin/is-admin?${new URLSearchParams({ address })}`)
+      .then((res) => (res.ok ? res.json() : { isAdmin: false }))
+      .then((body) => {
+        if (!cancelled) setIsAdmin(Boolean(body.isAdmin));
+      })
+      .catch(() => {
+        if (!cancelled) setIsAdmin(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [address]);
+
   // Quick-switch candidates - cheap reverse-index lookup (lib/store.ts's
   // listMyClaimedTokens), not the full on-chain wallet scan HomeClient
   // does. Fetched once per connected address, not per dropdown-open, so
@@ -349,6 +379,15 @@ export function WalletHeaderWidget() {
           <button onClick={handleBrowseAll} className="hc-wallet-menu-item">
             Browse all your anons →
           </button>
+          {isAdmin && (
+            <a
+              href="/admin/ads"
+              className="hc-wallet-menu-item"
+              onClick={() => setMenuOpen(false)}
+            >
+              Admin
+            </a>
+          )}
           <div className="hc-wallet-menu-divider" />
           <button onClick={handleCopy} className="hc-wallet-menu-item">
             {copied ? "Copied!" : "Copy address"}

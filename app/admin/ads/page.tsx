@@ -3,14 +3,27 @@
 // First admin UI page in this repo - every other admin action is
 // curl-only (see app/api/admin/*), which works for text operations but not
 // for visually reviewing ad creative, which is the entire point of manual
-// review. Not a real auth system: prompts for the same shared
-// H00DCHAN_CRON_SECRET the other admin routes already use, stores it in
-// sessionStorage, sends it as the bearer token on every request - matches
-// the existing single-shared-secret model, just gives it a UI.
+// review. Wallet-whitelist auth: connect + sign a message (same
+// personal_sign flow as claiming an anon, see lib/wallet.ts/lib/persona.ts)
+// proving control of a whitelisted admin address (lib/adminAuth.ts) -
+// replaces the old typed-shared-secret prompt, which meant anyone who ever
+// saw the secret (or found it in a curl history, a screen share, etc) had
+// permanent admin access with no way to revoke just them.
 import { useCallback, useState, useSyncExternalStore } from "react";
 import type { AdSubmission } from "@/lib/adStore";
+import { connectWallet, signMessage } from "@/lib/wallet";
+import {
+  ADMIN_SESSION_MAX_AGE_MS,
+  buildAdminAuthMessage,
+} from "@/lib/adminMessage";
 
-const SECRET_KEY = "h00dchan:admin-secret";
+interface AdminSession {
+  address: string;
+  signature: string;
+  issuedAt: string;
+}
+
+const SESSION_KEY = "h00dchan:admin-session";
 const listeners = new Set<() => void>();
 
 function subscribe(callback: () => void) {
@@ -18,47 +31,81 @@ function subscribe(callback: () => void) {
   return () => listeners.delete(callback);
 }
 
-function getSnapshot(): string | null {
-  return window.sessionStorage.getItem(SECRET_KEY);
+function getSnapshot(): AdminSession | null {
+  const raw = window.sessionStorage.getItem(SESSION_KEY);
+  if (!raw) return null;
+  try {
+    const session = JSON.parse(raw) as AdminSession;
+    // Expire client-side too (matches ADMIN_SESSION_MAX_AGE_MS server-side)
+    // so a stale session shows the connect screen again instead of firing
+    // requests that'll just 401.
+    if (Date.now() - Date.parse(session.issuedAt) > ADMIN_SESSION_MAX_AGE_MS) {
+      return null;
+    }
+    return session;
+  } catch {
+    return null;
+  }
 }
 
-function getServerSnapshot(): string | null {
+function getServerSnapshot(): AdminSession | null {
   return null;
 }
 
-function writeSecret(value: string) {
-  window.sessionStorage.setItem(SECRET_KEY, value);
+function writeSession(session: AdminSession | null) {
+  if (session) {
+    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  } else {
+    window.sessionStorage.removeItem(SESSION_KEY);
+  }
   listeners.forEach((listener) => listener());
+}
+
+function authHeaders(session: AdminSession): Record<string, string> {
+  return {
+    "x-admin-address": session.address,
+    "x-admin-signature": session.signature,
+    "x-admin-issued-at": session.issuedAt,
+  };
 }
 
 export default function AdminAdsPage() {
   // useSyncExternalStore, not useState+useEffect: reading sessionStorage
   // during an effect and then setState-ing is exactly the pattern that's
   // bitten this app before (see WhatIsHoodchan's useDismissed) - SSR has no
-  // sessionStorage, so getServerSnapshot returns null (matching the "locked"
-  // state below) and the real value only appears after the client mounts.
-  const secret = useSyncExternalStore(
+  // sessionStorage, so getServerSnapshot returns null (matching the
+  // "locked" state below) and the real value only appears after the
+  // client mounts.
+  const session = useSyncExternalStore(
     subscribe,
     getSnapshot,
     getServerSnapshot,
   );
-  const [secretInput, setSecretInput] = useState("");
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
   const [pending, setPending] = useState<AdSubmission[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actingId, setActingId] = useState<string | null>(null);
 
-  // Triggered explicitly from handleUnlock (a real event handler) rather
-  // than an effect reacting to `secret` changing - this page's only entry
+  // Triggered explicitly from handleConnect (a real event handler) rather
+  // than an effect reacting to `session` changing - this page's only entry
   // point into the unlocked state is that one user action, so there's no
-  // "secret changed out from under us" case an effect would need to cover.
-  const loadPending = useCallback(async (activeSecret: string) => {
+  // "session changed out from under us" case an effect would need to cover.
+  const loadPending = useCallback(async (activeSession: AdminSession) => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/admin/ads", {
-        headers: { authorization: `Bearer ${activeSecret}` },
+        headers: authHeaders(activeSession),
       });
+      if (res.status === 401) {
+        // Whitelist changed, or the session genuinely expired between the
+        // client-side check above and this request landing - drop back to
+        // the connect screen rather than showing a confusing empty list.
+        writeSession(null);
+        throw new Error("Not authorized as admin for this wallet.");
+      }
       if (!res.ok) throw new Error(`Failed to load (${res.status})`);
       const data = await res.json();
       setPending(data.pending ?? []);
@@ -69,21 +116,35 @@ export default function AdminAdsPage() {
     }
   }, []);
 
-  const handleUnlock = (event: React.FormEvent) => {
-    event.preventDefault();
-    writeSecret(secretInput);
-    loadPending(secretInput);
+  const handleConnect = async () => {
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      const address = await connectWallet();
+      const issuedAt = new Date().toISOString();
+      const message = buildAdminAuthMessage(address, issuedAt);
+      const signature = await signMessage(address, message);
+      const newSession: AdminSession = { address, signature, issuedAt };
+      writeSession(newSession);
+      await loadPending(newSession);
+    } catch (err) {
+      setConnectError(
+        err instanceof Error ? err.message : "Failed to connect wallet.",
+      );
+    } finally {
+      setConnecting(false);
+    }
   };
 
   const handleAction = async (id: string, action: "approve" | "reject") => {
-    if (!secret) return;
+    if (!session) return;
     setActingId(id);
     try {
       const res = await fetch(`/api/admin/ads/${id}`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${secret}`,
+          ...authHeaders(session),
         },
         body: JSON.stringify({ action }),
       });
@@ -96,24 +157,26 @@ export default function AdminAdsPage() {
     }
   };
 
-  if (!secret) {
+  if (!session) {
     return (
       <div className="flex flex-1 items-center justify-center px-6">
-        <form
-          onSubmit={handleUnlock}
-          className="hc-box flex flex-col gap-2 p-4 w-full max-w-sm"
-        >
-          <label className="hc-thread-meta text-xs">Admin secret</label>
-          <input
-            type="password"
-            value={secretInput}
-            onChange={(e) => setSecretInput(e.target.value)}
-            className="hc-form-input"
-          />
-          <button type="submit" className="hc-button">
-            Unlock
+        <div className="hc-box flex flex-col gap-3 p-4 w-full max-w-sm text-center">
+          <p className="hc-thread-meta text-xs">
+            Connect and sign with a whitelisted admin wallet.
+          </p>
+          <button
+            onClick={handleConnect}
+            disabled={connecting}
+            className="hc-button"
+          >
+            {connecting ? "Connecting..." : "Connect Wallet"}
           </button>
-        </form>
+          {connectError && (
+            <p className="text-sm" style={{ color: "#a12b2b" }}>
+              {connectError}
+            </p>
+          )}
+        </div>
       </div>
     );
   }
@@ -124,7 +187,7 @@ export default function AdminAdsPage() {
         <div className="flex items-center justify-between">
           <h1 className="hc-title text-xl">Pending ad submissions</h1>
           <button
-            onClick={() => loadPending(secret)}
+            onClick={() => loadPending(session)}
             disabled={loading}
             className="hc-button-ghost hc-button text-xs"
           >

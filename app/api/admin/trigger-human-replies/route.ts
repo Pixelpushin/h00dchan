@@ -6,6 +6,7 @@
 // manual catch-up tool for threads that predate that system, or for
 // whenever a real burst of engagement is wanted on demand.
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/adminAuth";
 import { getThread, isThreadHuman, listThreads } from "@/lib/store";
 import { triggerAiReply } from "@/lib/aiEngagement";
 
@@ -13,16 +14,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-function checkAuth(request: NextRequest): boolean {
-  const secret = process.env.H00DCHAN_CRON_SECRET;
-  if (!secret) return false;
-  return request.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 export async function POST(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+  const auth = await requireAdmin(request);
+  if (!auth.ok) return auth.response;
 
   const threads = await listThreads();
   const results: Array<{ threadId: string; triggered: boolean }> = [];

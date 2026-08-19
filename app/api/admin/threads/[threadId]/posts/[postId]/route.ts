@@ -4,24 +4,18 @@
 // it's too blunt when the thread itself is fine and only one reply is bad.
 // Same bearer-secret admin auth pattern as every other admin route.
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/adminAuth";
 import { CannotDeleteOpError, deletePost, getThread } from "@/lib/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function checkAuth(request: NextRequest): boolean {
-  const secret = process.env.H00DCHAN_CRON_SECRET;
-  if (!secret) return false;
-  return request.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ threadId: string; postId: string }> },
 ) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+  const auth = await requireAdmin(request);
+  if (!auth.ok) return auth.response;
 
   const { threadId, postId } = await params;
   const thread = await getThread(threadId);

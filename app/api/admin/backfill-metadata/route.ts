@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/adminAuth";
 import { getCachedTokenMetadata, getOrFetchTokenMetadata } from "@/lib/store";
 
 // One-time (well, re-runnable) backfill: resolves and permanently caches
@@ -22,16 +23,9 @@ const MAX_TOKEN_ID = 1200;
 const CONCURRENCY = 8;
 const DEFAULT_COUNT = 100;
 
-function checkAuth(request: NextRequest): boolean {
-  const secret = process.env.H00DCHAN_CRON_SECRET;
-  if (!secret) return false;
-  return request.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 async function handle(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+  const auth = await requireAdmin(request);
+  if (!auth.ok) return auth.response;
 
   const params = request.nextUrl.searchParams;
   const start = Math.max(1, Number(params.get("start")) || 1);

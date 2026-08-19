@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/adminAuth";
 import { listPosts, listThreads, redisCommand, type Post } from "@/lib/store";
 
 // One-time backfill for the human-posts-by-token / human-threads-by-token
@@ -17,16 +18,9 @@ export const dynamic = "force-dynamic";
 
 const THREAD_CONCURRENCY = 10;
 
-function checkAuth(request: NextRequest): boolean {
-  const secret = process.env.H00DCHAN_CRON_SECRET;
-  if (!secret) return false;
-  return request.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 async function handle(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+  const auth = await requireAdmin(request);
+  if (!auth.ok) return auth.response;
 
   const threads = await listThreads();
   const humanPostsByToken = new Map<string, Post[]>();
