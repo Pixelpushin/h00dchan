@@ -27,7 +27,6 @@ import type { TokenMetadata } from "@/lib/chain";
 import { PostImage } from "@/app/components/PostImage";
 
 const QUICK_SWITCH_LIMIT = 8;
-const WALLET_SECTION_ID = "your-wallet";
 
 // IPFS gateways are observably flaky per-request (documented throughout
 // this codebase) - a plain <img src={metadata.image}> can and did fail
@@ -217,20 +216,12 @@ export function WalletHeaderWidget() {
     [switchPersona],
   );
 
-  // A plain <Link href="/"> silently does nothing when you're already ON
-  // "/" - no navigation happens, nothing scrolls, it just "sits there"
-  // (reported live). If already home, scroll straight to the wallet
-  // section instead of relying on Next's own same-page Link behavior;
-  // otherwise navigate there with the anchor so it scrolls after landing.
+  // The claim/activate token grid lives on its own page (app/collection/
+  // page.tsx) now, not embedded in the home page body - this is that
+  // page's one entry point from the header.
   const handleBrowseAll = useCallback(() => {
     setMenuOpen(false);
-    if (window.location.pathname === "/") {
-      document
-        .getElementById(WALLET_SECTION_ID)
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    } else {
-      router.push(`/#${WALLET_SECTION_ID}`);
-    }
+    router.push("/collection");
   }, [router]);
 
   // Click-outside-to-close - the standard behavior for this kind of small

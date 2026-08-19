@@ -8,6 +8,9 @@
 // from the `/v2/<key>` JSON-RPC endpoint the balance calls use. Both
 // confirmed returning real data. Server only - ALCHEMY_API_KEY is not
 // NEXT_PUBLIC_, this must never be imported from a client component.
+import { CONTRACT } from "@/lib/chain";
+import { getOrFetchTokenMetadata } from "@/lib/store";
+
 const ALCHEMY_RPC_BASE = "https://robinhood-mainnet.g.alchemy.com/v2";
 const ALCHEMY_NFT_BASE = "https://robinhood-mainnet.g.alchemy.com/nft/v3";
 
@@ -16,6 +19,19 @@ function apiKey(): string {
   if (!key) throw new Error("ALCHEMY_API_KEY is not configured.");
   return key;
 }
+
+// Robinhood Chain is young enough (live since 2026-07-01) that Alchemy's
+// NFT metadata indexer doesn't reliably resolve HOODCHAN's own per-token
+// art - confirmed live: getNFTsForOwner returned the exact same
+// image.cachedUrl for every single token in a real 8-token wallet (the
+// collection-level placeholder, not each token's actual generated art).
+// This app already has a proven-correct per-token resolver for this one
+// collection (lib/store.ts's getOrFetchTokenMetadata, backed by a direct
+// tokenURI -> IPFS gateway resolution, the same path the homepage token
+// grid and every post avatar already use) - so HOODCHAN images are
+// overridden with that instead of trusted from Alchemy. Left as Alchemy's
+// own data for every other collection a wallet happens to hold, where
+// this app has no independent resolver to fall back to.
 
 async function alchemyRpc<T>(method: string, params: unknown[]): Promise<T> {
   const res = await fetch(`${ALCHEMY_RPC_BASE}/${apiKey()}`, {
@@ -125,12 +141,26 @@ export async function fetchWalletHoldings(
     ).catch(() => ({ tokenBalances: [] })),
   ]);
 
-  const nfts: WalletNft[] = (nftResult.ownedNfts ?? []).map((item) => ({
+  const rawNfts: WalletNft[] = (nftResult.ownedNfts ?? []).map((item) => ({
     contractAddress: item.contract?.address ?? "",
     tokenId: item.tokenId ?? "",
     name: item.name ?? null,
     imageUrl: item.image?.cachedUrl ?? item.image?.originalUrl ?? null,
   }));
+
+  const nfts: WalletNft[] = await Promise.all(
+    rawNfts.map(async (nft) => {
+      if (nft.contractAddress.toLowerCase() !== CONTRACT.toLowerCase()) {
+        return nft;
+      }
+      try {
+        const metadata = await getOrFetchTokenMetadata(nft.tokenId);
+        return { ...nft, name: metadata.name, imageUrl: metadata.image };
+      } catch {
+        return nft;
+      }
+    }),
+  );
 
   const rawTokenBalances = (tokenResult.tokenBalances ?? []).filter(
     (item) =>

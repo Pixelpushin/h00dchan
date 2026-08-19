@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
-import { onAccountsChanged } from "@/lib/wallet";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { connectWallet, onAccountsChanged } from "@/lib/wallet";
 
 // Site-wide one-time disclaimer, NOT page content - mounted once in
 // app/layout.tsx (not per-page, and no longer embedded inline in
@@ -64,6 +64,7 @@ function useDismissed() {
 
 export function WhatIsHoodchan() {
   const { dismissed, dismiss } = useDismissed();
+  const [connecting, setConnecting] = useState(false);
 
   // Connecting a wallet already means "I get it, I'm here to use this" -
   // auto-dismiss instead of making someone who just connected also click
@@ -78,6 +79,22 @@ export function WhatIsHoodchan() {
   }, [dismissed, dismiss]);
 
   if (dismissed) return null;
+
+  const handleConnect = async () => {
+    setConnecting(true);
+    try {
+      await connectWallet();
+      // dismiss() also fires from the onAccountsChanged effect above once
+      // the connection lands, but calling it here too closes the modal
+      // immediately on success instead of waiting a tick for that event.
+      dismiss();
+    } catch {
+      // AppKit's own modal already surfaces why (rejected, no provider) -
+      // nothing else to show here, just let them try Connect again.
+    } finally {
+      setConnecting(false);
+    }
+  };
 
   return (
     <div className="hc-modal-backdrop" role="dialog" aria-modal="true">
@@ -140,8 +157,18 @@ export function WhatIsHoodchan() {
           </p>
         </div>
         <div className="hc-modal-actions">
-          <button onClick={dismiss} className="hc-button text-sm">
-            Accept
+          <button
+            onClick={dismiss}
+            className="hc-button-ghost hc-button text-sm"
+          >
+            Accept &amp; just browse
+          </button>
+          <button
+            onClick={handleConnect}
+            disabled={connecting}
+            className="hc-button text-sm"
+          >
+            {connecting ? "Connecting..." : "Connect Wallet"}
           </button>
         </div>
       </div>

@@ -937,6 +937,7 @@ body {
 .hc-modal-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 0.5rem;
   padding: 0.6rem 1rem;
   border-top: 1px solid var(--hc-box-border);
 }
