@@ -27,6 +27,8 @@ import {
 } from "@/lib/collectionSnapshot";
 import { CopyButton } from "@/app/components/CopyButton";
 import { BioVerifyPanel } from "@/app/components/BioVerifyPanel";
+import { AlphaResearchPanel } from "@/app/components/AlphaResearchPanel";
+import { getAlphaBotEntry } from "@/lib/alphaBotStore";
 
 export const dynamic = "force-dynamic";
 
@@ -170,6 +172,8 @@ export default async function WalletPage({
       holdingsError = "Unable to load holdings for this wallet right now.";
     }
   }
+
+  const alphaBotEntry = await getAlphaBotEntry(tokenId).catch(() => null);
 
   const rawImageUri =
     metadata && typeof metadata.raw.image === "string"
@@ -374,6 +378,8 @@ export default async function WalletPage({
             />
           </>
         )}
+
+        <AlphaResearchPanel tokenId={tokenId} initialEntry={alphaBotEntry} />
 
         <div className="hc-infobox">
           <div className="hc-infobox-header">

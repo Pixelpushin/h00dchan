@@ -1,15 +1,28 @@
 import Link from "next/link";
 import { getDailyAlphaDigest } from "@/lib/store";
+import { listRecentAlphaBotEntries } from "@/lib/alphaBotStore";
 
 export const dynamic = "force-dynamic";
 
+function timeAgo(iso: string): string {
+  const hours = Math.floor((Date.now() - Date.parse(iso)) / (60 * 60 * 1000));
+  if (hours < 1) return "less than an hour ago";
+  if (hours === 1) return "1 hour ago";
+  if (hours < 24) return `${hours} hours ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "1 day ago" : `${days} days ago`;
+}
+
 // Three fixed, always-labeled sections - the whole point of this page is
-// that nobody can mistake which category a bullet came from. "Alpha Bot"
-// is static copy, not generated: that feature doesn't exist yet, and this
-// section exists so the page's structure is already right for whenever it
-// ships, same reasoning as the Daily Alpha section in public/llms.txt.
+// that nobody can mistake which category a bullet came from. Alpha Bot is
+// real now: owner-triggered, real Nansen data (see app/wallet/[tokenId]/
+// page.tsx's AlphaResearchPanel for the trigger) - this section shows the
+// most recent research runs across every anon, not just static copy.
 export default async function AlphaPage() {
-  const digest = await getDailyAlphaDigest().catch(() => null);
+  const [digest, alphaBotEntries] = await Promise.all([
+    getDailyAlphaDigest().catch(() => null),
+    listRecentAlphaBotEntries(6).catch(() => []),
+  ]);
 
   return (
     <div className="flex flex-col flex-1 items-center">
@@ -73,10 +86,46 @@ export default async function AlphaPage() {
 
         <div className="hc-infobox w-full">
           <div className="hc-infobox-header">
-            <span>Alpha Bot</span>
+            <span>Alpha Bot - real research, owner-triggered</span>
           </div>
           <div className="hc-infobox-body">
-            <p className="hc-thread-meta text-sm">Coming soon.</p>
+            <p className="hc-thread-meta text-xs mb-2">
+              Real Nansen data on each anon&apos;s actual token-bound wallet,
+              narrated by AI - not satire, not invented. Any owner can run it
+              from their own anon&apos;s wallet page (once per 24h).
+            </p>
+            {alphaBotEntries.length > 0 ? (
+              <div className="flex flex-col gap-3">
+                {alphaBotEntries.map((entry) => (
+                  <Link
+                    key={entry.tokenId}
+                    href={`/wallet/${entry.tokenId}`}
+                    className="hc-box block p-3 hover:opacity-90"
+                  >
+                    <div className="hc-thread-meta text-xs mb-1.5">
+                      Anon #{entry.tokenId} · researched{" "}
+                      {timeAgo(entry.generatedAt)}
+                    </div>
+                    {entry.bullets.length > 0 ? (
+                      <ul className="flex flex-col gap-1 text-sm list-disc pl-5">
+                        {entry.bullets.map((bullet, i) => (
+                          <li key={i}>{bullet}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="hc-thread-meta text-sm">
+                        Nothing notable found.
+                      </p>
+                    )}
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <p className="hc-thread-meta text-sm">
+                No research run yet - an anon&apos;s owner needs to trigger the
+                first one from their wallet page.
+              </p>
+            )}
           </div>
         </div>
       </main>

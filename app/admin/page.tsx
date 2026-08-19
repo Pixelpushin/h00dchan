@@ -15,6 +15,11 @@ const SECTIONS = [
     label: "Ad review",
     desc: "Approve or reject pending paid ad submissions.",
   },
+  {
+    href: "/admin/costs",
+    label: "Costs",
+    desc: "Every paid API/service this app depends on, and what it costs.",
+  },
 ];
 
 export default function AdminHubPage() {
