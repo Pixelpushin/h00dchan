@@ -22,6 +22,7 @@ export async function GET() {
       id: ad.id,
       name: ad.name,
       imageUrl: ad.imageUrl,
+      avatarUrl: ad.avatarUrl || ad.imageUrl,
       openseaUrl: ad.openseaUrl,
     })),
   });
@@ -97,6 +98,7 @@ export async function POST(request: NextRequest) {
     openseaUrl: collectionResult.collection.openseaUrl,
     name: collectionResult.collection.name,
     imageUrl: collectionResult.collection.imageUrl,
+    avatarUrl: collectionResult.collection.avatarUrl,
     submitterAddress,
     tokenSymbol,
     txHash,

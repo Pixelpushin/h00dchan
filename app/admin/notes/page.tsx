@@ -142,80 +142,78 @@ export default function AdminNotesPage() {
   }
 
   return (
-    <div className="flex flex-col flex-1 items-center">
-      <main className="flex flex-1 w-full max-w-2xl flex-col gap-4 px-6 py-8">
-        <h1 className="hc-title text-xl">Admin notes</h1>
+    <div className="flex flex-col gap-4">
+      <h1 className="hc-title text-xl">Admin notes</h1>
 
-        <form onSubmit={handleAdd} className="flex flex-col gap-2">
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Add a note..."
-            rows={3}
-            className="hc-form-input"
-          />
-          <button
-            type="submit"
-            disabled={submitting || !draft.trim()}
-            className="hc-button self-start text-sm"
+      <form onSubmit={handleAdd} className="flex flex-col gap-2">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Add a note..."
+          rows={3}
+          className="hc-form-input"
+        />
+        <button
+          type="submit"
+          disabled={submitting || !draft.trim()}
+          className="hc-button self-start text-sm"
+        >
+          {submitting ? "Adding..." : "Add note"}
+        </button>
+      </form>
+
+      {loading && <p className="text-center">Loading...</p>}
+      {error && (
+        <p className="text-sm text-center" style={{ color: "#a12b2b" }}>
+          {error}
+        </p>
+      )}
+      {!loading && notes.length === 0 && !error && (
+        <p className="hc-thread-meta text-center">No notes yet.</p>
+      )}
+
+      <div className="flex flex-col gap-2">
+        {notes.map((note) => (
+          <div
+            key={note.id}
+            className="hc-box p-3 flex items-start gap-2"
+            style={{ opacity: note.done ? 0.5 : 1 }}
           >
-            {submitting ? "Adding..." : "Add note"}
-          </button>
-        </form>
-
-        {loading && <p className="text-center">Loading...</p>}
-        {error && (
-          <p className="text-sm text-center" style={{ color: "#a12b2b" }}>
-            {error}
-          </p>
-        )}
-        {!loading && notes.length === 0 && !error && (
-          <p className="hc-thread-meta text-center">No notes yet.</p>
-        )}
-
-        <div className="flex flex-col gap-2">
-          {notes.map((note) => (
-            <div
-              key={note.id}
-              className="hc-box p-3 flex items-start gap-2"
-              style={{ opacity: note.done ? 0.5 : 1 }}
+            <button
+              onClick={() => handleToggleDone(note)}
+              className="hc-thread-meta text-sm shrink-0"
+              aria-label={note.done ? "Mark not done" : "Mark done"}
             >
-              <button
-                onClick={() => handleToggleDone(note)}
-                className="hc-thread-meta text-sm shrink-0"
-                aria-label={note.done ? "Mark not done" : "Mark done"}
+              {note.done ? "☑" : "☐"}
+            </button>
+            <div className="flex-1 min-w-0">
+              <p
+                className="text-sm whitespace-pre-wrap break-words"
+                style={{
+                  textDecoration: note.done ? "line-through" : "none",
+                }}
               >
-                {note.done ? "☑" : "☐"}
-              </button>
-              <div className="flex-1 min-w-0">
-                <p
-                  className="text-sm whitespace-pre-wrap break-words"
-                  style={{
-                    textDecoration: note.done ? "line-through" : "none",
-                  }}
-                >
-                  {note.text}
-                </p>
-                <p className="hc-thread-meta text-xs mt-1">
-                  {new Date(note.createdAt).toLocaleString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </p>
-              </div>
-              <button
-                onClick={() => handleDelete(note.id)}
-                className="hc-thread-meta text-xs shrink-0"
-                style={{ color: "#a12b2b" }}
-              >
-                delete
-              </button>
+                {note.text}
+              </p>
+              <p className="hc-thread-meta text-xs mt-1">
+                {new Date(note.createdAt).toLocaleString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
             </div>
-          ))}
-        </div>
-      </main>
+            <button
+              onClick={() => handleDelete(note.id)}
+              className="hc-thread-meta text-xs shrink-0"
+              style={{ color: "#a12b2b" }}
+            >
+              delete
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

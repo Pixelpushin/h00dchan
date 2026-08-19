@@ -22,6 +22,7 @@ export default async function Home() {
     id: ad.id,
     name: ad.name,
     imageUrl: ad.imageUrl,
+    avatarUrl: ad.avatarUrl || ad.imageUrl,
     openseaUrl: ad.openseaUrl,
   }));
   const popularThreads = (

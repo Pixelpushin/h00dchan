@@ -13,6 +13,7 @@ export interface AdSubmission {
   openseaUrl: string;
   name: string;
   imageUrl: string;
+  avatarUrl: string;
   submitterAddress: string;
   tokenSymbol: string;
   txHash: string;

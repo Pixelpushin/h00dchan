@@ -30,6 +30,7 @@ export interface OpenSeaCollection {
   slug: string;
   name: string;
   imageUrl: string;
+  avatarUrl: string;
   openseaUrl: string;
 }
 
@@ -73,12 +74,11 @@ export async function fetchOpenSeaCollection(
     };
   }
 
+  const avatarUrl = typeof data.image_url === "string" ? data.image_url : "";
   const imageUrl =
     typeof data.banner_image_url === "string" && data.banner_image_url
       ? data.banner_image_url
-      : typeof data.image_url === "string"
-        ? data.image_url
-        : "";
+      : avatarUrl;
   if (!imageUrl) {
     return {
       ok: false,
@@ -92,6 +92,7 @@ export async function fetchOpenSeaCollection(
       slug,
       name: typeof data.name === "string" ? data.name : slug,
       imageUrl,
+      avatarUrl: avatarUrl || imageUrl,
       openseaUrl: `https://opensea.io/collection/${slug}`,
     },
   };

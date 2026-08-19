@@ -16,6 +16,7 @@ export interface PaidAd {
   id: string;
   name: string;
   imageUrl: string;
+  avatarUrl: string;
   openseaUrl: string;
 }
 
@@ -23,6 +24,12 @@ interface Entry {
   src: string;
   href: string;
   alt: string;
+  // Only set for paid ads - house banners are pre-cropped to fill the box
+  // exactly, so they never need the letterbox label. An advertiser's own
+  // banner_image_url can be almost any aspect ratio, so object-fit: contain
+  // regularly leaves black pillars on the sides - label/avatar here is
+  // that unused space put to use instead of just sitting empty.
+  label?: { name: string; avatarUrl: string };
 }
 
 // Confirmed live as a real problem: 1 paid ad mixed evenly into 12 house
@@ -51,9 +58,68 @@ function buildEntries(paidAds: PaidAd[]): Entry[] {
       src: ad.imageUrl,
       href: ad.openseaUrl,
       alt: ad.name,
+      label: { name: ad.name, avatarUrl: ad.avatarUrl },
     })),
   );
   return [...house, ...paid];
+}
+
+// Some advertisers' OpenSea banners are animated GIFs, and some of those
+// cycle fast enough to be a genuine flashing-lights problem (reported live:
+// "could give you a seizure"). CSS can't slow down a GIF's own embedded
+// frame timing, so instead this grabs a single still frame via canvas the
+// moment the image finishes loading and displays that in place of the live
+// animation - same visual as a static banner, zero flashing. Falls back to
+// the raw animated src if the canvas read fails (e.g. the CDN doesn't send
+// permissive CORS headers) rather than showing nothing.
+function isLikelyAnimated(src: string): boolean {
+  const path = src.split("?")[0].split("#")[0];
+  return /\.gif$/i.test(path);
+}
+
+function StillFrameImage({
+  src,
+  alt,
+  className,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+}) {
+  const [frozenSrc, setFrozenSrc] = useState<string | null>(null);
+
+  // Keyed by src at the call site (see below) so this component remounts -
+  // and frozenSrc naturally starts at null again - whenever the entry
+  // being displayed changes, instead of needing a synchronous reset here.
+  useEffect(() => {
+    if (!isLikelyAnimated(src)) return;
+
+    let cancelled = false;
+    const img = new window.Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (cancelled) return;
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0);
+        setFrozenSrc(canvas.toDataURL("image/png"));
+      } catch {
+        // Tainted canvas (no CORS) or other read failure - leave frozenSrc
+        // null, which falls through to rendering the live src below.
+      }
+    };
+    img.src = src;
+    return () => {
+      cancelled = true;
+    };
+  }, [src]);
+
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={frozenSrc ?? src} alt={alt} className={className} />;
 }
 
 // Mount-gated, same pattern as app/page.tsx's useWalletDetected: SSR has no
@@ -109,7 +175,7 @@ export function AdBanner({ paidAds = [] }: { paidAds?: PaidAd[] }) {
       href={entry.href}
       target="_blank"
       rel="noopener noreferrer"
-      className="block w-full mb-6 overflow-hidden rounded border"
+      className="relative block w-full mb-6 overflow-hidden rounded border"
       style={{
         borderColor: "var(--hc-box-border)",
         // Fixed aspect ratio (not just h-auto) so the box never changes
@@ -122,12 +188,33 @@ export function AdBanner({ paidAds = [] }: { paidAds?: PaidAd[] }) {
         background: "#000",
       }}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
+      <StillFrameImage
+        key={entry.src}
         src={entry.src}
         alt={entry.alt}
         className="block h-full w-full object-contain"
       />
+      {entry.label && (
+        // Pinned to the bottom-left corner rather than centered in the
+        // black bars - works whether the letterboxing lands on the sides,
+        // top/bottom, or isn't there at all (a banner that already fills
+        // the box exactly), since a corner is always either black or, at
+        // worst, over a low-detail edge of the art rather than its center.
+        <div
+          className="absolute left-2 bottom-2 flex items-center gap-1.5 rounded px-1.5 py-1"
+          style={{ background: "rgba(0,0,0,0.72)" }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={entry.label.avatarUrl}
+            alt=""
+            className="h-5 w-5 rounded-sm object-cover shrink-0"
+          />
+          <span className="text-xs text-white truncate max-w-[10rem]">
+            {entry.label.name}
+          </span>
+        </div>
+      )}
     </a>
   );
 }

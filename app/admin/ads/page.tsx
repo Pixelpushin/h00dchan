@@ -95,78 +95,76 @@ export default function AdminAdsPage() {
   }
 
   return (
-    <div className="flex flex-col flex-1 items-center">
-      <main className="flex flex-1 w-full max-w-3xl flex-col gap-4 px-6 py-8">
-        <div className="flex items-center justify-between">
-          <h1 className="hc-title text-xl">Pending ad submissions</h1>
-          <button
-            onClick={() => loadPending(session)}
-            disabled={loading}
-            className="hc-button-ghost hc-button text-xs"
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <h1 className="hc-title text-xl">Pending ad submissions</h1>
+        <button
+          onClick={() => loadPending(session)}
+          disabled={loading}
+          className="hc-button-ghost hc-button text-xs"
+        >
+          Refresh
+        </button>
+      </div>
+
+      {loading && <p className="text-center">Loading...</p>}
+      {error && (
+        <p className="text-sm text-center" style={{ color: "#a12b2b" }}>
+          {error}
+        </p>
+      )}
+      {!loading && pending.length === 0 && !error && (
+        <p className="hc-thread-meta text-center">Nothing pending.</p>
+      )}
+
+      <div className="flex flex-col gap-3">
+        {pending.map((ad) => (
+          <div
+            key={ad.id}
+            className="hc-box p-4 flex flex-col sm:flex-row gap-4"
           >
-            Refresh
-          </button>
-        </div>
-
-        {loading && <p className="text-center">Loading...</p>}
-        {error && (
-          <p className="text-sm text-center" style={{ color: "#a12b2b" }}>
-            {error}
-          </p>
-        )}
-        {!loading && pending.length === 0 && !error && (
-          <p className="hc-thread-meta text-center">Nothing pending.</p>
-        )}
-
-        <div className="flex flex-col gap-3">
-          {pending.map((ad) => (
-            <div
-              key={ad.id}
-              className="hc-box p-4 flex flex-col sm:flex-row gap-4"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={ad.imageUrl}
-                alt={ad.name}
-                className="w-full sm:w-64 h-32 object-contain bg-black shrink-0"
-              />
-              <div className="flex flex-1 flex-col gap-1">
-                <div className="hc-thread-subject">{ad.name}</div>
-                <a
-                  href={ad.openseaUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hc-link text-sm break-all"
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={ad.imageUrl}
+              alt={ad.name}
+              className="w-full sm:w-64 h-32 object-contain bg-black shrink-0"
+            />
+            <div className="flex flex-1 flex-col gap-1">
+              <div className="hc-thread-subject">{ad.name}</div>
+              <a
+                href={ad.openseaUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hc-link text-sm break-all"
+              >
+                {ad.openseaUrl}
+              </a>
+              <div className="hc-thread-meta text-xs break-all">
+                submitter: {ad.submitterAddress}
+              </div>
+              <div className="hc-thread-meta text-xs break-all">
+                tx: {ad.txHash} ({ad.tokenSymbol})
+              </div>
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={() => handleAction(ad.id, "approve")}
+                  disabled={actingId === ad.id}
+                  className="hc-button text-xs"
                 >
-                  {ad.openseaUrl}
-                </a>
-                <div className="hc-thread-meta text-xs break-all">
-                  submitter: {ad.submitterAddress}
-                </div>
-                <div className="hc-thread-meta text-xs break-all">
-                  tx: {ad.txHash} ({ad.tokenSymbol})
-                </div>
-                <div className="mt-2 flex gap-2">
-                  <button
-                    onClick={() => handleAction(ad.id, "approve")}
-                    disabled={actingId === ad.id}
-                    className="hc-button text-xs"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    onClick={() => handleAction(ad.id, "reject")}
-                    disabled={actingId === ad.id}
-                    className="hc-button-ghost hc-button text-xs"
-                  >
-                    Reject
-                  </button>
-                </div>
+                  Approve
+                </button>
+                <button
+                  onClick={() => handleAction(ad.id, "reject")}
+                  disabled={actingId === ad.id}
+                  className="hc-button-ghost hc-button text-xs"
+                >
+                  Reject
+                </button>
               </div>
             </div>
-          ))}
-        </div>
-      </main>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
