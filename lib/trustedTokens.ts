@@ -15,16 +15,24 @@ export interface TrustedToken {
   symbol: string;
 }
 
-// Empty on purpose - nothing has been reviewed and approved yet. Add
-// entries here as real, legitimate tokens on Robinhood Chain get
-// identified and vetted (e.g. { address: "0x...", symbol: "USDG" }).
-export const TRUSTED_TOKENS: TrustedToken[] = [];
+// CHAN's address + symbol confirmed live via eth_call (symbol(), name(),
+// decimals()) against Robinhood Chain directly - a real deployed ERC-20,
+// symbol "CHAN", 18 decimals - not just taken on trust from the address
+// alone, same verification standard as adConfig.ts's USDG entry.
+export const TRUSTED_TOKENS: TrustedToken[] = [
+  { address: "0xb36fd5d3392c78e70c3e08f46b46f242e7ef654f", symbol: "CHAN" },
+];
 
 // Same idea as TRUSTED_TOKENS but for NFT collection contracts - the wallet
 // explorer (app/wallet/[tokenId]/page.tsx) uses this to hide spam-airdropped
-// NFT collections behind a toggle by default, same as spam ERC-20s. Also
-// hand-maintained, also empty until real collections get vetted.
-export const TRUSTED_NFT_COLLECTIONS: string[] = [];
+// NFT collections behind a toggle by default, same as spam ERC-20s.
+// HOODCHAN's own collection (lib/chain.ts's CONTRACT) belongs here as the
+// very first entry - the site's own native NFT was getting hidden behind
+// the spam toggle on its own wallet pages, which defeats the point of the
+// toggle (it's meant to hide junk airdrops, not the site's own collection).
+export const TRUSTED_NFT_COLLECTIONS: string[] = [
+  "0x774db2207d26570f5638028839c816702a40abc2", // HOODCHAN
+];
 
 const TRUSTED_BY_ADDRESS = new Map(
   TRUSTED_TOKENS.map((t) => [t.address.toLowerCase(), t.symbol]),
