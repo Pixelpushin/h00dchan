@@ -14,6 +14,7 @@ import {
   isTokenClaimed,
   countHumanPostsByToken,
   countHumanThreadsByToken,
+  redisCommand,
 } from "@/lib/store";
 import * as tbaKit from "@pixelpushin/tba-kit";
 import { CONTRACT, CHAIN_ID_HEX } from "@/lib/chain";
@@ -94,16 +95,48 @@ export interface LeaderboardEntry {
 
 const CANDIDATE_CONCURRENCY = 10;
 const CACHE_MS = 60_000;
+// Confirmed live: a cold real-user request measured 10s+ end to end
+// (~560 candidates, 3 RPC calls each, batched 10 at a time). The
+// in-memory globalThis cache below never helped most visitors, because
+// Vercel serverless instances don't stay warm reliably - each cold
+// invocation started from zero regardless of how recently someone else
+// had just paid the same 10s cost. This Redis-backed cache is the actual
+// fix: durable across invocations, so only the first visitor after a
+// 5-minute window pays the real computation cost, everyone else gets an
+// instant cached read.
+const REDIS_CACHE_KEY = "leaderboard:cache";
+const REDIS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface LeaderboardCacheGlobal {
   __h00dchanLeaderboardCache?: { at: number; value: LeaderboardEntry[] } | null;
 }
 const cacheHolder = globalThis as LeaderboardCacheGlobal;
 
+async function readRedisCache(): Promise<{
+  at: number;
+  value: LeaderboardEntry[];
+} | null> {
+  try {
+    const raw = await redisCommand("GET", REDIS_CACHE_KEY);
+    if (typeof raw !== "string") return null;
+    const parsed = JSON.parse(raw) as { at: number; value: LeaderboardEntry[] };
+    if (Date.now() - parsed.at > REDIS_CACHE_TTL_MS) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
   const cached = cacheHolder.__h00dchanLeaderboardCache;
   if (cached && Date.now() - cached.at < CACHE_MS) {
     return cached.value;
+  }
+
+  const redisCached = await readRedisCache();
+  if (redisCached) {
+    cacheHolder.__h00dchanLeaderboardCache = redisCached;
+    return redisCached.value;
   }
 
   const [everClaimed, threads, snapshot] = await Promise.all([
@@ -190,6 +223,12 @@ export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
     (a, b) => b.totalXp - a.totalXp || Number(a.tokenId) - Number(b.tokenId),
   );
 
-  cacheHolder.__h00dchanLeaderboardCache = { at: Date.now(), value: entries };
+  const fresh = { at: Date.now(), value: entries };
+  cacheHolder.__h00dchanLeaderboardCache = fresh;
+  // Best-effort - a failed cache write means the next visitor just
+  // recomputes too, same as today, never worth failing the request over.
+  await redisCommand("SET", REDIS_CACHE_KEY, JSON.stringify(fresh)).catch(
+    () => {},
+  );
   return entries;
 }
