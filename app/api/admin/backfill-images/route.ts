@@ -20,10 +20,18 @@ import { getOrFetchTokenMetadata, cacheTokenMetadata } from "@/lib/store";
 // ?skipCached= pattern as backfill-metadata, default true.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Vercel's serverless function ceiling on this project (confirmed live:
+// a count=100 request hit exactly this and returned nothing, HTTP 000) -
+// unlike backfill-metadata's lightweight JSON-only fetches, each token
+// here does a real image download plus a Blob upload, so the safe count
+// per request is much lower (see the lowered MAX_COUNT/DEFAULT_COUNT
+// below) rather than trying to push past this ceiling.
+export const maxDuration = 60;
 
 const MAX_TOKEN_ID = 1200;
 const CONCURRENCY = 6;
-const DEFAULT_COUNT = 50;
+const MAX_COUNT = 40;
+const DEFAULT_COUNT = 25;
 const FETCH_TIMEOUT_MS = 15_000;
 
 // Vercel Blob public URLs are always on this domain - cheap way to detect
@@ -47,7 +55,7 @@ async function handle(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const start = Math.max(1, Number(params.get("start")) || 1);
   const count = Math.min(
-    200,
+    MAX_COUNT,
     Math.max(1, Number(params.get("count")) || DEFAULT_COUNT),
   );
   const skipCached = params.get("skipCached") !== "false";
