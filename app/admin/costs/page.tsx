@@ -57,11 +57,12 @@ const ROWS: CostRow[] = [
   {
     service: "Nansen",
     usedFor: "Alpha Bot wallet research (Profiler current-balance + labels)",
-    pricingModel: "Credit-based per call (plan-dependent credit pool)",
+    pricingModel:
+      "Credit-based. Pro plan $49-69/mo = 2,000 credits/mo. Confirmed live via response headers: current-balance = 1 credit/call, address-labels = 100 credits/call (100x more)",
     estimate:
-      "Not independently verified for the Profiler endpoints specifically - check response headers/dashboard",
+      "~101 credits the FIRST time any given anon is researched, then ~1 credit per subsequent refresh for 30 days (labels cached separately, balances aren't) - a one-time cost per anon, not recurring",
     costControl:
-      "24h cooldown per anon, owner-signature-gated trigger only (no cron, no blind sweep of all 1197 tokens)",
+      "Labels cached 30 days independent of the 24h research cooldown (the expensive call was the one refetching on the cheap call's cadence). Owner-signature-gated trigger only, snapshot/nested-NFT eligibility gate, site-wide daily event cap, no cron, no blind sweep of all 1197 tokens",
     dashboardUrl: "https://app.nansen.ai/api",
   },
   {
