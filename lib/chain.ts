@@ -93,6 +93,36 @@ export async function readOwnerOf(
   return decodeAddress(result);
 }
 
+const SELECTOR_BALANCE_OF = "70a08231"; // balanceOf(address) - identical ABI shape on ERC-721 and ERC-20
+
+// Generic balanceOf, parameterized by contract + RPC (unlike ethCall above,
+// which is hardcoded to CONTRACT/RPC_URL for the token-ownership claim
+// path) - used by lib/holderAuth.ts to gate onlyChans against either the
+// HOODCHAN collection (ERC-721: balance = count of tokens owned) or the
+// CHAN ERC-20 (balance = raw token amount), same selector either way since
+// this only cares whether the result is nonzero.
+export async function readBalanceOf(
+  contractAddress: string,
+  ownerAddress: string,
+  rpcUrl: string = RPC_URL,
+): Promise<bigint> {
+  const data = `0x${SELECTOR_BALANCE_OF}${"0".repeat(24)}${ownerAddress.replace(/^0x/, "").toLowerCase()}`;
+  const res = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "eth_call",
+      params: [{ to: contractAddress, data }, "latest"],
+    }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  const body = await res.json();
+  if (body.error) throw new Error(body.error.message ?? "eth_call failed");
+  return BigInt(body.result as string);
+}
+
 export async function readTokenURI(
   tokenId: number | string | bigint,
 ): Promise<string> {

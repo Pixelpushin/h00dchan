@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { WalletIcon, ChatIcon } from "@/app/components/Icons";
 import { onAccountsChanged, signMessage } from "@/lib/wallet";
-import { WhatIsHoodchan } from "@/app/components/WhatIsHoodchan";
 import { AdBanner, type PaidAd } from "@/app/components/AdBanner";
 import { RentAdSpaceButton } from "@/app/components/RentAdSpaceButton";
+import { OnlyChansTeaser } from "@/app/components/OnlyChansTeaser";
 import { useActivePersona } from "@/lib/usePersona";
 
 const OPENSEA_COLLECTION_URL = "https://opensea.io/collection/h00dchan";
@@ -532,7 +532,7 @@ export default function HomeClient({
   return (
     <div className="flex flex-col flex-1 items-center">
       <main className="flex flex-1 w-full max-w-5xl flex-col items-center px-6 py-10">
-        <WhatIsHoodchan />
+        <OnlyChansTeaser />
         <div className="flex w-full justify-end mb-2">
           <RentAdSpaceButton />
         </div>

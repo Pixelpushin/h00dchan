@@ -911,6 +911,36 @@ body {
   margin-bottom: 0;
 }
 
+.hc-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  z-index: 100;
+}
+
+.hc-modal-card {
+  width: 100%;
+  max-width: 42rem;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.hc-modal-card .hc-infobox-body {
+  overflow-y: auto;
+}
+
+.hc-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--hc-box-border);
+}
+
 /* --- Claim progress bar -------------------------------------------------- */
 
 .hc-progress-track {

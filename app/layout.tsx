@@ -4,6 +4,7 @@ import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { SiteHeader } from "@/app/components/SiteHeader";
 import { ClankerProgress } from "@/app/components/ClankerProgress";
+import { WhatIsHoodchan } from "@/app/components/WhatIsHoodchan";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -30,6 +31,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="hc-page min-h-full flex flex-col">
         <SiteHeader />
         <ClankerProgress />
+        <WhatIsHoodchan />
         {children}
         <Analytics />
         <SpeedInsights />
