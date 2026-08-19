@@ -17,7 +17,10 @@ export interface BioVerification {
   tokenId: string;
   address: string;
   xHandle: string;
-  phrase: string;
+  phrase: string; // full text shown/copied - includes the site tag
+  checkText: string; // what's actually matched against the bio - see
+  // lib/bioVerifyPhrase.ts's sentenceFromSeed for why this differs from
+  // `phrase` (X auto-linkifies the site tag away on save)
   status: BioVerificationStatus;
   issuedAt: string;
   verifiedAt: string | null;
@@ -62,12 +65,14 @@ export async function startBioVerification(
   address: string,
   xHandle: string,
   phrase: string,
+  checkText: string,
 ): Promise<BioVerification> {
   const record: BioVerification = {
     tokenId,
     address,
     xHandle: xHandle.replace(/^@/, "").toLowerCase(),
     phrase,
+    checkText,
     status: "pending",
     issuedAt: new Date().toISOString(),
     verifiedAt: null,

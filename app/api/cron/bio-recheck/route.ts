@@ -54,9 +54,14 @@ async function runPage(ids: string[]): Promise<PageResult> {
         }
         try {
           const bio = await fetchXUserBio(record.xHandle);
+          // checkText, not phrase - see app/api/bio-verify/check/route.ts's
+          // comment (X auto-linkifies the site tag, so the full phrase
+          // never survives verbatim in a real saved bio).
           const stillThere =
             bio !== null &&
-            bio.description.toLowerCase().includes(record.phrase.toLowerCase());
+            bio.description
+              .toLowerCase()
+              .includes(record.checkText.toLowerCase());
           if (stillThere) {
             await touchBioLastChecked(tokenId);
             return "stillVerified";

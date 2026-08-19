@@ -75,9 +75,9 @@ export const OBJECTS = [
   "the last activated wallet",
 ];
 
-const SITE_TAG = "hoodchan.org";
+export const SITE_TAG = "hoodchan.org";
 
-export function assemblePhrase(
+export function assembleSentence(
   subjectIndex: number,
   verbIndex: number,
   objectIndex: number,
@@ -86,8 +86,17 @@ export function assemblePhrase(
   const verb = VERBS[verbIndex % VERBS.length];
   const object = OBJECTS[objectIndex % OBJECTS.length];
   const sentence = `${subject} ${verb} ${object}`;
-  const capitalized = sentence.charAt(0).toUpperCase() + sentence.slice(1);
-  return `${capitalized} - ${SITE_TAG}`;
+  return sentence.charAt(0).toUpperCase() + sentence.slice(1);
+}
+
+// The full phrase people copy/paste - includes the site tag so it reads
+// as a real, complete sentence with a link at the end.
+export function assemblePhrase(
+  subjectIndex: number,
+  verbIndex: number,
+  objectIndex: number,
+): string {
+  return `${assembleSentence(subjectIndex, verbIndex, objectIndex)} - ${SITE_TAG}`;
 }
 
 // Total distinct phrases - used to size the random index space server-side.
@@ -99,10 +108,28 @@ export const PHRASE_SPACE_SIZE =
 // range maps to exactly one phrase and every phrase is reachable. Keeps
 // the encoding co-located with the word lists it depends on, rather than
 // each caller re-deriving the same math against SUBJECTS.length etc.
-export function phraseFromSeed(seed: number): string {
+function slotIndexesFromSeed(seed: number): [number, number, number] {
   const subjectIndex = seed % SUBJECTS.length;
   const verbIndex = Math.floor(seed / SUBJECTS.length) % VERBS.length;
   const objectIndex =
     Math.floor(seed / (SUBJECTS.length * VERBS.length)) % OBJECTS.length;
-  return assemblePhrase(subjectIndex, verbIndex, objectIndex);
+  return [subjectIndex, verbIndex, objectIndex];
+}
+
+export function phraseFromSeed(seed: number): string {
+  return assemblePhrase(...slotIndexesFromSeed(seed));
+}
+
+// The part that actually gets verified against a bio - just the sentence,
+// no site tag. X (and most platforms) auto-linkify a bare domain like
+// "hoodchan.org" into their own shortened tracking link the instant a bio
+// is saved (confirmed live: a real saved bio came back from X's API as
+// "...the last activated wallet - https://t.co/xxxxx", not the literal
+// "hoodchan.org" text) - checking for the domain string verbatim would
+// reject every single real, correctly-completed submission. The domain
+// still gets included in what people copy/paste (assemblePhrase) purely
+// so it becomes a real link in their bio; it just isn't part of what
+// proves they did it.
+export function sentenceFromSeed(seed: number): string {
+  return assembleSentence(...slotIndexesFromSeed(seed));
 }

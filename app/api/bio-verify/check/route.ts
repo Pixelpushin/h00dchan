@@ -64,9 +64,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // checkText, not the full displayed phrase - X auto-linkifies a bare
+  // domain like "hoodchan.org" into its own t.co link the instant a bio is
+  // saved (confirmed live: a real saved bio came back as "...wallet -
+  // https://t.co/xxxxx", not the literal site tag text), so matching
+  // against the full phrase rejected every real, correctly-completed
+  // submission. checkText is just the sentence, with no domain text to
+  // get mangled.
   const found = bio.description
     .toLowerCase()
-    .includes(record.phrase.toLowerCase());
+    .includes(record.checkText.toLowerCase());
   if (!found) {
     return NextResponse.json({ verified: false });
   }

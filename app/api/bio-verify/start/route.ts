@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyBioVerifyAuth } from "@/lib/auth-server";
 import { checkWriteRateLimit } from "@/lib/rate-limit";
 import { startBioVerification } from "@/lib/bioVerifyStore";
-import { phraseFromSeed, PHRASE_SPACE_SIZE } from "@/lib/bioVerifyPhrase";
+import {
+  phraseFromSeed,
+  sentenceFromSeed,
+  PHRASE_SPACE_SIZE,
+} from "@/lib/bioVerifyPhrase";
 import { randomInt } from "crypto";
 
 // Starts an X bio verification attempt - proves wallet ownership the same
@@ -64,8 +68,15 @@ export async function POST(request: NextRequest) {
   // every seed in range maps to exactly one specific phrase.
   const seed = randomInt(PHRASE_SPACE_SIZE);
   const phrase = phraseFromSeed(seed);
+  const checkText = sentenceFromSeed(seed);
 
-  const record = await startBioVerification(tokenId, address, xHandle, phrase);
+  const record = await startBioVerification(
+    tokenId,
+    address,
+    xHandle,
+    phrase,
+    checkText,
+  );
   return NextResponse.json({
     phrase: record.phrase,
     xHandle: record.xHandle,
