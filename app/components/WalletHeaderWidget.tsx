@@ -25,8 +25,10 @@ import { useActivePersona } from "@/lib/usePersona";
 import { BLOCK_EXPLORER_URL } from "@/lib/chain";
 import type { TokenMetadata } from "@/lib/chain";
 import { PostImage } from "@/app/components/PostImage";
+import { GearIcon } from "@/app/components/Icons";
 
 const QUICK_SWITCH_LIMIT = 8;
+const OPENSEA_COLLECTION_URL = "https://opensea.io/collection/h00dchan";
 
 // IPFS gateways are observably flaky per-request (documented throughout
 // this codebase) - a plain <img src={metadata.image}> can and did fail
@@ -127,6 +129,41 @@ export function WalletHeaderWidget() {
       cancelled = true;
     };
   }, [address]);
+
+  // Does this connected address hold ANY HOODCHAN at all, regardless of
+  // claimed/activated status - the trigger button's whole state machine
+  // (gear icon "you don't hold one" vs. bright "Activate") hinges on this,
+  // not just on whether a persona happens to be active. Same on-chain
+  // wallet-token scan /collection uses (lib/chain.ts's
+  // fetchWalletTokensOnChain via app/api/wallet-tokens), just reading the
+  // returned count, not fetching per-token art/metadata - lighter than
+  // what that page does with the same response. null while loading (or
+  // once no address at all) - the button defaults to the "Activate"
+  // urgent state during that brief window rather than "no NFT," since
+  // most connected wallets in this holder-only app DO hold one, and
+  // flashing the wrong state for the common case is worse than a
+  // half-second of an optimistic default.
+  const [ownedTokenCount, setOwnedTokenCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!address) return;
+    let cancelled = false;
+    fetch(`/api/wallet-tokens?${new URLSearchParams({ address })}`)
+      .then((res) => (res.ok ? res.json() : { tokenIds: [] }))
+      .then((body) => {
+        if (!cancelled) {
+          setOwnedTokenCount(
+            Array.isArray(body.tokenIds) ? body.tokenIds.length : 0,
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setOwnedTokenCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [address]);
+  const hasNoTokens = ownedTokenCount === 0;
 
   // Quick-switch candidates - cheap reverse-index lookup (lib/store.ts's
   // listMyClaimedTokens), not the full on-chain wallet scan HomeClient
@@ -262,13 +299,21 @@ export function WalletHeaderWidget() {
             return next;
           })
         }
-        className={isActive ? "hc-wallet-avatar-btn" : "hc-wallet-pill"}
+        className={
+          isActive
+            ? "hc-wallet-avatar-btn"
+            : hasNoTokens
+              ? "hc-wallet-pill hc-wallet-pill-neutral"
+              : "hc-wallet-pill hc-wallet-pill-urgent"
+        }
         title={
           hasNew
             ? "New reply on one of your threads"
             : isActive
               ? `Anon #${persona.tokenId}`
-              : "No anon activated yet - click to activate"
+              : hasNoTokens
+                ? "No HOODCHAN in this wallet - buy one on OpenSea"
+                : "No anon activated yet - click to activate"
         }
         aria-expanded={menuOpen}
       >
@@ -285,12 +330,18 @@ export function WalletHeaderWidget() {
               #{persona.tokenId}
             </span>
           )
+        ) : hasNoTokens ? (
+          // Not an action this site can resolve (buying happens on
+          // OpenSea) - a neutral status indicator, not an urgent CTA.
+          <GearIcon className="h-3.5 w-3.5" />
         ) : (
           // Truncated address used to sit here - reported live as
           // confusing: nothing about "0xE0A7...eB409" tells a connected-
           // but-not-activated visitor they still have a step left. The
           // trigger button itself now says so, not just the dropdown
-          // underneath it.
+          // underneath it - and while ownedTokenCount is still loading,
+          // this optimistic default is shown rather than the gear (see
+          // that state's own comment for why).
           "Activate"
         )}
         {hasNew && <span className="hc-wallet-badge" aria-hidden="true" />}
@@ -328,23 +379,46 @@ export function WalletHeaderWidget() {
             </div>
           )}
 
-          {!isActive && (
-            // Connected but hasn't claimed/activated any anon yet -
-            // reported live as a real dead end: no avatar to show, and
-            // "Browse all your anons ->" further down read as just another
-            // menu item, easy to miss. This is the actual next step for a
-            // brand-new holder, so it gets its own real button, not a
-            // text link buried in the list.
+          {!isActive && hasNoTokens && (
+            // Connected wallet genuinely holds zero HOODCHAN - nothing on
+            // this site can resolve that, so the dropdown's job here is
+            // just to hand off to OpenSea cleanly, branded so it's obvious
+            // where it goes before clicking.
+            <div className="hc-wallet-panel-identity">
+              <p className="hc-thread-meta text-xs text-center mb-2">
+                No HOODCHAN in this wallet
+              </p>
+              <a
+                href={OPENSEA_COLLECTION_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hc-button-opensea text-sm w-full"
+                onClick={() => setMenuOpen(false)}
+              >
+                Buy on OpenSea
+              </a>
+            </div>
+          )}
+
+          {!isActive && !hasNoTokens && (
+            // Connected, holds at least one HOODCHAN, hasn't activated
+            // any of them yet - reported live as a real dead end: no
+            // avatar to show, and "Browse all your anons ->" further down
+            // read as just another menu item, easy to miss. This is the
+            // actual next step for a real holder, so it gets its own
+            // real button, not a text link buried in the list. Also the
+            // optimistic default while ownedTokenCount is still loading
+            // (see that state's own comment).
             <div className="hc-wallet-panel-identity">
               <p className="hc-thread-meta text-xs text-center mb-2">
                 No anon activated yet
               </p>
               <a
                 href="/collection"
-                className="hc-button text-sm w-full text-center"
+                className="hc-button-urgent text-sm w-full"
                 onClick={() => setMenuOpen(false)}
               >
-                Activate an anon
+                Activate Collection
               </a>
             </div>
           )}
@@ -393,8 +467,15 @@ export function WalletHeaderWidget() {
             <div className="hc-wallet-menu-error">{switchError}</div>
           )}
 
+          {/* Always present regardless of state, on purpose - the
+              constant fallback path to /collection, same place in the
+              dropdown every time, even when a state-specific button
+              above already covers it too (isActive has no other link to
+              it, so this is the ONLY one there - consistency of "it's
+              always right here" wins over trimming a little redundancy
+              in the other two states). */}
           <button onClick={handleBrowseAll} className="hc-wallet-menu-item">
-            Browse all your anons →
+            Collection →
           </button>
           {isAdmin && (
             <a

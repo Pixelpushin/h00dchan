@@ -51,6 +51,13 @@ body {
   --hc-greentext: #4a7a2e;
   --hc-text: #1f1a12;
   --hc-muted: #7a6a52;
+  /* Bright, distinct from the header's own warm-orange gradient on
+     purpose - "you have a real action to take right now" (activate an
+     owned-but-unactivated anon) needs to read as more urgent than the
+     header band it sits on top of, not blend into it. */
+  --hc-urgent: #ff3b1f;
+  --hc-urgent-dark: #c72c14;
+  --hc-opensea-blue: #2081e2; /* OpenSea's own brand blue */
 }
 
 .hc-page {
@@ -409,6 +416,65 @@ body {
 .hc-wallet-connect-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* Trigger-button variant for "connected, owns a real action to take" -
+   solid, bright, deliberately impossible to miss (unlike the plain
+   translucent .hc-wallet-pill it replaces in this state). */
+.hc-wallet-pill-urgent {
+  background: var(--hc-urgent);
+  border-color: var(--hc-urgent-dark);
+  color: #fff;
+  font-weight: 700;
+}
+
+.hc-wallet-pill-urgent:hover {
+  background: var(--hc-urgent-dark);
+}
+
+/* Trigger-button variant for "connected, holds no HOODCHAN" - neutral/
+   muted on purpose, this isn't an action THIS site can resolve (buying
+   happens on OpenSea), just a status indicator with a gear icon. */
+.hc-wallet-pill-neutral {
+  background: rgba(0, 0, 0, 0.15);
+  color: rgba(255, 247, 230, 0.85);
+}
+
+.hc-wallet-pill-neutral:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.hc-button-urgent {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--hc-urgent);
+  color: #fff;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--hc-urgent-dark);
+}
+
+.hc-button-urgent:hover {
+  background: var(--hc-urgent-dark);
+}
+
+.hc-button-opensea {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  background: var(--hc-opensea-blue);
+  color: #fff;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid #1868b7;
+}
+
+.hc-button-opensea:hover {
+  background: #1868b7;
 }
 
 .hc-subheader {
