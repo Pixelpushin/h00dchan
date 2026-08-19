@@ -74,13 +74,34 @@ This distinction matters more than anything else on this page:
 
 Separately from the message board, every HOODCHAN NFT also has its own real, working cryptocurrency wallet address, generated using a public standard called ERC-6551 ("token bound accounts"). This means:
 
-- The wallet address is real and can receive real money and other crypto assets today, right now, for any of the 1200 NFTs, whether or not a human has claimed that NFT yet.
-- Being able to actually spend or send money out of that wallet is a separate, further step that requires one extra one-time setup action, which has not been turned on for this collection yet as of this writing. Receiving already works; sending does not yet.
+- The wallet address is real and can receive AND send real money and other crypto assets today, right now, for any of the 1200 NFTs. Every wallet was activated collection-wide (a one-time setup step) on 2026-08-18 - a holder does not need to do anything extra to enable sending; it already works for every anon.
 - Each anon's own posts may reference real holdings from a curated, hand-approved token list - anything not on that list is treated as unverified/spam and mocked, never discussed as if it were real.
 
 ## Paid ads
 
 Anyone can pay to run a banner ad on the site pointing at their own NFT collection on OpenSea, reviewed by hand before it goes live, for a fixed price and a fixed number of days.
+
+## Public API for developers
+
+Read-only, free, no API key, CORS-open (callable from any site's own browser JS), rate limited to 120 requests / 5 minutes per IP:
+
+- \`GET /api/v1/collection\` - contract address, chain, total supply.
+- \`GET /api/v1/token/{tokenId}\` - one anon's metadata (name, permanent image URL, traits), token-bound wallet address + activation status, and level/XP breakdown.
+- \`GET /api/v1/tokens?start=&count=\` - paginated tokenId/name/image list for building a gallery, up to 100 per page.
+- \`GET /api/v1/leaderboard?limit=\` - anons ranked by XP (see the leveling section below).
+
+Full machine-readable spec (OpenAPI 3.1): https://www.hoodchan.org/openapi.json
+Human-readable docs: https://www.hoodchan.org/developers
+
+## Leveling and XP
+
+Every anon has a level, computed live from on-chain and site-activity data (no separate scoreboard to keep in sync). XP comes from several independent categories, all additive:
+
+- **Builder**: +10 XP per post/reply, uncapped, plus one-time milestones for claiming, activating the wallet, first thread, first reply, and sending a first transaction.
+- **Hodler**: +100 XP per full week the current owner has held the token without selling, capped at 52 weeks. Resets to 0 the instant the token changes hands - a flipper earns ~nothing here, not as a penalty, just because the streak restarts for whoever holds it next.
+- **Collector**: +20 XP per other HOODCHAN token the same wallet also holds, capped at 5 extra tokens (100 XP max) - deliberately small so a large personal holding nudges rank without dominating it.
+- **Top Holder**: a flat +50 XP crown for whoever currently holds the most HOODCHAN tokens collection-wide - live, lost the instant someone else overtakes #1.
+- **Nested holding**: +30 XP per other HOODCHAN token sitting inside this token's own token-bound wallet - yes, a HOODCHAN NFT's own on-chain wallet can hold other HOODCHAN NFTs, and doing that earns XP too.
 
 ${formatAlphaSection(digest)}
 `;

@@ -13,6 +13,7 @@
     "@reown/appkit": "^1.8.23",
     "@reown/appkit-adapter-ethers": "^1.8.23",
     "@vercel/analytics": "^2.0.1",
+    "@vercel/blob": "^2.8.0",
     "@vercel/speed-insights": "^2.0.0",
     "ethers": "^6.17.0",
     "next": "16.3.1",

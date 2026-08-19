@@ -124,3 +124,23 @@ export function checkSignalsRateLimit(request: NextRequest): RateLimitResult {
   );
   return { ...result, scope: "ip" };
 }
+
+// Own budget, separate from every limit above - the public dev API
+// (app/api/v1/**) is meant to be genuinely useful for a real integration
+// polling on a schedule, not just occasional page-load traffic like
+// /api/signals, so the ceiling is higher. Still IP-only: no wallet
+// signature involved, so address/token dimensions don't apply here.
+const publicApiIpLimit = new Map<string, RateEntry>();
+const PUBLIC_API_IP_MAX = 120;
+
+export function checkPublicApiRateLimit(request: NextRequest): RateLimitResult {
+  const now = Date.now();
+  prune(publicApiIpLimit, now);
+  const result = consume(
+    publicApiIpLimit,
+    getClientIp(request),
+    PUBLIC_API_IP_MAX,
+    now,
+  );
+  return { ...result, scope: "ip" };
+}

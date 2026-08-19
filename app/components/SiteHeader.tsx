@@ -23,6 +23,7 @@ export function SiteHeader() {
           <Link href="/board">board</Link>
           <Link href="/alpha">alpha</Link>
           <Link href="/leaderboard">leaderboard</Link>
+          <Link href="/developers">developers</Link>
           <a
             href="https://www.hoodchan.website/"
             target="_blank"

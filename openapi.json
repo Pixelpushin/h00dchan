@@ -1,0 +1,227 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "HOODCHAN Public API",
+    "version": "1.0.0",
+    "description": "Read-only public data for the HOODCHAN NFT collection on Robinhood Chain: metadata, images (served off a permanent CDN, not a flaky IPFS gateway), token-bound wallet status, and the community's XP/leaderboard system. Unauthenticated, CORS-open, IP rate-limited (120 req / 5 min). No wallet writes or signatures involved anywhere on this surface - source: https://github.com/Pixelpushin/h00dchan"
+  },
+  "servers": [{ "url": "https://hoodchan.org" }],
+  "paths": {
+    "/api/v1/collection": {
+      "get": {
+        "operationId": "getCollection",
+        "summary": "Get collection-level info (contract, chain, supply)",
+        "responses": {
+          "200": {
+            "description": "Collection info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "symbol": { "type": "string" },
+                    "contract": { "type": "string" },
+                    "chainId": { "type": "integer" },
+                    "chainIdHex": { "type": "string" },
+                    "chainName": { "type": "string" },
+                    "totalSupply": { "type": ["integer", "null"] },
+                    "maxSupply": { "type": "integer" },
+                    "explorerUrl": { "type": "string" },
+                    "openseaUrl": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "429": { "description": "Rate limited" }
+        }
+      }
+    },
+    "/api/v1/token/{tokenId}": {
+      "get": {
+        "operationId": "getToken",
+        "summary": "Get one anon's full public record: metadata, wallet, level/XP",
+        "parameters": [
+          {
+            "name": "tokenId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1200 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tokenId": { "type": "string" },
+                    "name": { "type": "string" },
+                    "image": { "type": "string", "description": "Permanent Blob CDN URL once backfilled, otherwise a live IPFS gateway URL" },
+                    "attributes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "trait_type": { "type": "string" },
+                          "value": {}
+                        }
+                      }
+                    },
+                    "claimed": { "type": "boolean" },
+                    "wallet": {
+                      "type": ["object", "null"],
+                      "properties": {
+                        "address": { "type": "string" },
+                        "activated": { "type": "boolean" }
+                      }
+                    },
+                    "level": { "type": "integer" },
+                    "totalXp": { "type": "integer" },
+                    "xpBreakdown": {
+                      "type": "object",
+                      "properties": {
+                        "milestoneXp": { "type": "integer" },
+                        "builderXp": { "type": "integer" },
+                        "hodlerXp": { "type": "integer" },
+                        "collectorXp": { "type": "integer" },
+                        "topHolderXp": { "type": "integer" },
+                        "nestedXp": { "type": "integer" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid tokenId" },
+          "429": { "description": "Rate limited" },
+          "502": { "description": "Unable to resolve token metadata" }
+        }
+      }
+    },
+    "/api/v1/tokens": {
+      "get": {
+        "operationId": "listTokens",
+        "summary": "Paginated list of tokenId/name/image, for building a gallery",
+        "description": "Lightweight - no wallet or level data. Use /api/v1/token/{tokenId} for the full record of one anon.",
+        "parameters": [
+          { "name": "start", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "count", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of tokens",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "range": {
+                      "type": "object",
+                      "properties": { "start": { "type": "integer" }, "end": { "type": "integer" } }
+                    },
+                    "count": { "type": "integer" },
+                    "nextStart": { "type": ["integer", "null"], "description": "Pass as ?start= for the next page, null once exhausted" },
+                    "tokens": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "tokenId": { "type": "string" },
+                          "name": { "type": "string" },
+                          "image": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "start beyond max token ID" },
+          "429": { "description": "Rate limited" }
+        }
+      }
+    },
+    "/api/v1/leaderboard": {
+      "get": {
+        "operationId": "getLeaderboard",
+        "summary": "Get anons ranked by XP",
+        "description": "Only anons that have ever claimed or posted are candidates - a wallet-only holder with zero site activity won't appear yet. Cached 60s server-side.",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 100 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ranked list, highest XP first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total": { "type": "integer" },
+                    "entries": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "tokenId": { "type": "string" },
+                          "level": { "type": "integer" },
+                          "totalXp": { "type": "integer" },
+                          "claimed": { "type": "boolean" },
+                          "walletActivated": { "type": "boolean" },
+                          "hodlerWeeks": { "type": "integer" },
+                          "isTopHolder": { "type": "boolean" },
+                          "nestedHoldingCount": { "type": "integer" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": { "description": "Rate limited" }
+        }
+      }
+    },
+    "/api/v1/wallet/{address}": {
+      "get": {
+        "operationId": "getWalletTokens",
+        "summary": "Get the HOODCHAN tokens a given address currently holds",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^0x[a-fA-F0-9]{40}$" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tokens held by this address right now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "address": { "type": "string" },
+                    "count": { "type": "integer" },
+                    "tokenIds": { "type": "array", "items": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid address" },
+          "429": { "description": "Rate limited" },
+          "502": { "description": "Unable to resolve wallet holdings" }
+        }
+      }
+    }
+  }
+}
