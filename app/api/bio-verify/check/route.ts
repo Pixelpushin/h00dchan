@@ -6,6 +6,7 @@ import {
 } from "@/lib/bioVerifyStore";
 import { fetchXUserBio } from "@/lib/xApi";
 import { checkSignalsRateLimit } from "@/lib/rate-limit";
+import { sentenceFromPhrase } from "@/lib/bioVerifyPhrase";
 
 // Checks whether the phrase issued by /api/bio-verify/start actually shows
 // up in the claimed handle's public bio yet - no signature needed here
@@ -70,10 +71,11 @@ export async function POST(request: NextRequest) {
   // https://t.co/xxxxx", not the literal site tag text), so matching
   // against the full phrase rejected every real, correctly-completed
   // submission. checkText is just the sentence, with no domain text to
-  // get mangled.
-  const found = bio.description
-    .toLowerCase()
-    .includes(record.checkText.toLowerCase());
+  // get mangled. Falls back to deriving it from `phrase` for a record
+  // issued before checkText existed as its own field (confirmed live:
+  // this 500'd on a real in-flight pending attempt without the fallback).
+  const checkText = record.checkText ?? sentenceFromPhrase(record.phrase);
+  const found = bio.description.toLowerCase().includes(checkText.toLowerCase());
   if (!found) {
     return NextResponse.json({ verified: false });
   }

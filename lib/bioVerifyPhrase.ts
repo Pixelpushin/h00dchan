@@ -77,6 +77,17 @@ export const OBJECTS = [
 
 export const SITE_TAG = "hoodchan.org";
 
+// Backward-compat fallback for a BioVerification record written before
+// `checkText` existed as its own stored field (this feature shipped, then
+// needed a same-day fix - see app/api/bio-verify/check/route.ts's
+// comment). Old records only have `phrase`; this derives the same
+// sentence-only text from it so an in-flight pending attempt from before
+// the fix doesn't 500 or get permanently stuck.
+export function sentenceFromPhrase(phrase: string): string {
+  const suffix = ` - ${SITE_TAG}`;
+  return phrase.endsWith(suffix) ? phrase.slice(0, -suffix.length) : phrase;
+}
+
 export function assembleSentence(
   subjectIndex: number,
   verbIndex: number,

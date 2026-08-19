@@ -7,6 +7,7 @@ import {
   getBioVerification,
 } from "@/lib/bioVerifyStore";
 import { fetchXUserBio } from "@/lib/xApi";
+import { sentenceFromPhrase } from "@/lib/bioVerifyPhrase";
 
 // Bi-weekly recheck: re-reads every currently-verified holder's bio, and
 // revokes (drops the XP bonus) if the phrase is no longer there - same
@@ -57,11 +58,11 @@ async function runPage(ids: string[]): Promise<PageResult> {
           // checkText, not phrase - see app/api/bio-verify/check/route.ts's
           // comment (X auto-linkifies the site tag, so the full phrase
           // never survives verbatim in a real saved bio).
+          const checkText =
+            record.checkText ?? sentenceFromPhrase(record.phrase);
           const stillThere =
             bio !== null &&
-            bio.description
-              .toLowerCase()
-              .includes(record.checkText.toLowerCase());
+            bio.description.toLowerCase().includes(checkText.toLowerCase());
           if (stillThere) {
             await touchBioLastChecked(tokenId);
             return "stillVerified";
