@@ -1,6 +1,6 @@
 // Anon leveling system - deliberately stateless. XP is computed live from
-// state that already exists elsewhere (claimed status, TBA activation,
-// thread/post counts) rather than a separate counter that would need
+// state that already exists elsewhere (claimed status, thread/post counts)
+// rather than a separate counter that would need
 // writing at every action and backfilling for every anon that already did
 // these things before this shipped. Every one of the ~1198 existing anons
 // gets a correct level immediately, no migration needed.
@@ -18,7 +18,6 @@
 // intentionally still counts everything as real activity history).
 export interface QuestInput {
   claimed: boolean;
-  walletActivated: boolean;
   threadsStarted: number;
   totalPosts: number;
   // "Used your powers" milestone - the TBA's own on-chain tx count > 0.
@@ -68,12 +67,6 @@ const MILESTONE_QUESTS: MilestoneQuest[] = [
     label: "Activate this anon (claim it, silence its AI)",
     xp: 50,
     isDone: (i) => i.claimed,
-  },
-  {
-    id: "activate-wallet",
-    label: "Enable sending for this anon's wallet",
-    xp: 50,
-    isDone: (i) => i.walletActivated,
   },
   {
     id: "first-thread",

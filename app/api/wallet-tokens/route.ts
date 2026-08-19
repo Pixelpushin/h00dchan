@@ -108,7 +108,6 @@ export async function GET(request: NextRequest) {
               // page and leaderboard both compute the real value.
               const level = computeLevelProgress({
                 claimed,
-                walletActivated: activated,
                 threadsStarted: humanThreadsStarted,
                 totalPosts: humanTotalPosts,
                 hasSentTransaction: false,

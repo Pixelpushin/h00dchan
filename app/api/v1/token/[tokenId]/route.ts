@@ -82,7 +82,6 @@ export async function GET(
 
   const level = computeLevelProgress({
     claimed,
-    walletActivated,
     threadsStarted: humanThreads,
     totalPosts: humanPosts,
     hasSentTransaction: false, // not exposed here - would cost a per-request RPC call for a field most integrations won't use

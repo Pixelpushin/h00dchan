@@ -151,7 +151,6 @@ export default async function WalletPage({
 
   const levelProgress = computeLevelProgress({
     claimed,
-    walletActivated: activated,
     threadsStarted: humanThreadsStarted,
     totalPosts: humanPostCount,
     hasSentTransaction,

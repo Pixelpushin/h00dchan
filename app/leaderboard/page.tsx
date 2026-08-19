@@ -76,11 +76,6 @@ export default async function LeaderboardPage() {
                         ● claimed
                       </span>
                     )}
-                    {entry.walletActivated && (
-                      <span style={{ color: "var(--hc-greentext)" }}>
-                        ● sending enabled
-                      </span>
-                    )}
                     {entry.isTopHolder && (
                       <span style={{ color: "var(--hc-header-to)" }}>
                         ★ top holder

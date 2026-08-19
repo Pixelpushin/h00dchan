@@ -102,7 +102,6 @@ export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
           // and tx-count calls above which genuinely need a live check.
           const progress: LevelProgress = computeLevelProgress({
             claimed,
-            walletActivated,
             threadsStarted: humanThreadsStarted,
             totalPosts: humanTotalPosts,
             hasSentTransaction: BigInt(txCountHex) > BigInt(0),
