@@ -18,6 +18,7 @@
 import { useState } from "react";
 import { connectWallet, signMessage } from "@/lib/wallet";
 import { buildBioVerifyAuthMessage } from "@/lib/persona";
+import { useActivePersona } from "@/lib/usePersona";
 
 interface BioVerifyPanelProps {
   tokenId: string;
@@ -34,6 +35,17 @@ export function BioVerifyPanel({
   tokenId,
   initiallyVerified,
 }: BioVerifyPanelProps) {
+  // The server already enforces real ownership before a verification
+  // attempt can succeed (lib/auth-server.ts's verifyBioVerifyAuth does a
+  // live ownerOf() check), so this was never exploitable - but the
+  // interactive "Verify your X account" form was rendering for EVERY
+  // visitor to ANY anon's wallet page, not just its actual owner, which
+  // read as a real bug (why am I being offered to verify someone else's
+  // account) and would have dead-ended anyone who actually tried it with
+  // their own wallet. Same isOwner gate as AlphaResearchPanel/
+  // WalletActionsPanel elsewhere on this page.
+  const { persona } = useActivePersona();
+  const isOwner = persona?.tokenId === tokenId;
   const [stage, setStage] = useState<Stage>(
     initiallyVerified ? "verified" : "idle",
   );
@@ -119,6 +131,9 @@ export function BioVerifyPanel({
   };
 
   if (stage === "verified") {
+    // Public fact about this anon's profile, same as the hodler-weeks/
+    // top-holder badges elsewhere on the page - fine to show to any
+    // visitor, not just the owner.
     return (
       <div
         className="hc-thread-meta text-xs"
@@ -128,6 +143,11 @@ export function BioVerifyPanel({
       </div>
     );
   }
+
+  // Everything past this point is the interactive "start/continue a
+  // verification attempt" flow - only the anon's actual current owner
+  // should ever see it.
+  if (!isOwner) return null;
 
   if (stage === "awaiting-post" && phrase) {
     return (
