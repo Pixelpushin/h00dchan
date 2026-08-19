@@ -9,8 +9,9 @@
 // never shown; each post's caption is a separate, deliberately unhinged
 // OnlyFans-thirst-trap-style line (lib/onlychansConfig.ts's CAPTION_POOL),
 // not a description of the image.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useHolderSession, holderAuthHeaders } from "@/lib/useHolderSession";
+import { useWalletAddress } from "@/lib/useWalletAddress";
 import type { OnlyChanPost } from "@/lib/onlychansStore";
 
 function formatTime(iso: string): string {
@@ -57,6 +58,7 @@ function OnlyChanPostCard({ post }: { post: OnlyChanPost }) {
 export default function OnlyChansPage() {
   const { session, connecting, connectError, connect, clearSession } =
     useHolderSession();
+  const address = useWalletAddress();
   const [posts, setPosts] = useState<OnlyChanPost[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,7 +98,27 @@ export default function OnlyChansPage() {
     if (newSession) await loadFeed(newSession);
   };
 
+  // If a wallet is already connected site-wide (e.g. via the header widget
+  // or the homepage's unblurred onlyChans preview, which only checks
+  // useWalletAddress()), this page's own holder-signed session still
+  // doesn't exist yet in this tab - reported live as "I'm already logged
+  // in with an NFT but I see a Connect Wallet button and no posts." Only
+  // a signature is actually missing at that point (connectWallet() itself
+  // resolves instantly for an already-connected wallet, no modal), so
+  // auto-trigger that signature prompt instead of making them click a
+  // button that says "Connect Wallet" while they're already connected.
+  // One-shot via the ref: if the user dismisses the signature request,
+  // don't loop back and immediately re-prompt them.
+  const autoAttempted = useRef(false);
+  useEffect(() => {
+    if (!address || session || connecting || autoAttempted.current) return;
+    autoAttempted.current = true;
+    handleConnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address, session, connecting]);
+
   if (!session) {
+    const alreadyConnected = Boolean(address);
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-6 gap-4 text-center">
         <h1 className="hc-title text-2xl">onlyChans</h1>
@@ -110,7 +132,11 @@ export default function OnlyChansPage() {
             disabled={connecting}
             className="hc-button"
           >
-            {connecting ? "Connecting..." : "Connect Wallet"}
+            {connecting
+              ? "Check your wallet for a signature request..."
+              : alreadyConnected
+                ? "Sign in to view"
+                : "Connect Wallet"}
           </button>
           {(connectError || error) && (
             <p className="text-sm" style={{ color: "#a12b2b" }}>

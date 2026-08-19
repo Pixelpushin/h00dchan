@@ -144,16 +144,51 @@ function useMounted() {
 
 export function AdBanner({
   paidAds = [],
-  rarestTokens = [],
+  randomTokenPool = [],
 }: {
   paidAds?: PaidAd[];
-  rarestTokens?: Array<{ tokenId: string; imageUrl: string }>;
+  randomTokenPool?: Array<{ tokenId: string; imageUrl: string }>;
 }) {
   const mounted = useMounted();
   const entries = buildEntries(paidAds);
   const [index, setIndex] = useState(() =>
     Math.floor(Math.random() * entries.length),
   );
+
+  // A fresh random pair from the pool every time the ad rotates (index
+  // changes) - "random selection... that cycle and change," not the same
+  // two tokens fixed for the whole session. Lives in an effect (the
+  // subscribe-and-setState pattern this file already uses for the
+  // rotation timer itself), not a useMemo - Math.random() during render
+  // (including inside useMemo, which still runs in the render phase)
+  // trips this repo's stricter purity lint rule.
+  const [[flankLeft, flankRight], setFlankPair] = useState<
+    readonly [
+      { tokenId: string; imageUrl: string } | undefined,
+      { tokenId: string; imageUrl: string } | undefined,
+    ]
+  >([undefined, undefined]);
+  useEffect(() => {
+    // queueMicrotask: this repo's lint rule flags setState called
+    // synchronously in an effect body even when the effect's own
+    // dependencies (not an external subscription) are what triggered it -
+    // same fix pattern used elsewhere in this session (WalletHeaderWidget,
+    // collection/page.tsx).
+    queueMicrotask(() => {
+      if (randomTokenPool.length === 0) {
+        setFlankPair([undefined, undefined]);
+        return;
+      }
+      if (randomTokenPool.length === 1) {
+        setFlankPair([randomTokenPool[0], randomTokenPool[0]]);
+        return;
+      }
+      const i = Math.floor(Math.random() * randomTokenPool.length);
+      let j = Math.floor(Math.random() * randomTokenPool.length);
+      while (j === i) j = Math.floor(Math.random() * randomTokenPool.length);
+      setFlankPair([randomTokenPool[i], randomTokenPool[j]]);
+    });
+  }, [index, randomTokenPool]);
 
   // Rotation lives in a setInterval callback, not the effect body itself -
   // this is the subscribe-to-an-external-timer pattern effects are meant
@@ -205,10 +240,10 @@ export function AdBanner({
         // this specific one happens to fill the frame or not, for a
         // consistent look slot to slot.
         <div className="flex h-full w-full">
-          {rarestTokens[0] && (
+          {flankLeft && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={rarestTokens[0].imageUrl}
+              src={flankLeft.imageUrl}
               alt=""
               className="h-full w-[16%] shrink-0 object-cover"
             />
@@ -238,10 +273,10 @@ export function AdBanner({
               </span>
             </div>
           </div>
-          {rarestTokens[1] && (
+          {flankRight && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={rarestTokens[1].imageUrl}
+              src={flankRight.imageUrl}
               alt=""
               className="h-full w-[16%] shrink-0 object-cover"
             />

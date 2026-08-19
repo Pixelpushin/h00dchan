@@ -115,6 +115,29 @@ export async function approveAdSubmission(
   return updated;
 }
 
+// Re-pulls imageUrl/avatarUrl from OpenSea for an existing ad - a
+// collection can update its own art after approval, and (the reason this
+// was added) a handful of early submissions predate avatarUrl/imageUrl
+// being resolved as two distinct fields and have avatarUrl wrongly equal
+// to the wide banner image instead of the square logo.
+export async function resyncAdArt(
+  id: string,
+): Promise<{ ok: true; ad: AdSubmission } | { ok: false; reason: string }> {
+  const ad = await readAd(id);
+  if (!ad) return { ok: false, reason: "Ad not found." };
+  const { fetchOpenSeaCollection } = await import("@/lib/opensea");
+  const result = await fetchOpenSeaCollection(ad.openseaUrl);
+  if (!result.ok) return { ok: false, reason: result.reason };
+  const updated: AdSubmission = {
+    ...ad,
+    name: result.collection.name,
+    imageUrl: result.collection.imageUrl,
+    avatarUrl: result.collection.avatarUrl,
+  };
+  await writeAd(updated);
+  return { ok: true, ad: updated };
+}
+
 export async function rejectAdSubmission(
   id: string,
   reason?: string,

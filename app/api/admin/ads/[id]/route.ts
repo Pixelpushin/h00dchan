@@ -3,7 +3,11 @@
 // app/api/admin/threads/[threadId]/route.ts).
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminAuth";
-import { approveAdSubmission, rejectAdSubmission } from "@/lib/adStore";
+import {
+  approveAdSubmission,
+  rejectAdSubmission,
+  resyncAdArt,
+} from "@/lib/adStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,8 +47,16 @@ export async function POST(
     return NextResponse.json({ ad });
   }
 
+  if (action === "resync") {
+    const result = await resyncAdArt(id);
+    if (!result.ok) {
+      return NextResponse.json({ error: result.reason }, { status: 400 });
+    }
+    return NextResponse.json({ ad: result.ad });
+  }
+
   return NextResponse.json(
-    { error: "action must be 'approve' or 'reject'." },
+    { error: "action must be 'approve', 'reject', or 'resync'." },
     { status: 400 },
   );
 }
