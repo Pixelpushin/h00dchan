@@ -122,6 +122,16 @@ export default function CollectionPage() {
     current: number;
     total: number;
   } | null>(null);
+  // First-time-only explainer modal, plain-English (ESL-friendly - short
+  // sentences, no idioms), shown once when this page first has anything
+  // unclaimed to explain and never again after that - the header button
+  // now navigates straight here instead of opening its own dropdown with
+  // a second "Activate" button (reported live as genuinely redundant: a
+  // button that opens a menu with a button that goes to a page with a
+  // button - four stacked prompts for one action). This modal IS the
+  // explanation + the action, in one place, one time.
+  const EXPLAINER_SEEN_KEY = "h00dchan:activation-explainer-seen";
+  const [showExplainer, setShowExplainer] = useState(false);
 
   const loadTokens = useCallback(async (owner: string) => {
     setError(null);
@@ -359,6 +369,24 @@ export default function CollectionPage() {
     }
   }, [address, tokens, claimedTokens, persona, savePersona]);
 
+  const hasUnclaimedTokens = tokens.some((t) => !claimedTokens[t.tokenId]);
+
+  useEffect(() => {
+    if (state !== "ready" || !hasUnclaimedTokens) return;
+    if (window.localStorage.getItem(EXPLAINER_SEEN_KEY) === "1") return;
+    queueMicrotask(() => setShowExplainer(true));
+  }, [state, hasUnclaimedTokens]);
+
+  const dismissExplainer = useCallback(() => {
+    window.localStorage.setItem(EXPLAINER_SEEN_KEY, "1");
+    setShowExplainer(false);
+  }, []);
+
+  const handleActivateAllFromExplainer = useCallback(async () => {
+    await handleActivateAll();
+    dismissExplainer();
+  }, [handleActivateAll, dismissExplainer]);
+
   const handleChat = useCallback(() => {
     router.push("/board");
   }, [router]);
@@ -409,6 +437,61 @@ export default function CollectionPage() {
 
   return (
     <div className="flex flex-col flex-1 items-center">
+      {showExplainer && (
+        <div className="hc-modal-backdrop" role="dialog" aria-modal="true">
+          <div className="hc-infobox hc-modal-card">
+            <div className="hc-infobox-header">
+              <span>What does &quot;Activate&quot; mean?</span>
+              <button
+                onClick={dismissExplainer}
+                className="hc-infobox-close"
+                aria-label="Close"
+              >
+                [x]
+              </button>
+            </div>
+            <div className="hc-infobox-body">
+              <p>
+                Right now, a robot (AI) writes posts using your HOODCHAN
+                character. It does this because you have not said &quot;this is
+                mine&quot; yet.
+              </p>
+              <p>
+                Click the button below. Your wallet will ask you to sign one
+                message. This is free. It does not cost gas or real money.
+              </p>
+              <p>After you sign:</p>
+              <p>
+                - The robot stops writing posts for your character.
+                <br />- You can write posts as your character instead.
+              </p>
+              <p>
+                This is safe. You are only proving you own the NFT. You are not
+                sending any money or approving any payment.
+              </p>
+            </div>
+            <div className="hc-modal-actions">
+              <button
+                onClick={dismissExplainer}
+                className="hc-button-ghost hc-button text-sm"
+              >
+                Not now
+              </button>
+              <button
+                onClick={handleActivateAllFromExplainer}
+                disabled={bulkActivating}
+                className="hc-button-urgent text-sm"
+              >
+                {bulkStage === "signing"
+                  ? "Sign in wallet..."
+                  : bulkStage === "confirming"
+                    ? "Activating..."
+                    : "Activate Collection"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <main className="flex flex-1 w-full max-w-5xl flex-col items-center px-6 py-10">
         <div className="flex w-full items-center justify-between mb-4">
           <h1 className="hc-title text-xl">
@@ -449,12 +532,12 @@ export default function CollectionPage() {
 
         {state === "ready" && tokens.length > 0 && (
           <>
-            {tokens.some((t) => !claimedTokens[t.tokenId]) && (
+            {hasUnclaimedTokens ? (
               <div className="mb-4 flex flex-col items-center gap-1">
                 <button
                   onClick={handleActivateAll}
                   disabled={bulkActivating || claimingId !== null}
-                  className="hc-button"
+                  className="hc-button-urgent"
                 >
                   {bulkStage === "signing"
                     ? bulkProgress
@@ -471,6 +554,20 @@ export default function CollectionPage() {
                       ? `You have more than ${MAX_BATCH_CLAIM_SIZE} unclaimed anons - this needs ${bulkProgress.total} signatures, one per group of ${MAX_BATCH_CLAIM_SIZE}.`
                       : "One signature activates every unclaimed anon below."}
                 </p>
+              </div>
+            ) : (
+              // Nothing left to do - shown as a real completed state, not
+              // just silently removed, so it's obvious the earlier action
+              // actually finished rather than looking like the button
+              // vanished/broke.
+              <div className="mb-4 flex flex-col items-center gap-1">
+                <button
+                  disabled
+                  className="hc-button"
+                  style={{ opacity: 0.5, cursor: "default" }}
+                >
+                  ✓ All Activated
+                </button>
               </div>
             )}
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 w-full">

@@ -169,6 +169,7 @@ export function WalletHeaderWidget() {
   // listMyClaimedTokens), not the full on-chain wallet scan HomeClient
   // does. Fetched once per connected address, not per dropdown-open, so
   // the panel feels instant when opened.
+  const [myClaimedCount, setMyClaimedCount] = useState<number | null>(null);
   useEffect(() => {
     if (!address) return;
     let cancelled = false;
@@ -177,6 +178,7 @@ export function WalletHeaderWidget() {
       .then((body) => {
         if (cancelled) return;
         const ids = (body.tokenIds as string[]) ?? [];
+        setMyClaimedCount(ids.length);
         setOtherTokenIds(
           ids
             .filter((id) => id !== persona?.tokenId)
@@ -190,6 +192,17 @@ export function WalletHeaderWidget() {
       cancelled = true;
     };
   }, [address, persona?.tokenId]);
+  // Owns at least one HOODCHAN that ISN'T yet claimed - not just "has no
+  // active persona right now." Reported live as a real gap: activating
+  // one anon used to make this button go calm even if the same wallet
+  // held several other still-unclaimed ones (e.g. buying a second one
+  // after already activating the first) - the urgent state needs to
+  // reflect the whole wallet's real status, not just whether ANY one
+  // persona happens to be selected this session.
+  const hasUnactivatedTokens =
+    ownedTokenCount !== null &&
+    myClaimedCount !== null &&
+    ownedTokenCount > myClaimedCount;
 
   // Thumbnails for the quick-switch list - only for the (small, capped)
   // set of other token IDs, not the whole collection.
@@ -275,6 +288,15 @@ export function WalletHeaderWidget() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [menuOpen]);
 
+  // Defensive: if the dropdown was already open and the wallet's token
+  // status then flips to "needs activation" (e.g. a background refresh
+  // mid-session), close it - that state's own click handler always
+  // navigates away instead of toggling a menu, so a stale open dropdown
+  // here would be an inconsistent, unreachable-by-a-fresh-click state.
+  useEffect(() => {
+    if (hasUnactivatedTokens) queueMicrotask(() => setMenuOpen(false));
+  }, [hasUnactivatedTokens]);
+
   if (!address) {
     return (
       <button
@@ -289,35 +311,61 @@ export function WalletHeaderWidget() {
 
   const explorerUrl = `${BLOCK_EXPLORER_URL}/address/${address}`;
 
+  // Urgent "needs activation" beats every other state, including an
+  // already-active persona - owning even one more unclaimed anon (buying
+  // a second one after already activating the first, say) means there's
+  // still a real action pending, and the button needs to keep saying so
+  // rather than quietly going calm the moment ANY one persona is active.
+  // This state also skips the dropdown entirely: clicking navigates
+  // straight to /collection, where the explainer modal + the actual
+  // "Activate Collection" button live - reported live as genuinely
+  // redundant to have a button that opens a menu with another button
+  // that goes to a page with yet another button, for one single action.
+  const handleTriggerClick = () => {
+    if (hasUnactivatedTokens) {
+      router.push("/collection");
+      return;
+    }
+    setMenuOpen((open) => {
+      const next = !open;
+      if (next) markSeen();
+      return next;
+    });
+  };
+
   return (
     <div className="hc-wallet-widget" ref={rootRef}>
       <button
-        onClick={() =>
-          setMenuOpen((open) => {
-            const next = !open;
-            if (next) markSeen();
-            return next;
-          })
-        }
+        onClick={handleTriggerClick}
         className={
-          isActive
-            ? "hc-wallet-avatar-btn"
+          hasUnactivatedTokens
+            ? "hc-wallet-pill hc-wallet-pill-urgent"
             : hasNoTokens
               ? "hc-wallet-pill hc-wallet-pill-neutral"
-              : "hc-wallet-pill hc-wallet-pill-urgent"
+              : isActive
+                ? "hc-wallet-avatar-btn"
+                : "hc-wallet-pill"
         }
         title={
           hasNew
             ? "New reply on one of your threads"
-            : isActive
-              ? `Anon #${persona.tokenId}`
+            : hasUnactivatedTokens
+              ? "You have HOODCHAN anons waiting to be activated"
               : hasNoTokens
                 ? "No HOODCHAN in this wallet - buy one on OpenSea"
-                : "No anon activated yet - click to activate"
+                : isActive
+                  ? `Anon #${persona.tokenId}`
+                  : "Select which anon to post as"
         }
-        aria-expanded={menuOpen}
+        aria-expanded={hasUnactivatedTokens ? undefined : menuOpen}
       >
-        {isActive ? (
+        {hasUnactivatedTokens ? (
+          "Activate NFTs"
+        ) : hasNoTokens ? (
+          // Not an action this site can resolve (buying happens on
+          // OpenSea) - a neutral status indicator, not an urgent CTA.
+          <GearIcon className="h-3.5 w-3.5" />
+        ) : isActive ? (
           activeMeta?.image ? (
             <PostImage
               rawImageUri={rawImageUriFrom(activeMeta)}
@@ -330,19 +378,12 @@ export function WalletHeaderWidget() {
               #{persona.tokenId}
             </span>
           )
-        ) : hasNoTokens ? (
-          // Not an action this site can resolve (buying happens on
-          // OpenSea) - a neutral status indicator, not an urgent CTA.
-          <GearIcon className="h-3.5 w-3.5" />
         ) : (
-          // Truncated address used to sit here - reported live as
-          // confusing: nothing about "0xE0A7...eB409" tells a connected-
-          // but-not-activated visitor they still have a step left. The
-          // trigger button itself now says so, not just the dropdown
-          // underneath it - and while ownedTokenCount is still loading,
-          // this optimistic default is shown rather than the gear (see
-          // that state's own comment for why).
-          "Activate"
+          // Owns only already-claimed anons but none is the current
+          // session's active persona (e.g. first visit on a new device) -
+          // open the normal dropdown, whose quick-switch list below
+          // covers picking one.
+          truncateAddress(address)
         )}
         {hasNew && <span className="hc-wallet-badge" aria-hidden="true" />}
       </button>
@@ -400,26 +441,18 @@ export function WalletHeaderWidget() {
             </div>
           )}
 
-          {!isActive && !hasNoTokens && (
-            // Connected, holds at least one HOODCHAN, hasn't activated
-            // any of them yet - reported live as a real dead end: no
-            // avatar to show, and "Browse all your anons ->" further down
-            // read as just another menu item, easy to miss. This is the
-            // actual next step for a real holder, so it gets its own
-            // real button, not a text link buried in the list. Also the
-            // optimistic default while ownedTokenCount is still loading
-            // (see that state's own comment).
+          {!isActive && !hasNoTokens && !hasUnactivatedTokens && (
+            // Owns only already-claimed anons, none is this session's
+            // active persona (e.g. first visit on a new device, or
+            // localStorage cleared) - nothing left to ACTIVATE, just to
+            // SELECT. The quick-switch list below (otherTokenIds, which
+            // is unfiltered here since there's no active persona to
+            // exclude) already covers picking one; this is just the
+            // heads-up for why the trigger button isn't an avatar.
             <div className="hc-wallet-panel-identity">
               <p className="hc-thread-meta text-xs text-center mb-2">
-                No anon activated yet
+                Pick which anon to post as
               </p>
-              <a
-                href="/collection"
-                className="hc-button-urgent text-sm w-full"
-                onClick={() => setMenuOpen(false)}
-              >
-                Activate Collection
-              </a>
             </div>
           )}
 
