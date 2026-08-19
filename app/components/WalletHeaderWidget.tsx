@@ -268,7 +268,7 @@ export function WalletHeaderWidget() {
             ? "New reply on one of your threads"
             : isActive
               ? `Anon #${persona.tokenId}`
-              : address
+              : "No anon activated yet - click to activate"
         }
         aria-expanded={menuOpen}
       >
@@ -286,7 +286,12 @@ export function WalletHeaderWidget() {
             </span>
           )
         ) : (
-          truncateAddress(address)
+          // Truncated address used to sit here - reported live as
+          // confusing: nothing about "0xE0A7...eB409" tells a connected-
+          // but-not-activated visitor they still have a step left. The
+          // trigger button itself now says so, not just the dropdown
+          // underneath it.
+          "Activate"
         )}
         {hasNew && <span className="hc-wallet-badge" aria-hidden="true" />}
       </button>
@@ -319,6 +324,27 @@ export function WalletHeaderWidget() {
                 onClick={() => setMenuOpen(false)}
               >
                 View full profile
+              </a>
+            </div>
+          )}
+
+          {!isActive && (
+            // Connected but hasn't claimed/activated any anon yet -
+            // reported live as a real dead end: no avatar to show, and
+            // "Browse all your anons ->" further down read as just another
+            // menu item, easy to miss. This is the actual next step for a
+            // brand-new holder, so it gets its own real button, not a
+            // text link buried in the list.
+            <div className="hc-wallet-panel-identity">
+              <p className="hc-thread-meta text-xs text-center mb-2">
+                No anon activated yet
+              </p>
+              <a
+                href="/collection"
+                className="hc-button text-sm w-full text-center"
+                onClick={() => setMenuOpen(false)}
+              >
+                Activate an anon
               </a>
             </div>
           )}

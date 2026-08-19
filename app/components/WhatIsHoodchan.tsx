@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 import { connectWallet, onAccountsChanged } from "@/lib/wallet";
 
 // Site-wide one-time disclaimer, NOT page content - mounted once in
@@ -63,6 +64,7 @@ function useDismissed() {
 }
 
 export function WhatIsHoodchan() {
+  const router = useRouter();
   const { dismissed, dismiss } = useDismissed();
   const [connecting, setConnecting] = useState(false);
 
@@ -88,6 +90,16 @@ export function WhatIsHoodchan() {
       // the connection lands, but calling it here too closes the modal
       // immediately on success instead of waiting a tick for that event.
       dismiss();
+      // Reported live: brand-new visitors connecting from this modal had
+      // no obvious next step and got lost - the token grid used to live
+      // right on the home page, but moved to its own /collection page
+      // (see app/collection/page.tsx). Only redirects when connecting
+      // FROM this specific button, not from the site-wide
+      // onAccountsChanged listener above (which also fires for session
+      // restores and connects made from other pages, e.g. someone
+      // connecting on /board just to reply - that should never yank them
+      // away to a different page).
+      router.push("/collection");
     } catch {
       // AppKit's own modal already surfaces why (rejected, no provider) -
       // nothing else to show here, just let them try Connect again.
