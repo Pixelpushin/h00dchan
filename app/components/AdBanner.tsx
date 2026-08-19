@@ -25,17 +25,34 @@ interface Entry {
   alt: string;
 }
 
+// Confirmed live as a real problem: 1 paid ad mixed evenly into 12 house
+// banners meant a 1-in-13 chance of ever actually showing per rotation -
+// someone who just paid for a slot had roughly the same odds of seeing
+// their own ad as any random visitor. Paid ads now collectively get equal
+// weight to the whole house pool (50/50), split evenly across however many
+// paid ads are active - achieved by duplicating each paid ad's entry
+// enough times in the flat array to hit that share, so the existing
+// random-index-into-flat-array rotation logic below needs no other
+// changes.
 function buildEntries(paidAds: PaidAd[]): Entry[] {
   const house: Entry[] = Array.from({ length: HOUSE_BANNER_COUNT }, (_, i) => ({
     src: `/banners/banner-${i + 1}.jpg`,
     href: OPENSEA_COLLECTION_URL,
     alt: "HOODCHAN on OpenSea",
   }));
-  const paid: Entry[] = paidAds.map((ad) => ({
-    src: ad.imageUrl,
-    href: ad.openseaUrl,
-    alt: ad.name,
-  }));
+  if (paidAds.length === 0) return house;
+
+  const slotsPerPaidAd = Math.max(
+    1,
+    Math.round(HOUSE_BANNER_COUNT / paidAds.length),
+  );
+  const paid: Entry[] = paidAds.flatMap((ad) =>
+    Array.from({ length: slotsPerPaidAd }, () => ({
+      src: ad.imageUrl,
+      href: ad.openseaUrl,
+      alt: ad.name,
+    })),
+  );
   return [...house, ...paid];
 }
 
