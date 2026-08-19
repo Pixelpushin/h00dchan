@@ -8,6 +8,10 @@
     {
       "path": "/api/alpha/generate",
       "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/bio-recheck",
+      "schedule": "0 15 1,15 * *"
     }
   ]
 }

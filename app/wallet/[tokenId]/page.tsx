@@ -17,6 +17,7 @@ import { BLOCK_EXPLORER_URL, CONTRACT, rpcCall } from "@/lib/chain";
 import { WalletHoldingsView } from "@/app/components/WalletHoldingsView";
 import { WalletActionsPanel } from "@/app/components/WalletActionsPanel";
 import { computeLevelProgress } from "@/lib/leveling";
+import { getBioVerification } from "@/lib/bioVerifyStore";
 import {
   getCollectionSnapshot,
   weeksHeld,
@@ -25,6 +26,7 @@ import {
   nestedHoldingCount,
 } from "@/lib/collectionSnapshot";
 import { CopyButton } from "@/app/components/CopyButton";
+import { BioVerifyPanel } from "@/app/components/BioVerifyPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -145,6 +147,8 @@ export default async function WalletPage({
     }
   }
 
+  const bioVerification = await getBioVerification(tokenId).catch(() => null);
+
   const levelProgress = computeLevelProgress({
     claimed,
     walletActivated: activated,
@@ -155,6 +159,7 @@ export default async function WalletPage({
     extraCollectionTokens: extraTokens,
     isTopHolder: topHolder,
     nestedHoldingCount: nestedCount,
+    bioVerified: bioVerification?.status === "verified",
   });
 
   let holdings: WalletHoldings | null = null;
@@ -292,6 +297,12 @@ export default async function WalletPage({
                   </li>
                 </ul>
               </details>
+              <div className="mt-2">
+                <BioVerifyPanel
+                  tokenId={tokenId}
+                  initiallyVerified={bioVerification?.status === "verified"}
+                />
+              </div>
             </div>
 
             {tbaAddress ? (

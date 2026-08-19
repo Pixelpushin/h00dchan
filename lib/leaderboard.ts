@@ -25,6 +25,7 @@ import {
   isTopHolder,
   nestedHoldingCount,
 } from "@/lib/collectionSnapshot";
+import { getBioVerification } from "@/lib/bioVerifyStore";
 
 export interface LeaderboardEntry {
   tokenId: string;
@@ -83,6 +84,7 @@ export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
             humanTotalPosts,
             humanThreadsStarted,
             txCountHex,
+            bioVerification,
           ] = await Promise.all([
             isTokenClaimed(tokenId).catch(() => false),
             isTbaActivated(tbaAddress).catch(() => false),
@@ -92,6 +94,7 @@ export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
               tbaAddress,
               "latest",
             ]).catch(() => "0x0"),
+            getBioVerification(tokenId).catch(() => null),
           ]);
           // Everything below comes free from the one shared, cached
           // collection scan above - no per-candidate RPC calls needed for
@@ -111,6 +114,7 @@ export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
             nestedHoldingCount: snapshot
               ? nestedHoldingCount(snapshot, tbaAddress)
               : 0,
+            bioVerified: bioVerification?.status === "verified",
           });
           return {
             tokenId,

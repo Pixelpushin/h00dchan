@@ -8,6 +8,7 @@ import {
 import { isValidTokenId } from "@/lib/persona";
 import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
 import { computeLevelProgress } from "@/lib/leveling";
+import { getBioVerification } from "@/lib/bioVerifyStore";
 import {
   getCollectionSnapshot,
   weeksHeld,
@@ -70,12 +71,14 @@ export async function GET(
     // response - metadata is the part most integrations actually need.
   }
 
-  const [claimed, humanPosts, humanThreads, snapshot] = await Promise.all([
-    isTokenClaimed(tokenId).catch(() => false),
-    countHumanPostsByToken(tokenId).catch(() => 0),
-    countHumanThreadsByToken(tokenId).catch(() => 0),
-    getCollectionSnapshot().catch(() => null),
-  ]);
+  const [claimed, humanPosts, humanThreads, snapshot, bioVerification] =
+    await Promise.all([
+      isTokenClaimed(tokenId).catch(() => false),
+      countHumanPostsByToken(tokenId).catch(() => 0),
+      countHumanThreadsByToken(tokenId).catch(() => 0),
+      getCollectionSnapshot().catch(() => null),
+      getBioVerification(tokenId).catch(() => null),
+    ]);
 
   const level = computeLevelProgress({
     claimed,
@@ -90,6 +93,7 @@ export async function GET(
     isTopHolder: snapshot ? isTopHolder(snapshot, tokenId) : false,
     nestedHoldingCount:
       snapshot && tbaAddress ? nestedHoldingCount(snapshot, tbaAddress) : 0,
+    bioVerified: bioVerification?.status === "verified",
   });
 
   return jsonWithCors({

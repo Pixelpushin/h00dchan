@@ -39,6 +39,13 @@ export interface QuestInput {
   // token-bound wallet (lib/collectionSnapshot.ts's nestedHoldingCount) -
   // the "hold hoodchans in a hoodchan" recursive mechanic.
   nestedHoldingCount: number;
+  // True once this token's owner has proven they control a real X account
+  // whose bio names hoodchan.org (lib/bioVerifyStore.ts's status ===
+  // "verified") - unlike the holding-based metrics above, this isn't
+  // wealth-gated (any holder can do it regardless of how much they own),
+  // so it's weighted higher than the other one-time milestones on purpose:
+  // it's a real, unbought traffic/marketing signal, not a flex.
+  bioVerified: boolean;
 }
 
 export interface QuestStatus {
@@ -85,6 +92,12 @@ const MILESTONE_QUESTS: MilestoneQuest[] = [
     label: "Send your first transaction from this anon's wallet",
     xp: 75,
     isDone: (i) => i.hasSentTransaction,
+  },
+  {
+    id: "bio-verified",
+    label: "Verify a real X account with hoodchan.org in the bio",
+    xp: 200,
+    isDone: (i) => i.bioVerified,
   },
 ];
 

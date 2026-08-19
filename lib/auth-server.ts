@@ -22,6 +22,7 @@ import { OWNERSHIP_CHECK_CONCURRENCY, readOwnerOf } from "@/lib/chain";
 import {
   buildAuthMessage,
   buildBatchAuthMessage,
+  buildBioVerifyAuthMessage,
   isValidTokenId,
   MAX_BATCH_CLAIM_SIZE,
   PERSONA_MAX_AGE_MS,
@@ -323,4 +324,82 @@ export async function verifyBatchPersonaClaim(claim: {
   }
 
   return { ok: true, perToken };
+}
+
+// Same four checks as verifyPersonaClaim (recover signer, reconstruct the
+// message server-side, reject stale signatures, confirm live on-chain
+// ownership), against buildBioVerifyAuthMessage's distinct message instead
+// - see app/api/bio-verify/start/route.ts, the one place this gates.
+export async function verifyBioVerifyAuth(input: {
+  tokenId?: string;
+  address?: string;
+  signature?: string;
+  issuedAt?: string;
+}): Promise<ClaimVerificationResult> {
+  const { tokenId, address, signature, issuedAt } = input;
+
+  if (!tokenId || !address || !signature || !issuedAt) {
+    return { ok: false, code: "INVALID_INPUT", reason: "Missing fields." };
+  }
+  if (!isValidTokenId(tokenId)) {
+    return { ok: false, code: "INVALID_INPUT", reason: "Invalid token ID." };
+  }
+  if (!ADDRESS_PATTERN.test(address)) {
+    return { ok: false, code: "INVALID_INPUT", reason: "Invalid address." };
+  }
+
+  const issuedAtMs = Date.parse(issuedAt);
+  if (!Number.isFinite(issuedAtMs) || issuedAtMs > Date.now() + 60_000) {
+    return {
+      ok: false,
+      code: "INVALID_TIMESTAMP",
+      reason: "Invalid issuedAt timestamp.",
+    };
+  }
+  if (Date.now() - issuedAtMs > PERSONA_MAX_AGE_MS) {
+    return {
+      ok: false,
+      code: "EXPIRED",
+      reason: "Signature expired, please reconnect and sign again.",
+    };
+  }
+
+  const expectedMessage = buildBioVerifyAuthMessage(tokenId, address, issuedAt);
+  let recovered: string;
+  try {
+    recovered = verifyMessage(expectedMessage, signature);
+  } catch {
+    return {
+      ok: false,
+      code: "INVALID_SIGNATURE",
+      reason: "Invalid signature.",
+    };
+  }
+  if (recovered.toLowerCase() !== address.toLowerCase()) {
+    return {
+      ok: false,
+      code: "INVALID_SIGNATURE",
+      reason: "Invalid signature.",
+    };
+  }
+
+  let owner: string;
+  try {
+    owner = await readOwnerOf(tokenId);
+  } catch {
+    return {
+      ok: false,
+      code: "CHAIN_UNAVAILABLE",
+      reason: "Unable to verify token ownership on-chain right now.",
+    };
+  }
+  if (owner.toLowerCase() !== address.toLowerCase()) {
+    return {
+      ok: false,
+      code: "NOT_OWNER",
+      reason: "You no longer hold this token.",
+    };
+  }
+
+  return { ok: true };
 }

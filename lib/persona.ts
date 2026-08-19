@@ -40,6 +40,18 @@ export function buildAuthMessage(
   return `h00dchan posting authorization\ntoken: HOODCHAN #${tokenId}\naddress: ${address}\nissued: ${issuedAt}`;
 }
 
+// Deliberately a DISTINCT message from buildAuthMessage, not reused as-is -
+// a signature is only ever proof for the exact action it names. Reusing
+// the posting-authorization message for bio verification too would mean a
+// signature captured for one purpose could be replayed for the other.
+export function buildBioVerifyAuthMessage(
+  tokenId: string,
+  address: string,
+  issuedAt: string,
+): string {
+  return `h00dchan bio verification\ntoken: HOODCHAN #${tokenId}\naddress: ${address}\nissued: ${issuedAt}`;
+}
+
 // One signature authorizing a whole batch of tokens at once ("Activate
 // All" - see app/components/HomeClient.tsx) instead of one wallet prompt
 // per token. Claiming was never an on-chain transaction to begin with (no

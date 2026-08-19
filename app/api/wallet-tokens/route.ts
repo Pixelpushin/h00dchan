@@ -24,6 +24,7 @@ import {
   isTokenClaimed,
 } from "@/lib/store";
 import { computeLevelProgress } from "@/lib/leveling";
+import { getBioVerification } from "@/lib/bioVerifyStore";
 import {
   getCollectionSnapshot,
   weeksHeld,
@@ -82,13 +83,19 @@ export async function GET(request: NextRequest) {
           for (let attempt = 0; attempt < 3; attempt++) {
             try {
               const tbaAddress = await computeTbaAddress(tokenId);
-              const [activated, claimed, humanTotalPosts, humanThreadsStarted] =
-                await Promise.all([
-                  isTbaActivated(tbaAddress),
-                  isTokenClaimed(tokenId).catch(() => false),
-                  countHumanPostsByToken(tokenId).catch(() => 0),
-                  countHumanThreadsByToken(tokenId).catch(() => 0),
-                ]);
+              const [
+                activated,
+                claimed,
+                humanTotalPosts,
+                humanThreadsStarted,
+                bioVerification,
+              ] = await Promise.all([
+                isTbaActivated(tbaAddress),
+                isTokenClaimed(tokenId).catch(() => false),
+                countHumanPostsByToken(tokenId).catch(() => 0),
+                countHumanThreadsByToken(tokenId).catch(() => 0),
+                getBioVerification(tokenId).catch(() => null),
+              ]);
               // hasSentTransaction is deliberately left false here rather
               // than paying one more eth_getTransactionCount call per
               // token - this route already fires 2+ RPC calls per token
@@ -113,6 +120,7 @@ export async function GET(request: NextRequest) {
                 nestedHoldingCount: snapshot
                   ? nestedHoldingCount(snapshot, tbaAddress)
                   : 0,
+                bioVerified: bioVerification?.status === "verified",
               }).level;
               return [
                 tokenId,
