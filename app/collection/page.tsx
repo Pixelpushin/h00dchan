@@ -8,7 +8,7 @@
 // the header (WalletHeaderWidget's "Browse all your anons ->") instead of
 // taking over the middle of the screen. This page is that destination -
 // same claim/activate logic as before, just moved off "/" entirely.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { WalletIcon, ChatIcon } from "@/app/components/Icons";
@@ -59,12 +59,21 @@ async function fetchTokenMetadataViaApi(
   }
 }
 
+// token.image (resolved once and cached server-side, see lib/store.ts's
+// getOrFetchTokenMetadata) tries FIRST - same fix as app/components/
+// PostImage.tsx, same root cause: starting from a live IPFS gateway race
+// on every load instead of the already-resolved (often Blob-backed, fast)
+// URL was the actual cause of images loading in slowly one at a time on
+// pages with many of these at once.
 function TokenImage({ token }: { token: TokenMetadata }) {
   const rawImageUri =
     typeof token.raw.image === "string" ? token.raw.image : "";
-  const candidates = rawImageUri ? ipfsGatewayUrls(rawImageUri) : [];
+  const sources = useMemo(() => {
+    const gatewayCandidates = rawImageUri ? ipfsGatewayUrls(rawImageUri) : [];
+    return [token.image, ...gatewayCandidates].filter(Boolean);
+  }, [token.image, rawImageUri]);
   const [attempt, setAttempt] = useState(0);
-  const src = candidates[attempt] ?? token.image;
+  const src = sources[attempt];
 
   if (!src) {
     return (
@@ -83,7 +92,7 @@ function TokenImage({ token }: { token: TokenMetadata }) {
       className="w-full aspect-square object-cover"
       onError={() => {
         setAttempt((current) =>
-          current + 1 < candidates.length ? current + 1 : current,
+          current + 1 < sources.length ? current + 1 : current,
         );
       }}
     />

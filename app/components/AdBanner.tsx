@@ -142,7 +142,13 @@ function useMounted() {
   );
 }
 
-export function AdBanner({ paidAds = [] }: { paidAds?: PaidAd[] }) {
+export function AdBanner({
+  paidAds = [],
+  rarestTokens = [],
+}: {
+  paidAds?: PaidAd[];
+  rarestTokens?: Array<{ tokenId: string; imageUrl: string }>;
+}) {
   const mounted = useMounted();
   const entries = buildEntries(paidAds);
   const [index, setIndex] = useState(() =>
@@ -188,32 +194,66 @@ export function AdBanner({ paidAds = [] }: { paidAds?: PaidAd[] }) {
         background: "#000",
       }}
     >
-      <StillFrameImage
-        key={entry.src}
-        src={entry.src}
-        alt={entry.alt}
-        className="block h-full w-full object-contain"
-      />
-      {entry.label && (
-        // Pinned to the bottom-left corner rather than centered in the
-        // black bars - works whether the letterboxing lands on the sides,
-        // top/bottom, or isn't there at all (a banner that already fills
-        // the box exactly), since a corner is always either black or, at
-        // worst, over a low-detail edge of the art rather than its center.
-        <div
-          className="absolute left-2 bottom-2 flex items-center gap-1.5 rounded px-1.5 py-1"
-          style={{ background: "rgba(0,0,0,0.72)" }}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={entry.label.avatarUrl}
-            alt=""
-            className="h-5 w-5 rounded-sm object-cover shrink-0"
-          />
-          <span className="text-xs text-white truncate max-w-[10rem]">
-            {entry.label.name}
-          </span>
+      {entry.label ? (
+        // Paid ads: flanked by the collection's two rarest anons (rank 1
+        // and 2 on the rarity index) instead of plain black pillars - a
+        // real advertiser banner's own aspect ratio rarely matches this
+        // ultra-wide 1168:198 slot, so object-contain was leaving that
+        // space empty. Purely decorative (not linked - the whole banner is
+        // already one <a>, and a nested <a> inside it would be invalid
+        // HTML), same treatment on every paid ad regardless of whether
+        // this specific one happens to fill the frame or not, for a
+        // consistent look slot to slot.
+        <div className="flex h-full w-full">
+          {rarestTokens[0] && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={rarestTokens[0].imageUrl}
+              alt=""
+              className="h-full w-[16%] shrink-0 object-cover"
+            />
+          )}
+          <div className="relative h-full flex-1 min-w-0">
+            <StillFrameImage
+              key={entry.src}
+              src={entry.src}
+              alt={entry.alt}
+              className="block h-full w-full object-contain"
+            />
+            {/* Pinned to the bottom-left corner of the ad's own image
+                area (not the whole banner) - works whether this specific
+                ad letterboxes within its slice or fills it exactly. */}
+            <div
+              className="absolute left-2 bottom-2 flex items-center gap-2 rounded px-2 py-1.5"
+              style={{ background: "rgba(0,0,0,0.72)" }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={entry.label.avatarUrl}
+                alt=""
+                className="h-9 w-9 rounded-sm object-cover shrink-0"
+              />
+              <span className="text-base font-semibold text-white truncate max-w-[14rem]">
+                {entry.label.name}
+              </span>
+            </div>
+          </div>
+          {rarestTokens[1] && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={rarestTokens[1].imageUrl}
+              alt=""
+              className="h-full w-[16%] shrink-0 object-cover"
+            />
+          )}
         </div>
+      ) : (
+        <StillFrameImage
+          key={entry.src}
+          src={entry.src}
+          alt={entry.alt}
+          className="block h-full w-full object-contain"
+        />
       )}
     </a>
   );

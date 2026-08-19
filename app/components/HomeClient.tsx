@@ -21,9 +21,11 @@ import { OnlyChansPreview } from "@/app/components/OnlyChansPreview";
 export default function HomeClient({
   popularThreads,
   paidAds,
+  rarestTokens,
 }: {
   popularThreads: ReactNode;
   paidAds: PaidAd[];
+  rarestTokens: Array<{ tokenId: string; imageUrl: string }>;
 }) {
   return (
     <div className="flex flex-col flex-1 items-center">
@@ -31,7 +33,7 @@ export default function HomeClient({
         <div className="flex w-full justify-end mb-2">
           <RentAdSpaceButton />
         </div>
-        <AdBanner paidAds={paidAds} />
+        <AdBanner paidAds={paidAds} rarestTokens={rarestTokens} />
         <div className="w-full">{popularThreads}</div>
         <OnlyChansPreview />
       </main>

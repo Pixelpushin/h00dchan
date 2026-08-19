@@ -1,12 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ipfsGatewayUrls } from "@/lib/chain";
 
-// Same gateway-retry approach as the token grid's TokenImage (app/page.tsx)
-// - individual IPFS gateways are observably flaky even when the underlying
-// content is available, so cycling through the ordered list on load
-// failure beats giving up after the first one.
+// fallbackSrc (metadata.image, resolved once and cached server-side by
+// getOrFetchTokenMetadata - see lib/store.ts) tries FIRST now, not last.
+// This used to always start from a live IPFS gateway race and only fall
+// back to fallbackSrc after exhausting every candidate - meaning even a
+// token whose image had already been permanently backfilled to Vercel
+// Blob (fast CDN, see app/api/admin/backfill-images/route.ts) still paid
+// a fresh IPFS-gateway round-trip on every single page load, and with
+// many of these on one page (a board thread list, a leaderboard),
+// resolving independently and slowly, this is exactly what read live as
+// "images load one at a time, painfully slow." fallbackSrc is at minimum
+// as good as the first raw gateway candidate and often much faster (a
+// permanent Blob URL vs. a possibly-flaky live gateway); the raw IPFS
+// candidates remain as a resilience fallback if fallbackSrc itself 404s.
 export function PostImage({
   rawImageUri,
   fallbackSrc,
@@ -18,9 +27,12 @@ export function PostImage({
   alt: string;
   className?: string;
 }) {
-  const candidates = rawImageUri ? ipfsGatewayUrls(rawImageUri) : [];
+  const sources = useMemo(() => {
+    const gatewayCandidates = rawImageUri ? ipfsGatewayUrls(rawImageUri) : [];
+    return [fallbackSrc, ...gatewayCandidates].filter(Boolean);
+  }, [fallbackSrc, rawImageUri]);
   const [attempt, setAttempt] = useState(0);
-  const src = candidates[attempt] ?? fallbackSrc;
+  const src = sources[attempt];
 
   if (!src) {
     return (
@@ -36,7 +48,7 @@ export function PostImage({
       className={className}
       onError={() => {
         setAttempt((current) =>
-          current + 1 < candidates.length ? current + 1 : current,
+          current + 1 < sources.length ? current + 1 : current,
         );
       }}
     />
