@@ -19,7 +19,7 @@ export function SiteHeader() {
             the anonymous message board for HOODCHAN holders
           </p>
         </div>
-        <nav className="hc-nav flex items-center gap-4 pb-1">
+        <nav className="hc-nav flex flex-wrap items-center gap-2 sm:gap-4 pb-1">
           <Link href="/board">board</Link>
           <Link href="/alpha">alpha</Link>
           <Link href="/leaderboard">leaderboard</Link>

@@ -184,7 +184,7 @@ export function BioVerifyPanel({
           value={xHandle}
           onChange={(e) => setXHandle(e.target.value)}
           placeholder="your X username, e.g. hoodchan"
-          className="hc-form-input text-sm"
+          className="hc-form-input text-sm flex-1 min-w-0"
         />
         <button
           onClick={handleStart}
