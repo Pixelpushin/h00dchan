@@ -12,10 +12,27 @@
 // reasons documented on lib/leaderboard.ts.
 import { fetchAddressBalances, fetchAddressLabels } from "@/lib/nansen";
 import {
+  getCachedLabels,
   saveAlphaBotEntry,
+  saveCachedLabels,
   type AlphaBotEntry,
   type AlphaDesk,
 } from "@/lib/alphaBotStore";
+
+// Confirmed live via Nansen's own response headers: address-labels costs
+// 100 credits/call vs. 1 credit for balances - see lib/alphaBotStore.ts's
+// getCachedLabels/saveCachedLabels for the 30-day cache this backs. Labels
+// are fetched through this wrapper, never fetchAddressLabels directly, so
+// there's exactly one place this cost-saving path can be bypassed by
+// accident.
+async function fetchLabelsCached(address: string): Promise<string[]> {
+  const cached = await getCachedLabels(address);
+  if (cached) return cached;
+  const fresh = await fetchAddressLabels(address).catch(() => []);
+  const labels = fresh.map((l) => l.label);
+  await saveCachedLabels(address, labels);
+  return labels;
+}
 
 const VENICE_API_URL = "https://api.venice.ai/api/v1/chat/completions";
 const VENICE_MODEL = "venice-uncensored-1-2";
@@ -123,7 +140,7 @@ Return valid JSON only, matching this shape:
   ]
 }
 
-1-3 short bullets per desk, each under 30 words, casual trading-desk tone (contractions fine, a little dry humor fine) but grounded ONLY in the real data above - do not invent anything. Describe holdings and values QUALITATIVELY (e.g. "a meaningful ETH position," "mostly small change," "a handful of NFTs") rather than restating exact token amounts or dollar figures line-by-line - this is meant to read as analysis, not a reprint of the raw data. The LAST bullet of the Skeptic desk must always end with "DYOR." as its own short closing line, since none of this is financial advice even though it's real data.
+1-3 short bullets per desk, each under 30 words, casual trading-desk tone (contractions fine, a little dry humor fine) but grounded ONLY in the real data above - do not invent anything. Round numbers when you use them (e.g. "~$1,200," "a few thousand dollars," "roughly a dozen NFTs") rather than restating exact decimal amounts or dollar-and-cents figures line-by-line - this should read as analysis and commentary, not a reprint of the raw data rows. The LAST bullet of the Skeptic desk must always end with "DYOR." as its own short closing line, since none of this is financial advice even though it's real data.
 `.trim();
 }
 
@@ -134,16 +151,15 @@ export async function generateAlphaBotResearch(
   const veniceApiKey = process.env.VENICE_API_KEY;
   if (!veniceApiKey) throw new Error("VENICE_API_KEY is not configured.");
 
-  const [balances, labelResults] = await Promise.all([
+  const [balances, labels] = await Promise.all([
     fetchAddressBalances(address).catch(() => []),
-    fetchAddressLabels(address).catch(() => []),
+    fetchLabelsCached(address),
   ]);
 
   const totalValueUsd = balances.reduce((sum, b) => sum + b.valueUsd, 0);
   const topHoldings = [...balances]
     .sort((a, b) => b.valueUsd - a.valueUsd)
     .slice(0, MAX_HOLDINGS_IN_PROMPT);
-  const labels = labelResults.map((l) => l.label);
 
   const dataBlock = formatDataBlock(
     tokenId,

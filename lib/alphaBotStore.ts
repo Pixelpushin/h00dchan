@@ -85,3 +85,47 @@ export async function consumeDailyAlphaBotBudget(
   }
   return count <= maxPerDay;
 }
+
+const LABELS_CACHE_PREFIX = "alphabot:labels:";
+const LABELS_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+interface CachedLabels {
+  labels: string[];
+  fetchedAt: string;
+}
+
+// Confirmed live via response headers: Nansen's address-labels endpoint
+// costs 100 credits/call, a hundred times the 1 credit the balances
+// endpoint costs - re-fetching it on the same 24h cadence as balances
+// would burn a whole month's starter credit allotment (2,000) in about 4
+// days at the site-wide daily event cap. An address's entity/behavioral
+// labels also don't change nearly as often as its balances do, so a much
+// longer cache is both cheaper AND still accurate - this is the dominant
+// lever on whether Alpha Bot is financially viable to keep running, not a
+// premature optimization.
+export async function getCachedLabels(
+  address: string,
+): Promise<string[] | null> {
+  const raw = await redisCommand(
+    "GET",
+    `${LABELS_CACHE_PREFIX}${address.toLowerCase()}`,
+  );
+  if (typeof raw !== "string") return null;
+  const cached = JSON.parse(raw) as CachedLabels;
+  if (Date.now() - Date.parse(cached.fetchedAt) > LABELS_CACHE_TTL_MS) {
+    return null;
+  }
+  return cached.labels;
+}
+
+export async function saveCachedLabels(
+  address: string,
+  labels: string[],
+): Promise<void> {
+  const cached: CachedLabels = { labels, fetchedAt: new Date().toISOString() };
+  await redisCommand(
+    "SET",
+    `${LABELS_CACHE_PREFIX}${address.toLowerCase()}`,
+    JSON.stringify(cached),
+  );
+}
