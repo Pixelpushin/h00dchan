@@ -15,9 +15,9 @@ import {
   countHumanPostsByToken,
   countHumanThreadsByToken,
 } from "@/lib/store";
-import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
+import * as tbaKit from "@pixelpushin/tba-kit";
+import { CONTRACT, CHAIN_ID_HEX } from "@/lib/chain";
 import { computeLevelProgress, type LevelProgress } from "@/lib/leveling";
-import { rpcCall } from "@/lib/chain";
 import {
   getCollectionSnapshot,
   weeksHeld,
@@ -26,6 +26,59 @@ import {
   nestedHoldingCount,
 } from "@/lib/collectionSnapshot";
 import { getBioVerification } from "@/lib/bioVerifyStore";
+
+// This file is server-only (never imported by a "use client" component,
+// unlike lib/tba.ts which is), so it's safe to talk to Alchemy directly
+// with the server-only ALCHEMY_API_KEY instead of going through
+// lib/tba.ts's computeTbaAddress/isTbaActivated - those default to
+// Robinhood Chain's public RPC (tba-kit's own ROBINHOOD_RPC_URL), which is
+// documented elsewhere in this codebase as flaky under load and confirmed
+// live here too: the leaderboard's total candidate count varied run to
+// run (77, then 66) and one specific real claimed token (#165) dropped
+// out of the results entirely on every single run - each candidate's
+// computeTbaAddress/isTbaActivated call had no retry and no fallback off
+// the public RPC, unlike every other per-token RPC path in this codebase
+// that already got this fix today.
+const ALCHEMY_RPC_URL = process.env.ALCHEMY_API_KEY
+  ? `https://robinhood-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`
+  : undefined;
+
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt === 2) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+    }
+  }
+  throw new Error("unreachable");
+}
+
+async function computeTbaAddress(tokenId: string): Promise<string> {
+  return withRetry(() =>
+    tbaKit.computeTbaAddress({
+      tokenContract: CONTRACT,
+      tokenId,
+      chainIdHex: CHAIN_ID_HEX,
+      rpcUrl: ALCHEMY_RPC_URL,
+    }),
+  );
+}
+
+async function isTbaActivated(tbaAddress: string): Promise<boolean> {
+  return withRetry(() => tbaKit.isTbaActivated(tbaAddress, ALCHEMY_RPC_URL));
+}
+
+async function getTransactionCount(address: string): Promise<string> {
+  if (!ALCHEMY_RPC_URL) return "0x0";
+  return withRetry(() =>
+    tbaKit.rpcCall<string>(ALCHEMY_RPC_URL, "eth_getTransactionCount", [
+      address,
+      "latest",
+    ]),
+  );
+}
 
 export interface LeaderboardEntry {
   tokenId: string;
@@ -90,10 +143,7 @@ export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
             isTbaActivated(tbaAddress).catch(() => false),
             countHumanPostsByToken(tokenId).catch(() => 0),
             countHumanThreadsByToken(tokenId).catch(() => 0),
-            rpcCall<string>("eth_getTransactionCount", [
-              tbaAddress,
-              "latest",
-            ]).catch(() => "0x0"),
+            getTransactionCount(tbaAddress).catch(() => "0x0"),
             getBioVerification(tokenId).catch(() => null),
           ]);
           // Everything below comes free from the one shared, cached
