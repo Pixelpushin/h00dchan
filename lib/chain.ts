@@ -244,44 +244,35 @@ export async function rpcCall<T>(
 export const OWNERSHIP_CHECK_CONCURRENCY = 15;
 const MAX_CANDIDATES = 300;
 
-// Current chain head, in hex - used by callers doing incremental log scans
-// (see fetchWalletTokensOnChain's fromBlock option below) to record "scanned
-// up to here" after a scan completes.
-export async function readBlockNumber(): Promise<string> {
-  return rpcCall<string>("eth_blockNumber", []);
-}
-
+// Only ever called now as a fallback for when lib/collectionSnapshot.ts's
+// cached whole-collection snapshot is unavailable (every real caller -
+// app/api/wallet-tokens, app/api/notifications, app/api/v1/wallet -
+// prefers the free O(1) snapshot lookup and only reaches this live,
+// unbounded eth_getLogs walk if that snapshot itself failed to load). An
+// earlier version accepted fromBlock/knownTokenIds options for incremental
+// scanning; nothing ever actually called it with those, so they were
+// removed rather than left as unused dead weight - the snapshot is the
+// real fix for repeated-scan cost now, not incremental scanning of this
+// function specifically.
+//
+// DEFERRED block-range chunking: same risk and same reasoning as
+// fetchBurnedTokenIds() above - scans from 0x0 in one call, and this file
+// has no deploy-block constant to bound a chunked scan against yet. See
+// that function's comment for the fix approach.
 export async function fetchWalletTokensOnChain(
   address: string,
-  options?: { fromBlock?: string; knownTokenIds?: string[] },
 ): Promise<string[]> {
-  // fromBlock lets a caller that already scanned this address before only
-  // ask for Transfers since that point, instead of re-walking the whole
-  // contract history on every single page load - the actual bottleneck
-  // this exists to avoid. knownTokenIds carries forward whatever that prior
-  // scan found; every ID (old and newly-discovered) still gets a fresh
-  // ownerOf() check below, so a token sold away since the last scan is
-  // correctly dropped, not just accumulated forever.
-  //
-  // DEFERRED block-range chunking: same risk and same reasoning as
-  // fetchBurnedTokenIds() above - a first-time caller (no fromBlock, no
-  // knownTokenIds) still scans from 0x0 in one call, and this file has no
-  // deploy-block constant to bound a chunked scan against yet. See that
-  // function's comment for the fix approach.
   const logs = await rpcCall<RpcLog[]>("eth_getLogs", [
     {
       address: CONTRACT,
-      fromBlock: options?.fromBlock ?? "0x0",
+      fromBlock: "0x0",
       toBlock: "latest",
       topics: [TRANSFER_EVENT_TOPIC, null, addressToTopic(address)],
     },
   ]);
 
   const candidateIds = [
-    ...new Set([
-      ...(options?.knownTokenIds ?? []),
-      ...logs.map((log) => decodeUint256(log.topics[3])),
-    ]),
+    ...new Set(logs.map((log) => decodeUint256(log.topics[3]))),
   ].slice(0, MAX_CANDIDATES);
 
   // One retry per candidate before giving up on it - same reasoning as

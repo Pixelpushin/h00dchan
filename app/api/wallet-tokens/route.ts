@@ -1,24 +1,28 @@
 // Server-side consolidation of "which HOODCHAN tokens does this address
-// own, and what's each one's token-bound wallet status" - this used to be
-// three functions (fetchWalletTokensOnChain, computeTbaAddress,
-// isTbaActivated) called directly from the browser against Robinhood
-// Chain's own RPC. That worked at low request volume (verified live,
-// earlier this session), but a holder with a lot of tokens generates
-// dozens-to-hundreds of concurrent eth_call requests straight from the
-// browser, and at that volume Robinhood's RPC was confirmed live (via a
-// real user's browser console) to sometimes return a malformed
-// Access-Control-Allow-Origin header ("*,*" instead of "*"), which every
-// browser correctly refuses to accept - silently dropping whichever
-// requests hit it (fetchWalletTokensOnChain's per-candidate ownership
-// checks catch-and-drop failures, so this looked like "some of my tokens
-// just don't show up" rather than a visible error). Moving this
-// server-to-server sidesteps the browser CORS enforcement entirely - it
-// was never a real cross-origin *security* boundary here, just an
-// incidental one this RPC's own infra can't reliably satisfy under load.
+// own, and what's each one's token-bound wallet status." Originally did
+// this by calling three functions (fetchWalletTokensOnChain,
+// computeTbaAddress, isTbaActivated) directly from the browser, then moved
+// server-to-server to dodge Robinhood Chain's RPC returning a malformed
+// CORS header under load; ownership itself was still a live, unbounded
+// eth_getLogs walk on every single request even after that move, which
+// was slow, and was the entire reason this route needed a strict per-IP
+// rate limit in the first place.
+//
+// Ownership now comes from lib/collectionSnapshot.ts's already-cached,
+// whole-collection snapshot instead (see below) - it already has "current
+// owner per token" for free, computed once and shared by every caller
+// (leaderboard, XP, this route), so there was never a reason to make this
+// route recompute the same answer for one address via its own live scan.
+// What's LEFT genuinely needing a live RPC call, per owned token, is each
+// one's token-bound wallet address (computeTbaAddress - a real eth_call to
+// the registry, not pure local math, confirmed by reading @pixelpushin/
+// tba-kit's own source rather than assuming) and its activation status
+// (isTbaActivated) - that's the one remaining real cost here, chunked
+// below the same way it always was.
 import { NextRequest, NextResponse } from "next/server";
 import { ADDRESS_PATTERN } from "@/lib/address";
 import { checkExpensiveScanRateLimit } from "@/lib/rate-limit";
-import { fetchWalletTokensOnChain, readBlockNumber } from "@/lib/chain";
+import { fetchWalletTokensOnChain } from "@/lib/chain";
 import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
 import {
   countHumanPostsByToken,
@@ -64,18 +68,25 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid address." }, { status: 400 });
   }
 
-  const fromBlock = request.nextUrl.searchParams.get("fromBlock") ?? undefined;
-  const knownTokenIdsParam = request.nextUrl.searchParams.get("knownTokenIds");
-  const knownTokenIds = knownTokenIdsParam
-    ? knownTokenIdsParam.split(",").filter(Boolean)
-    : undefined;
-
   try {
-    const [tokenIds, lastScannedBlock, snapshot] = await Promise.all([
-      fetchWalletTokensOnChain(address, { fromBlock, knownTokenIds }),
-      readBlockNumber(),
-      getCollectionSnapshot().catch(() => null),
-    ]);
+    const snapshot = await getCollectionSnapshot().catch(() => null);
+    // The collection snapshot already has "current owner per token" for
+    // the WHOLE collection, built from one shared, 5-minute-cached scan -
+    // this used to redundantly re-derive the same answer for just this one
+    // address via its own live, unbounded eth_getLogs walk
+    // (fetchWalletTokensOnChain) on every single request, which was both
+    // the actual reason this route needed a strict rate limit AND the
+    // reason a large wallet's page load was slow enough to look broken.
+    // Same up-to-5-minutes staleness every other snapshot-backed metric in
+    // this app already accepts (weeksHeld, isTopHolder, nestedHoldingCount
+    // below) - a token that changed hands moments ago just isn't reflected
+    // here until the next background refresh, same tradeoff, not a new one.
+    // Falls back to the live scan only if the snapshot itself is
+    // unavailable (e.g. ALCHEMY_API_KEY missing), so this degrades instead
+    // of returning nothing.
+    const tokenIds = snapshot
+      ? (snapshot.tokensByOwner.get(address.toLowerCase()) ?? [])
+      : await fetchWalletTokensOnChain(address);
 
     // Chunked, not one unbounded Promise.all across every token - a
     // holder with a lot of tokens (2 RPC calls each: account() + getCode())
@@ -186,7 +197,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       tokenIds,
-      lastScannedBlock,
       wallets,
       levels,
       claimedTokenIds,

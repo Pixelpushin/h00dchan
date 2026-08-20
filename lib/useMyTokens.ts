@@ -17,9 +17,17 @@
 // external, cross-component state, not local to one component tree.
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
+export interface TbaInfo {
+  address: string;
+  activated: boolean;
+}
+
 interface MyTokens {
   ownedTokenIds: string[];
   claimedTokenIds: string[];
+  wallets: Record<string, TbaInfo>;
+  levels: Record<string, number>;
+  nestedCounts: Record<string, number>;
 }
 
 const listeners = new Set<() => void>();
@@ -70,6 +78,9 @@ async function doFetch(address: string): Promise<MyTokens> {
     claimedTokenIds: Array.isArray(body.claimedTokenIds)
       ? body.claimedTokenIds
       : [],
+    wallets: body.wallets ?? {},
+    levels: body.levels ?? {},
+    nestedCounts: body.nestedCounts ?? {},
   };
 }
 
@@ -117,6 +128,9 @@ export function markTokensClaimed(address: string, tokenIds: string[]): void {
   cache.set(address, {
     ownedTokenIds: current?.ownedTokenIds ?? [],
     claimedTokenIds: [...claimedSet],
+    wallets: current?.wallets ?? {},
+    levels: current?.levels ?? {},
+    nestedCounts: current?.nestedCounts ?? {},
   });
   notify();
 }
@@ -143,6 +157,9 @@ export function useMyTokens(address: string | null) {
     claimedTokenIds: raw?.claimedTokenIds ?? null,
     ownedTokenCount: raw?.ownedTokenIds?.length ?? null,
     myClaimedCount: raw?.claimedTokenIds?.length ?? null,
+    wallets: raw?.wallets ?? null,
+    levels: raw?.levels ?? null,
+    nestedCounts: raw?.nestedCounts ?? null,
     refresh,
   };
 }

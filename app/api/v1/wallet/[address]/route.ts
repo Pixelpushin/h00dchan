@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { ADDRESS_PATTERN } from "@/lib/address";
 import { fetchWalletTokensOnChain } from "@/lib/chain";
+import { getCollectionSnapshot } from "@/lib/collectionSnapshot";
 import { checkPublicApiRateLimit } from "@/lib/rate-limit";
 import {
   jsonWithCors,
@@ -31,7 +32,17 @@ export async function GET(
   }
 
   try {
-    const tokenIds = await fetchWalletTokensOnChain(address);
+    // Same fix as /api/wallet-tokens: ownership comes from
+    // lib/collectionSnapshot.ts's already-cached whole-collection snapshot
+    // instead of this route redoing its own live eth_getLogs walk on every
+    // public request - up to 5 minutes stale (same tradeoff every other
+    // snapshot-backed metric in this app already accepts), but no longer
+    // dependent on Robinhood Chain's RPC staying healthy for every single
+    // call. Falls back to the live scan only if the snapshot is down.
+    const snapshot = await getCollectionSnapshot().catch(() => null);
+    const tokenIds = snapshot
+      ? (snapshot.tokensByOwner.get(address.toLowerCase()) ?? [])
+      : await fetchWalletTokensOnChain(address);
     return jsonWithCors({ address, count: tokenIds.length, tokenIds });
   } catch {
     return jsonWithCors(

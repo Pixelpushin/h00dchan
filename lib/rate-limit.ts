@@ -222,10 +222,13 @@ export function checkPublicApiRateLimit(request: NextRequest): RateLimitResult {
 // check whether a page update landed silently fell back to stale cached
 // data (wrong sort order, missing badges) once the limit tripped, which
 // read as "the feature doesn't work" rather than "you're rate-limited."
-// 30 keeps real headroom for that while still being a fraction of the old
-// shared 120/5min bucket.
+// Confirmed live: even 30 wasn't enough while the double-fetch above is
+// still unfixed (a proper fix - collection page reading from
+// lib/useMyTokens.ts's shared cache instead of its own independent fetch -
+// is the real follow-up; this bump is the immediate unblock in the
+// meantime). 60 is still a fraction of the old shared 120/5min bucket.
 const expensiveScanIpLimit = new Map<string, RateEntry>();
-const EXPENSIVE_SCAN_IP_MAX = 30;
+const EXPENSIVE_SCAN_IP_MAX = 60;
 
 export function checkExpensiveScanRateLimit(
   request: NextRequest,

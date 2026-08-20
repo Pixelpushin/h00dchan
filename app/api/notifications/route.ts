@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ADDRESS_PATTERN } from "@/lib/address";
 import { fetchWalletTokensOnChain } from "@/lib/chain";
+import { getCollectionSnapshot } from "@/lib/collectionSnapshot";
 import { checkNotificationsRateLimit } from "@/lib/rate-limit";
 import { getNotifLastSeen, listThreads, setNotifLastSeen } from "@/lib/store";
 
@@ -40,11 +41,21 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [ownedTokenIds, threads, lastSeen] = await Promise.all([
-      fetchWalletTokensOnChain(address),
+    // Same fix as /api/wallet-tokens: this used to re-derive ownership via
+    // its own live eth_getLogs walk on every single poll (every 30s per
+    // connected wallet - by far the most frequently-called consumer of
+    // this exact query), when lib/collectionSnapshot.ts already has
+    // "current owner per token" for the whole collection, cached and
+    // shared. Falls back to the live scan only if the snapshot itself is
+    // unavailable.
+    const [snapshot, threads, lastSeen] = await Promise.all([
+      getCollectionSnapshot().catch(() => null),
       listThreads(),
       getNotifLastSeen(address),
     ]);
+    const ownedTokenIds = snapshot
+      ? (snapshot.tokensByOwner.get(address.toLowerCase()) ?? [])
+      : await fetchWalletTokensOnChain(address);
     const owned = new Set(ownedTokenIds);
     const lastSeenMs = lastSeen ? Date.parse(lastSeen) : 0;
 
