@@ -242,12 +242,33 @@ export default function CollectionPage() {
         // claimedTokenIds are built from that same string array), but
         // normalize with String() anyway so a future numeric tokenId
         // on either side can't silently break the Set lookup.
+        //
+        // Merges with the previous cache the same way wallets/levels/
+        // nestedCounts/trustedTokenMap already do above, instead of
+        // replacing outright - was the one field on this page that
+        // didn't, and it's exactly the gap that caused a real reported
+        // bug: /api/wallet-tokens's own per-token loop can transiently
+        // fail to resolve a token under RPC load (see that route's
+        // comments), which silently drops it from claimedTokenIds even
+        // though it's genuinely still claimed. Rebuilding claimedMap from
+        // scratch every fetch meant one flaky token flipped
+        // hasUnclaimedTokens back to true and re-surfaced "Activate All"
+        // (and, on a still-undismissed explainer, the modal) for someone
+        // who'd already activated everything - reported live as "keeps
+        // popping up over and over" despite every anon being active.
+        // Safe to only ever add true, never clear it back to false here:
+        // a token that's actually been transferred away stops appearing
+        // in `tokenIds` at all (comes from the owner-scoped snapshot), so
+        // there's no path where a real un-claim needs to be reflected for
+        // a token still shown on this page.
         const claimedIdSet = new Set(
           ((walletBody.claimedTokenIds as Array<string | number>) ?? []).map(
             (id) => String(id),
           ),
         );
-        const claimedMap: Record<string, boolean> = {};
+        const claimedMap: Record<string, boolean> = {
+          ...(renderCache?.claimedTokens ?? {}),
+        };
         tokenIds.forEach((id) => {
           if (claimedIdSet.has(String(id))) claimedMap[id] = true;
         });

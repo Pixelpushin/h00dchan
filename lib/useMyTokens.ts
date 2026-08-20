@@ -98,7 +98,26 @@ export async function refreshMyTokens(address: string): Promise<void> {
   const hadCache = cache.has(address);
   const promise = doFetch(address)
     .then((result) => {
-      cache.set(address, result);
+      // claimedTokenIds specifically is unioned with whatever was already
+      // cached (scoped to tokens still actually owned), not replaced
+      // outright like ownedTokenIds/wallets/levels/nestedCounts above it -
+      // /api/wallet-tokens's own per-token loop can transiently fail to
+      // resolve a token under RPC load, which silently drops it from this
+      // response's claimedTokenIds even though it's genuinely still
+      // claimed. A full replace here flips the header's button straight
+      // back to "Activate NFTs" for someone who already activated
+      // everything - reported live as it "keeps popping up over and
+      // over." Safe to only ever add, never drop, a claimed id here: a
+      // token that's truly no longer owned is filtered out via the
+      // ownedTokenIds intersection below, so nothing stale lingers once
+      // it actually leaves the wallet.
+      const previouslyClaimed = cache.get(address)?.claimedTokenIds ?? [];
+      const ownedSet = new Set(result.ownedTokenIds);
+      const claimedSet = new Set(result.claimedTokenIds);
+      previouslyClaimed.forEach((id) => {
+        if (ownedSet.has(id)) claimedSet.add(id);
+      });
+      cache.set(address, { ...result, claimedTokenIds: [...claimedSet] });
       notify();
     })
     .catch((err) => {
