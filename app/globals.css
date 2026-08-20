@@ -834,6 +834,25 @@ body {
   line-height: 1;
 }
 
+/* Top-left, the one remaining free corner (level badge is bottom-left,
+   nested badge is top-right) - how many whitelisted ERC-20s this anon's
+   own wallet holds. */
+.hc-profile-card-token-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff5e6;
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .hc-profile-card-has-level .hc-profile-card-plate {
   left: 40px;
 }

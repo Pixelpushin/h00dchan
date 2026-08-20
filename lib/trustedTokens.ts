@@ -15,12 +15,14 @@ export interface TrustedToken {
   symbol: string;
 }
 
-// CHAN's address + symbol confirmed live via eth_call (symbol(), name(),
-// decimals()) against Robinhood Chain directly - a real deployed ERC-20,
-// symbol "CHAN", 18 decimals - not just taken on trust from the address
-// alone, same verification standard as adConfig.ts's USDG entry.
+// CHAN and HOODIE's addresses + symbols confirmed live via eth_call
+// (symbol(), name(), decimals(), totalSupply() for HOODIE) against
+// Robinhood Chain directly - real deployed ERC-20s, 18 decimals each - not
+// just taken on trust from the address alone, same verification standard
+// as adConfig.ts's USDG entry.
 export const TRUSTED_TOKENS: TrustedToken[] = [
   { address: "0xb36fd5d3392c78e70c3e08f46b46f242e7ef654f", symbol: "CHAN" },
+  { address: "0xc72c01aab5f5678dc1d6f5c6d2b417d91d402ba3", symbol: "HOODIE" },
 ];
 
 // Same idea as TRUSTED_TOKENS but for NFT collection contracts - the wallet

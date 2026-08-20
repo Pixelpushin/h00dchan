@@ -110,6 +110,13 @@ export default function CollectionPage() {
   // have something stashed in them without opening each one's own wallet
   // page individually.
   const [nestedCounts, setNestedCounts] = useState<Record<string, number>>({});
+  // Which whitelisted ERC-20s (lib/trustedTokens.ts - spam tokens never
+  // count) each owned token's own wallet holds - "float ERC-20 token
+  // holders to the top as well," requested live as the same idea as
+  // nestedCounts above, just for tokens instead of nested NFTs.
+  const [trustedTokenHoldings, setTrustedTokenHoldings] = useState<
+    Record<string, string[]>
+  >({});
   const [claimedTokens, setClaimedTokens] = useState<Record<string, boolean>>(
     {},
   );
@@ -158,6 +165,7 @@ export default function CollectionPage() {
       setClaimedTokens(renderCache.claimedTokens);
       setLevels(renderCache.levels ?? {});
       setNestedCounts(renderCache.nestedCounts ?? {});
+      setTrustedTokenHoldings(renderCache.trustedTokenHoldings ?? {});
       setState("ready");
     } else {
       setState("loading-tokens");
@@ -165,6 +173,7 @@ export default function CollectionPage() {
       setClaimedTokens({});
       setLevels({});
       setNestedCounts({});
+      setTrustedTokenHoldings({});
     }
 
     async function attempt(isRetry: boolean): Promise<void> {
@@ -194,15 +203,22 @@ export default function CollectionPage() {
           ...(renderCache?.nestedCounts ?? {}),
           ...(walletBody.nestedCounts ?? {}),
         };
+        const trustedTokenMap: Record<string, string[]> = {
+          ...(renderCache?.trustedTokenHoldings ?? {}),
+          ...(walletBody.trustedTokenHoldings ?? {}),
+        };
 
         const metadata = await Promise.all(
           tokenIds.map((id) => fetchTokenMetadataViaApi(id)),
         );
         if (latestOwnerRef.current !== owner) return;
 
-        // Nested holders float to the top (most-nested first); tokenId
-        // ascending is just the tiebreaker for everyone else, same order
-        // as before this sort existed.
+        // Nested holders float to the top first (most-nested first);
+        // trusted-ERC-20 holders are the tiebreaker within that (most
+        // distinct trusted tokens held first) - preserves the
+        // already-shipped nested sort exactly as it was, just adds token
+        // holdings as a second signal rather than replacing it. tokenId
+        // ascending is the final tiebreaker for everyone else.
         const resolved = metadata
           .filter((m): m is TokenMetadata => m !== null)
           .sort((a, b) => {
@@ -210,6 +226,10 @@ export default function CollectionPage() {
               (nestedCountMap[b.tokenId] ?? 0) -
               (nestedCountMap[a.tokenId] ?? 0);
             if (nestedDiff !== 0) return nestedDiff;
+            const tokenDiff =
+              (trustedTokenMap[b.tokenId]?.length ?? 0) -
+              (trustedTokenMap[a.tokenId]?.length ?? 0);
+            if (tokenDiff !== 0) return tokenDiff;
             return Number(a.tokenId) - Number(b.tokenId);
           });
         setTokens(resolved);
@@ -235,6 +255,7 @@ export default function CollectionPage() {
         setClaimedTokens(claimedMap);
         setLevels(levelMap);
         setNestedCounts(nestedCountMap);
+        setTrustedTokenHoldings(trustedTokenMap);
         setState("ready");
         writeWalletRenderCache(owner, {
           tokens: resolved,
@@ -242,6 +263,7 @@ export default function CollectionPage() {
           claimedTokens: claimedMap,
           levels: levelMap,
           nestedCounts: nestedCountMap,
+          trustedTokenHoldings: trustedTokenMap,
         });
       } catch (err) {
         if (latestOwnerRef.current !== owner) return;
@@ -711,6 +733,7 @@ export default function CollectionPage() {
                 const wallet = wallets[token.tokenId];
                 const level = levels[token.tokenId];
                 const nestedCount = nestedCounts[token.tokenId] ?? 0;
+                const heldTokens = trustedTokenHoldings[token.tokenId] ?? [];
 
                 const dimmed = Boolean(persona) && !isActivePersona;
 
@@ -732,6 +755,14 @@ export default function CollectionPage() {
                           title={`${nestedCount} nested HOODCHAN${nestedCount === 1 ? "" : "s"}`}
                         >
                           📦 {nestedCount}
+                        </span>
+                      )}
+                      {heldTokens.length > 0 && (
+                        <span
+                          className="hc-profile-card-token-badge"
+                          title={`Holds: ${heldTokens.join(", ")}`}
+                        >
+                          💰 {heldTokens.length}
                         </span>
                       )}
                       {level !== undefined && (

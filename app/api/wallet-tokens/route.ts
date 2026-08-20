@@ -22,7 +22,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ADDRESS_PATTERN } from "@/lib/address";
 import { checkExpensiveScanRateLimit } from "@/lib/rate-limit";
-import { fetchWalletTokensOnChain } from "@/lib/chain";
+import { fetchWalletTokensOnChain, readBalanceOf } from "@/lib/chain";
 import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
 import {
   countHumanPostsByToken,
@@ -31,6 +31,7 @@ import {
 } from "@/lib/store";
 import { computeLevelProgress } from "@/lib/leveling";
 import { getBioVerification } from "@/lib/bioVerifyStore";
+import { TRUSTED_TOKENS } from "@/lib/trustedTokens";
 import {
   getCollectionSnapshot,
   weeksHeld,
@@ -124,6 +125,14 @@ export async function GET(request: NextRequest) {
     // opaque level number. Zero-count tokens are omitted rather than
     // written as 0, keeping this payload small for the common case.
     const nestedCounts: Record<string, number> = {};
+    // Which whitelisted ERC-20s (lib/trustedTokens.ts - hand-maintained,
+    // never auto-discovered, so a spam-airdropped token can never show up
+    // here) each anon's own TBA holds a nonzero balance of. Same "float
+    // notable holdings to the top" idea as nestedCounts above, just for
+    // tokens instead of nested NFTs - one balanceOf() eth_call per
+    // whitelisted token per owned anon, chunked in the same batch as
+    // everything else in this loop rather than a separate pass.
+    const trustedTokenHoldings: Record<string, string[]> = {};
     for (let i = 0; i < tokenIds.length; i += TBA_CONCURRENCY) {
       const batch = tokenIds.slice(i, i + TBA_CONCURRENCY);
       const results = await Promise.all(
@@ -137,13 +146,22 @@ export async function GET(request: NextRequest) {
                 humanTotalPosts,
                 humanThreadsStarted,
                 bioVerification,
+                trustedBalances,
               ] = await Promise.all([
                 isTbaActivated(tbaAddress),
                 isTokenClaimed(tokenId).catch(() => false),
                 countHumanPostsByToken(tokenId).catch(() => 0),
                 countHumanThreadsByToken(tokenId).catch(() => 0),
                 getBioVerification(tokenId).catch(() => null),
+                Promise.all(
+                  TRUSTED_TOKENS.map((t) =>
+                    readBalanceOf(t.address, tbaAddress).catch(() => BigInt(0)),
+                  ),
+                ),
               ]);
+              const heldSymbols = TRUSTED_TOKENS.filter(
+                (_, i) => trustedBalances[i] > BigInt(0),
+              ).map((t) => t.symbol);
               // hasSentTransaction is deliberately left false here rather
               // than paying one more eth_getTransactionCount call per
               // token - this route already fires 2+ RPC calls per token
@@ -176,6 +194,7 @@ export async function GET(request: NextRequest) {
                 level,
                 claimed,
                 nested,
+                heldSymbols,
               ] as const;
             } catch {
               // one retry, then give up on this token for this request -
@@ -191,6 +210,7 @@ export async function GET(request: NextRequest) {
           levels[entry[0]] = entry[2];
           if (entry[3]) claimedTokenIds.push(entry[0]);
           if (entry[4] > 0) nestedCounts[entry[0]] = entry[4];
+          if (entry[5].length > 0) trustedTokenHoldings[entry[0]] = entry[5];
         }
       }
     }
@@ -201,6 +221,7 @@ export async function GET(request: NextRequest) {
       levels,
       claimedTokenIds,
       nestedCounts,
+      trustedTokenHoldings,
     });
   } catch (error) {
     console.error(`Failed to load wallet tokens for ${address}`, error);
