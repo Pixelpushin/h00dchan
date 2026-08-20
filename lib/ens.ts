@@ -32,13 +32,3 @@ function mainnetProvider(): JsonRpcProvider {
 export async function resolveEnsName(name: string): Promise<string | null> {
   return mainnetProvider().resolveName(name);
 }
-
-// Nice-to-have reverse lookup for the recipient preview - best-effort only,
-// swallow failures since this is purely cosmetic.
-export async function lookupEnsName(address: string): Promise<string | null> {
-  try {
-    return await mainnetProvider().lookupAddress(address);
-  } catch {
-    return null;
-  }
-}

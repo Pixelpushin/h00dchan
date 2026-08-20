@@ -96,7 +96,7 @@ export function ReplyForm({ threadId }: { threadId: string }) {
           {submitting ? "Posting..." : "Reply"}
         </button>
         {error && (
-          <span className="text-sm" style={{ color: "#a12b2b" }}>
+          <span className="text-sm" style={{ color: "var(--hc-danger)" }}>
             {error}
           </span>
         )}

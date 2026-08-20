@@ -125,7 +125,7 @@ export default function AdminCostsPage() {
             {connecting ? "Connecting..." : "Connect Wallet"}
           </button>
           {connectError && (
-            <p className="text-sm" style={{ color: "#a12b2b" }}>
+            <p className="text-sm" style={{ color: "var(--hc-danger)" }}>
               {connectError}
             </p>
           )}

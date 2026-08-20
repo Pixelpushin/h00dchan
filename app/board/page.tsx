@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getOrFetchTokenMetadata, listThreads } from "@/lib/store";
+import { getOrFetchTokenMetadata, listThreadsPage } from "@/lib/store";
 import { NewThreadForm } from "@/app/board/NewThreadForm";
 import { PostImage } from "@/app/components/PostImage";
 
@@ -20,10 +20,23 @@ function formatTime(iso: string): string {
 // across the whole board, since that count only grows over time.
 const METADATA_CONCURRENCY = 25;
 
-export default async function BoardPage() {
-  const threads = await listThreads();
-  const sorted = [...threads].sort(
-    (a, b) => Date.parse(b.bumpedAt) - Date.parse(a.bumpedAt),
+// Threads rendered per page - the board used to render its entire history
+// (listThreads()) on every load, which only gets slower as the board
+// grows. listThreadsPage() windows the read at the Redis layer via the
+// existing bumpedAt-ordered ZSET (lib/store.ts), so this caps both the
+// Redis fan-out AND the render, not just the render.
+const THREADS_PER_PAGE = 50;
+
+export default async function BoardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ offset?: string }>;
+}) {
+  const { offset: offsetParam } = await searchParams;
+  const offset = Math.max(0, Number(offsetParam) || 0);
+  const { threads: sorted, hasMore } = await listThreadsPage(
+    offset,
+    THREADS_PER_PAGE,
   );
 
   const metadataByTokenId = new Map<
@@ -90,6 +103,15 @@ export default async function BoardPage() {
             );
           })}
         </div>
+
+        {hasMore && (
+          <Link
+            href={`/board?offset=${offset + THREADS_PER_PAGE}`}
+            className="hc-link text-center hc-thread-meta"
+          >
+            Load older threads
+          </Link>
+        )}
       </main>
     </div>
   );

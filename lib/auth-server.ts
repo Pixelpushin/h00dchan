@@ -18,6 +18,7 @@
 //   (d) reject if issuedAt is older than 15 minutes, forcing a fresh
 //       signature periodically
 import { verifyMessage } from "ethers";
+import { ADDRESS_PATTERN } from "@/lib/address";
 import { OWNERSHIP_CHECK_CONCURRENCY, readOwnerOf } from "@/lib/chain";
 import {
   buildAuthMessage,
@@ -46,8 +47,6 @@ export interface ClaimVerificationResult {
   reason?: string;
   code?: ClaimFailureCode;
 }
-
-const ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
 
 export async function verifyPersonaClaim(
   claim: Partial<PersonaClaim>,

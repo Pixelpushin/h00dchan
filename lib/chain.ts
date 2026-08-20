@@ -166,6 +166,22 @@ const ZERO_ADDRESS_TOPIC = `0x${"0".repeat(64)}`;
 // here (every ID 1-1200 was minted, confirmed via the original totalSupply
 // read of exactly 1200), but the log lookup is also just the cheapest way
 // to get the full burned-ID list in one call instead of probing all 1200.
+// DEFERRED block-range chunking: this scans from block 0x0 in one
+// eth_getLogs call. The public Robinhood RPC hasn't enforced a max block
+// range yet (verified: this call succeeds today against a chain height of
+// ~41.5M blocks), but if it ever does, this fails outright. Not chunked
+// now because a real fix needs this contract's deploy block to bound the
+// scan - without it, fixed-size chunking from genesis across 41.5M blocks
+// means either guessing an unvalidated chunk size or, if that guess is
+// conservative, hundreds of sequential round trips per call (regressing
+// today's single-call case badly for a risk that hasn't happened yet).
+// Fix: look up the deploy block once (e.g. via the explorer API or a
+// binary search on eth_getCode), hardcode it as a constant here, then
+// chunk [deployBlock, latest] in fixed-size ranges via a shared helper
+// reused by this function, fetchWalletTokensOnChain below, and
+// lib/collectionSnapshot.ts's computeSnapshot (which uses a different RPC
+// transport - Alchemy, not this file's rpcCall - so the helper should
+// split ranges only and let each call site drive its own transport).
 export async function fetchBurnedTokenIds(): Promise<string[]> {
   const logs = await rpcCall<RpcLog[]>("eth_getLogs", [
     {
@@ -246,6 +262,12 @@ export async function fetchWalletTokensOnChain(
   // scan found; every ID (old and newly-discovered) still gets a fresh
   // ownerOf() check below, so a token sold away since the last scan is
   // correctly dropped, not just accumulated forever.
+  //
+  // DEFERRED block-range chunking: same risk and same reasoning as
+  // fetchBurnedTokenIds() above - a first-time caller (no fromBlock, no
+  // knownTokenIds) still scans from 0x0 in one call, and this file has no
+  // deploy-block constant to bound a chunked scan against yet. See that
+  // function's comment for the fix approach.
   const logs = await rpcCall<RpcLog[]>("eth_getLogs", [
     {
       address: CONTRACT,

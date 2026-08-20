@@ -104,7 +104,7 @@ export function NewThreadForm() {
           {submitting ? "Posting..." : "New Thread"}
         </button>
         {error && (
-          <span className="text-sm" style={{ color: "#a12b2b" }}>
+          <span className="text-sm" style={{ color: "var(--hc-danger)" }}>
             {error}
           </span>
         )}

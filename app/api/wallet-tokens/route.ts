@@ -16,6 +16,8 @@
 // was never a real cross-origin *security* boundary here, just an
 // incidental one this RPC's own infra can't reliably satisfy under load.
 import { NextRequest, NextResponse } from "next/server";
+import { ADDRESS_PATTERN } from "@/lib/address";
+import { checkPublicApiRateLimit } from "@/lib/rate-limit";
 import { fetchWalletTokensOnChain, readBlockNumber } from "@/lib/chain";
 import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
 import {
@@ -37,9 +39,24 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
-
 export async function GET(request: NextRequest) {
+  // This is the most expensive route in the app (dozens-to-hundreds of RPC
+  // calls per request, maxDuration=60) and `address` is an unauthenticated
+  // query param anyone can set to anything - keying a limit on it alone
+  // would let an attacker just rotate the address param forever, so this
+  // has to be IP-keyed (checkPublicApiRateLimit, same helper the public
+  // /api/v1/* routes use) rather than per-address.
+  const rate = checkPublicApiRateLimit(request);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rate.retryAfterSeconds) },
+      },
+    );
+  }
+
   const address = request.nextUrl.searchParams.get("address") ?? "";
   if (!ADDRESS_PATTERN.test(address)) {
     return NextResponse.json({ error: "Invalid address." }, { status: 400 });

@@ -52,8 +52,18 @@ export async function isTxHashUsed(txHash: string): Promise<boolean> {
   return members.includes(txHash.toLowerCase());
 }
 
-async function markTxHashUsed(txHash: string): Promise<void> {
-  await redisCommand("SADD", USED_TX_HASHES_KEY, txHash.toLowerCase());
+// The actual double-spend gate: SADD is atomic in Redis, so when two
+// concurrent requests race to claim the same txHash, only one of them can
+// ever get the "1" (newly added) result back - the other is guaranteed to
+// see "0" (already present) and must be rejected. Returns true only for the
+// caller that won the race.
+export async function markTxHashUsed(txHash: string): Promise<boolean> {
+  const added = await redisCommand(
+    "SADD",
+    USED_TX_HASHES_KEY,
+    txHash.toLowerCase(),
+  );
+  return added === 1;
 }
 
 export async function createAdSubmission(
@@ -68,7 +78,6 @@ export async function createAdSubmission(
     expiresAt: null,
   };
   await writeAd(ad);
-  await markTxHashUsed(input.txHash);
   return ad;
 }
 
@@ -83,6 +92,13 @@ async function listAllAds(): Promise<AdSubmission[]> {
   return ads.filter((ad): ad is AdSubmission => ad !== null);
 }
 
+// Known scaling limit: listAllAds() does a full ZREVRANGE 0 -1 + one GET per
+// ad, i.e. a full-history scan of every ad ever submitted (including old
+// rejected/expired ones) on every call - there's no separate index for
+// pending-only or active-only ads. listActiveAds() in particular runs this
+// on every homepage load. Fine at current volume; revisit (e.g. status-keyed
+// secondary indexes) if the ad history grows large enough for this to show
+// up as real latency.
 export async function listPendingAdSubmissions(): Promise<AdSubmission[]> {
   const all = await listAllAds();
   return all.filter((ad) => ad.status === "pending_review");
@@ -91,6 +107,8 @@ export async function listPendingAdSubmissions(): Promise<AdSubmission[]> {
 // Active AND not yet expired - expiry is computed at read time rather than
 // a separate stored transition, so nothing needs to run on a schedule to
 // "expire" an ad; it just stops showing up once its own expiresAt passes.
+// See the known-scaling-limit note above listPendingAdSubmissions - this
+// function pays the same full-history-scan cost, on every homepage load.
 export async function listActiveAds(): Promise<AdSubmission[]> {
   const all = await listAllAds();
   const now = Date.now();

@@ -4,7 +4,12 @@
 // server (lib/holderAuth.ts, reconstructs this exact string independently)
 // need to agree on. No `next/server` import, no server-only env reads -
 // safe to import from a "use client" component.
-export const ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
+//
+// ADDRESS_PATTERN itself lives in lib/address.ts (shared with
+// lib/adminMessage.ts and every route that validates an address) -
+// re-exported here so existing `from "@/lib/holderMessage"` imports keep
+// working.
+export { ADDRESS_PATTERN } from "@/lib/address";
 
 // Same freshness window as admin sessions - forces a fresh signature
 // periodically rather than letting one signed session live forever.

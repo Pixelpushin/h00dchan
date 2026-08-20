@@ -2,12 +2,12 @@
 // token metadata, TBA/wallet info, claimed status) - lets a repeat visit
 // paint instantly instead of waiting on a real round trip (metadata for
 // every token, claimed status for every token, TBA info for every token)
-// before showing anything but a loading state. HomeClient.tsx's loadTokens
-// hydrates from this immediately, then kicks off a real background fetch
-// (always a full on-chain scan now - see loadTokens's own comment for why
-// an earlier incremental-scan version was removed after repeatedly
-// self-healing around the same root problem) that silently swaps in
-// anything that actually changed once it resolves.
+// before showing anything but a loading state. app/collection/page.tsx's
+// loadTokens hydrates from this immediately, then kicks off a real
+// background fetch (always a full on-chain scan now - see loadTokens's own
+// comment for why an earlier incremental-scan version was removed after
+// repeatedly self-healing around the same root problem) that silently
+// swaps in anything that actually changed once it resolves.
 //
 // Deliberately untyped beyond "plausible JSON shape" here rather than
 // importing HomeClient's TokenMetadata/TbaInfo types - this module has no

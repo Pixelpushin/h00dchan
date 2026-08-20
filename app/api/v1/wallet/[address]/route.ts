@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { ADDRESS_PATTERN } from "@/lib/address";
 import { fetchWalletTokensOnChain } from "@/lib/chain";
 import { checkPublicApiRateLimit } from "@/lib/rate-limit";
 import {
@@ -12,8 +13,6 @@ import {
 // wallet-connect integration ("what does this visitor's wallet hold").
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
 
 export async function OPTIONS() {
   return corsPreflightResponse();

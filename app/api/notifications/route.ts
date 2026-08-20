@@ -9,15 +9,29 @@
 // made in someone else's thread" (would need per-post ownership tracking
 // this data model doesn't have yet).
 import { NextRequest, NextResponse } from "next/server";
+import { ADDRESS_PATTERN } from "@/lib/address";
 import { fetchWalletTokensOnChain } from "@/lib/chain";
+import { checkPublicApiRateLimit } from "@/lib/rate-limit";
 import { getNotifLastSeen, listThreads, setNotifLastSeen } from "@/lib/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
-
 export async function GET(request: NextRequest) {
+  // Unauthenticated (address is just a query param) and does a live RPC
+  // call via fetchWalletTokensOnChain - IP-keyed so this can't be turned
+  // into an unbounded RPC-flood vector either.
+  const rate = checkPublicApiRateLimit(request);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rate.retryAfterSeconds) },
+      },
+    );
+  }
+
   const address = request.nextUrl.searchParams.get("address") ?? "";
   if (!ADDRESS_PATTERN.test(address)) {
     return NextResponse.json({ error: "Invalid address." }, { status: 400 });
@@ -49,6 +63,19 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  // Same reasoning as GET above - unauthenticated, no signature involved,
+  // so IP is the only safe key.
+  const rate = checkPublicApiRateLimit(request);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rate.retryAfterSeconds) },
+      },
+    );
+  }
+
   let payload: unknown;
   try {
     payload = await request.json();

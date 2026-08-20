@@ -281,7 +281,7 @@ export function RentAdSpaceButton() {
                 </p>
               )}
               {error && (
-                <p className="text-sm" style={{ color: "#a12b2b" }}>
+                <p className="text-sm" style={{ color: "var(--hc-danger)" }}>
                   {error}
                 </p>
               )}

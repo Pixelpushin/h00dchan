@@ -1,5 +1,36 @@
 import { NextRequest } from "next/server";
 
+// TODO(rate-limit): this whole module is in-memory (Map-based), so budgets
+// reset on every deploy/cold-start and don't coordinate across multiple
+// serverless instances - a determined attacker spread across instances gets
+// a fresh budget per instance. The real fix is a Redis-backed fixed-window
+// counter via lib/store.ts's redisCommand (INCR the key, EXPIRE it only on
+// the first increment of the window) instead of the local Maps below. That
+// is NOT done here because it would force checkWriteRateLimit,
+// checkSignalsRateLimit, and checkPublicApiRateLimit to become async (a
+// Redis round trip can't stay synchronous), which breaks every existing
+// call site - none of them currently `await` these calls. As of this
+// writing that's 15 call sites across 15 route files that would all need a
+// same-PR `await` added:
+//   checkWriteRateLimit      - app/api/bio-verify/start/route.ts
+//                             - app/api/alpha/research/route.ts
+//                             - app/api/claim/route.ts
+//                             - app/api/claim/batch/route.ts
+//                             - app/api/threads/route.ts
+//                             - app/api/threads/[threadId]/posts/route.ts
+//   checkSignalsRateLimit    - app/api/ads/route.ts
+//                             - app/api/bio-verify/check/route.ts
+//                             - app/api/signals/route.ts
+//                             - app/api/onlychans/is-holder/route.ts
+//   checkPublicApiRateLimit  - app/api/v1/leaderboard/route.ts
+//                             - app/api/v1/token/[tokenId]/route.ts
+//                             - app/api/v1/collection/route.ts
+//                             - app/api/v1/tokens/route.ts
+//                             - app/api/v1/wallet/[address]/route.ts
+// Until someone does that whole sweep in one PR, keep every exported check
+// here synchronous with today's signatures - a half-migrated
+// sync/async split is worse than the current single-instance limitation.
+
 // In-memory sliding-window rate limiting, ported from the same pattern the
 // sibling hoodies/app/api/hood-talk route uses. This exists because
 // verifyPersonaClaim's signature check is cheap local crypto, but confirming
@@ -90,6 +121,59 @@ export function checkWriteRateLimit(
 
   const ip = consume(ipLimit, getClientIp(request), IP_MAX, now);
   if (!ip.allowed) return { ...ip, scope: "ip" };
+
+  const byAddress = consume(
+    addressLimit,
+    address.toLowerCase(),
+    ADDRESS_MAX,
+    now,
+  );
+  if (!byAddress.allowed) return { ...byAddress, scope: "address" };
+
+  const byToken = consume(tokenLimit, tokenId, TOKEN_MAX, now);
+  if (!byToken.allowed) return { ...byToken, scope: "token" };
+
+  return { allowed: true, retryAfterSeconds: 0 };
+}
+
+// Dual-layer pair for routes that want the address/token budget to only be
+// spendable by someone who has actually proven ownership (see
+// app/api/threads/route.ts and app/api/threads/[threadId]/posts/route.ts).
+// checkWriteRateLimit above still keys address/token budget on whatever the
+// request body claims BEFORE verifyPersonaClaim runs, which is exactly the
+// gap this pair closes: a client sends any address it likes, no signature
+// required to spend that address's budget. Splitting it means:
+//   1. checkWriteIpRateLimit runs first, pre-verify, cheap-rejection - it's
+//      IP-only (not spoofable via request body) so it's safe to consume
+//      before proving anything, same as checkWriteRateLimit's IP layer.
+//      Shares the same ipLimit map/budget as checkWriteRateLimit so the IP
+//      dimension stays one consistent budget across every write route.
+//   2. consumeVerifiedWriteBudget runs ONLY after verifyPersonaClaim
+//      returns ok:true, keyed on the address/tokenId that verification just
+//      confirmed the caller actually controls (signature recovery matched
+//      `address`, and a live ownership check confirmed `address` currently
+//      owns `tokenId`) - so an attacker spamming a victim's public address
+//      with no valid signature never reaches this call, and only ever
+//      burns their own IP budget from step 1. Shares the same
+//      addressLimit/tokenLimit maps as checkWriteRateLimit so a token/
+//      address that's already near its budget via one of the routes still
+//      using the pre-verify combined check (bio-verify/start, alpha/
+//      research, claim, claim/batch) doesn't get a second, independent
+//      budget here.
+export function checkWriteIpRateLimit(request: NextRequest): RateLimitResult {
+  const now = Date.now();
+  prune(ipLimit, now);
+  const result = consume(ipLimit, getClientIp(request), IP_MAX, now);
+  return { ...result, scope: "ip" };
+}
+
+export function consumeVerifiedWriteBudget(
+  address: string,
+  tokenId: string,
+): RateLimitResult {
+  const now = Date.now();
+  prune(addressLimit, now);
+  prune(tokenLimit, now);
 
   const byAddress = consume(
     addressLimit,

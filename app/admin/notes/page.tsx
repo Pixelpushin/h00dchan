@@ -132,7 +132,7 @@ export default function AdminNotesPage() {
             {connecting ? "Connecting..." : "Connect Wallet"}
           </button>
           {connectError && (
-            <p className="text-sm" style={{ color: "#a12b2b" }}>
+            <p className="text-sm" style={{ color: "var(--hc-danger)" }}>
               {connectError}
             </p>
           )}
@@ -164,7 +164,10 @@ export default function AdminNotesPage() {
 
       {loading && <p className="text-center">Loading...</p>}
       {error && (
-        <p className="text-sm text-center" style={{ color: "#a12b2b" }}>
+        <p
+          className="text-sm text-center"
+          style={{ color: "var(--hc-danger)" }}
+        >
           {error}
         </p>
       )}
@@ -207,7 +210,7 @@ export default function AdminNotesPage() {
             <button
               onClick={() => handleDelete(note.id)}
               className="hc-thread-meta text-xs shrink-0"
-              style={{ color: "#a12b2b" }}
+              style={{ color: "var(--hc-danger)" }}
             >
               delete
             </button>

@@ -803,7 +803,10 @@ export default function CollectionPage() {
         )}
 
         {error && (
-          <p className="mt-6 text-sm text-center" style={{ color: "#a12b2b" }}>
+          <p
+            className="mt-6 text-sm text-center"
+            style={{ color: "var(--hc-danger)" }}
+          >
             {error}
           </p>
         )}

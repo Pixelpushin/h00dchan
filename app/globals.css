@@ -58,6 +58,7 @@ body {
   --hc-urgent: #ff3b1f;
   --hc-urgent-dark: #c72c14;
   --hc-opensea-blue: #2081e2; /* OpenSea's own brand blue */
+  --hc-danger: #a12b2b; /* error/failure text - form validation, failed loads */
 }
 
 .hc-page {
@@ -353,25 +354,7 @@ body {
 }
 
 .hc-wallet-menu-item-danger {
-  color: #a12b2b;
-}
-
-.hc-wallet-menu-active {
-  color: var(--hc-muted);
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding: 0.5rem 0.8rem 0.3rem;
-}
-
-.hc-wallet-menu-label {
-  color: var(--hc-muted);
-  font-size: 0.65rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding: 0.4rem 0.8rem 0.15rem;
+  color: var(--hc-danger);
 }
 
 .hc-wallet-menu-item-switch {
@@ -387,7 +370,7 @@ body {
 }
 
 .hc-wallet-menu-error {
-  color: #a12b2b;
+  color: var(--hc-danger);
   font-size: 0.7rem;
   padding: 0.3rem 0.8rem;
 }
@@ -475,14 +458,6 @@ body {
 
 .hc-button-opensea:hover {
   background: #1868b7;
-}
-
-.hc-subheader {
-  background: var(--hc-box);
-  border-bottom: 1px solid var(--hc-box-border);
-  color: var(--hc-maroon);
-  font-size: 0.8rem;
-  padding: 0.35rem 1.25rem;
 }
 
 .hc-link {
@@ -910,12 +885,8 @@ body {
   height: 0.75rem;
 }
 
-.hc-wallet-status-active {
-  background: var(--hc-greentext);
-}
-
 .hc-wallet-status-inactive {
-  background: #a12b2b;
+  background: var(--hc-danger);
 }
 
 .hc-post-image {

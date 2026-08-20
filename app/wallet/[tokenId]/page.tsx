@@ -321,7 +321,7 @@ export default async function WalletPage({
                 <CopyButton text={tbaAddress} />
               </div>
             ) : (
-              <p className="text-xs" style={{ color: "#a12b2b" }}>
+              <p className="text-xs" style={{ color: "var(--hc-danger)" }}>
                 {walletError}
               </p>
             )}
@@ -350,7 +350,10 @@ export default async function WalletPage({
         </div>
 
         {holdingsError && (
-          <p className="text-sm text-center" style={{ color: "#a12b2b" }}>
+          <p
+            className="text-sm text-center"
+            style={{ color: "var(--hc-danger)" }}
+          >
             {holdingsError}
           </p>
         )}

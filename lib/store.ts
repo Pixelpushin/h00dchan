@@ -382,19 +382,11 @@ function invalidateListThreadsCache(): void {
   listThreadsCacheHolder.__h00dchanListThreadsCache = null;
 }
 
-export async function listThreads(): Promise<ThreadWithCounts[]> {
-  const cached = listThreadsCacheHolder.__h00dchanListThreadsCache;
-  if (cached && Date.now() - cached.at < LIST_THREADS_CACHE_MS) {
-    return cached.value;
-  }
-
-  const ids = (await redisCommand(
-    "ZREVRANGE",
-    "threads:index",
-    0,
-    -1,
-  )) as string[];
-
+// Shared by listThreads() (below) and listThreadsPage() (further down) -
+// same per-id GET-thread + LLEN-post-count + chunked-concurrency shape
+// either way, the only difference is which slice of thread ids each one
+// hands in.
+async function hydrateThreadIds(ids: string[]): Promise<ThreadWithCounts[]> {
   const threads: (ThreadWithCounts | null)[] = [];
   for (let i = 0; i < ids.length; i += THREAD_FETCH_CONCURRENCY) {
     const batch = ids.slice(i, i + THREAD_FETCH_CONCURRENCY);
@@ -408,13 +400,59 @@ export async function listThreads(): Promise<ThreadWithCounts[]> {
     );
     threads.push(...batchResults);
   }
+  return threads.filter((t): t is ThreadWithCounts => t !== null);
+}
 
-  const result = threads.filter((t): t is ThreadWithCounts => t !== null);
+export async function listThreads(): Promise<ThreadWithCounts[]> {
+  const cached = listThreadsCacheHolder.__h00dchanListThreadsCache;
+  if (cached && Date.now() - cached.at < LIST_THREADS_CACHE_MS) {
+    return cached.value;
+  }
+
+  const ids = (await redisCommand(
+    "ZREVRANGE",
+    "threads:index",
+    0,
+    -1,
+  )) as string[];
+
+  const result = await hydrateThreadIds(ids);
   listThreadsCacheHolder.__h00dchanListThreadsCache = {
     at: Date.now(),
     value: result,
   };
   return result;
+}
+
+export interface ThreadsPage {
+  threads: ThreadWithCounts[];
+  hasMore: boolean;
+}
+
+// Board-page pagination - reuses threads:index's existing bumpedAt-ordered
+// ZSET (no new index structure needed) and fetches only a bounded window
+// of ids via ZREVRANGE's start/stop range, instead of listThreads()'s
+// fetch-and-cache-everything shape, which is right for its own small
+// full-scan callers (admin/leaderboard/digest jobs) but wrong for a board
+// page that only ever needs to render one page at a time and would
+// otherwise re-fetch every thread the board has ever had on every load.
+// Deliberately bypasses listThreads()'s cache - that cache collapses
+// concurrent requests for the SAME latest slice, not the many distinct
+// offset-keyed reads pagination produces.
+export async function listThreadsPage(
+  offset: number,
+  limit: number,
+): Promise<ThreadsPage> {
+  const ids = (await redisCommand(
+    "ZREVRANGE",
+    "threads:index",
+    offset,
+    offset + limit, // fetch one extra id past the page to detect a next page
+  )) as string[];
+
+  const hasMore = ids.length > limit;
+  const threads = await hydrateThreadIds(ids.slice(0, limit));
+  return { threads, hasMore };
 }
 
 export async function getThread(id: string): Promise<Thread | null> {
@@ -494,6 +532,14 @@ export async function addReply(
   return post;
 }
 
+// Same unbounded-fan-out risk as listThreads() above, just one GET per
+// post instead of one GET + one LLEN per thread - a long-running thread
+// can accumulate hundreds of posts, and firing a GET for every one of them
+// at once in a single Promise.all is exactly the burst-under-load pattern
+// that was verified live to spike TTFB there. Same chunking fix, same
+// concurrency convention (THREAD_FETCH_CONCURRENCY above).
+const POST_FETCH_CONCURRENCY = 20;
+
 export async function listPosts(threadId: string): Promise<Post[]> {
   const ids = (await redisCommand(
     "LRANGE",
@@ -501,12 +547,19 @@ export async function listPosts(threadId: string): Promise<Post[]> {
     0,
     -1,
   )) as string[];
-  const posts = await Promise.all(
-    ids.map(async (id) => {
-      const raw = await redisCommand("GET", `post:${id}`);
-      return typeof raw === "string" ? (JSON.parse(raw) as Post) : null;
-    }),
-  );
+
+  const posts: (Post | null)[] = [];
+  for (let i = 0; i < ids.length; i += POST_FETCH_CONCURRENCY) {
+    const batch = ids.slice(i, i + POST_FETCH_CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map(async (id) => {
+        const raw = await redisCommand("GET", `post:${id}`);
+        return typeof raw === "string" ? (JSON.parse(raw) as Post) : null;
+      }),
+    );
+    posts.push(...batchResults);
+  }
+
   return posts.filter((p): p is Post => p !== null);
 }
 
@@ -639,46 +692,6 @@ export async function markTokenClaimed(
   // for the actual AI-eligibility gate, which is what isTokenClaimed()
   // still is.
   await redisCommand("SADD", EVER_CLAIMED_SET_KEY, tokenId);
-  // Reverse index for the header identity switcher (WalletHeaderWidget) -
-  // "which anons has THIS address ever claimed" without scanning every
-  // claimed token's record. Same "ever", not "currently", caveat as
-  // EVER_CLAIMED_SET_KEY above; listMyClaimedTokens() re-checks each
-  // candidate's actual stored record before trusting it, so a resold
-  // token doesn't linger in someone's switcher forever.
-  await redisCommand(
-    "SADD",
-    `claimed-by-address:${address.toLowerCase()}`,
-    tokenId,
-  );
-}
-
-// Candidates for "your other anons" in the header switcher - re-verifies
-// each candidate's CURRENT stored claim record still points at this
-// address (not just "ever did"), so a token that got resold since drops
-// out instead of lingering as a stale switcher entry. Doesn't re-check
-// live on-chain ownership (isTokenClaimed does that, for the actual
-// AI-eligibility gate) - this is a convenience list, not a security
-// boundary, and the switch itself still requires a real signature.
-export async function listMyClaimedTokens(address: string): Promise<string[]> {
-  const candidates = (await redisCommand(
-    "SMEMBERS",
-    `claimed-by-address:${address.toLowerCase()}`,
-  )) as string[];
-  const checks = await Promise.all(
-    candidates.map(async (tokenId) => {
-      const raw = await redisCommand("GET", `claimed:${tokenId}`);
-      if (typeof raw !== "string") return null;
-      try {
-        const record = JSON.parse(raw) as ClaimRecord;
-        return record.address?.toLowerCase() === address.toLowerCase()
-          ? tokenId
-          : null;
-      } catch {
-        return null;
-      }
-    }),
-  );
-  return checks.filter((id): id is string => id !== null);
 }
 
 // Leaderboard candidate set - tokens worth checking for a real level at

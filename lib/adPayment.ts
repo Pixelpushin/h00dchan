@@ -73,6 +73,7 @@ export type PaymentVerification = { ok: true } | { ok: false; reason: string };
 export async function verifyAdPayment(
   txHash: string,
   tokenSymbol: string,
+  submitterAddress: string,
 ): Promise<PaymentVerification> {
   if (!AD_TREASURY_ADDRESS) {
     return { ok: false, reason: "Ad payments are not configured yet." };
@@ -145,6 +146,12 @@ export async function verifyAdPayment(
         reason: "That payment wasn't sent to the ad treasury address.",
       };
     }
+    if (!addressesEqual(tx.from, submitterAddress)) {
+      return {
+        ok: false,
+        reason: "That transaction wasn't sent from the submitting address.",
+      };
+    }
     if (BigInt(tx.value) < requiredWei) {
       return {
         ok: false,
@@ -166,6 +173,14 @@ export async function verifyAdPayment(
       ok: false,
       reason:
         "No matching token transfer to the ad treasury address found in that transaction.",
+    };
+  }
+  if (
+    !addressesEqual(topicToAddress(transferLog.topics[1]), submitterAddress)
+  ) {
+    return {
+      ok: false,
+      reason: "That transaction wasn't sent from the submitting address.",
     };
   }
   const transferredWei = BigInt(transferLog.data);

@@ -10,6 +10,7 @@
 // bi-weekly recheck cron only needs to re-scan those, not the (likely
 // much larger) set of expired/never-completed pending attempts.
 import { redisCommand } from "@/lib/store";
+import { readOwnerOf } from "@/lib/chain";
 
 export type BioVerificationStatus = "pending" | "verified" | "revoked";
 
@@ -39,11 +40,56 @@ function recordKey(tokenId: string): string {
   return `bio-verify:${tokenId}`;
 }
 
+// The +200 XP badge is keyed by tokenId, but `record.address` is a wallet,
+// not the token - unlike hodlerWeeks/isTopHolder/nestedHoldingCount (see
+// lib/leveling.ts / lib/collectionSnapshot.ts), which all recompute live
+// from current ownership, a naive "record exists and status is verified"
+// check would let the badge silently transfer to whoever buys the token
+// next, forever, even though they never proved anything. This re-confirms
+// the token's CURRENT on-chain owner still matches the wallet that signed
+// the original challenge before treating a record as verified. It never
+// touches storage either way: a lapsed match just stops counting until the
+// original verifier reacquires the token, at which point this starts
+// returning true again automatically with zero re-verification needed.
+async function isStillOwnedByVerifier(
+  record: BioVerification,
+  currentOwner?: string,
+): Promise<boolean> {
+  // Callers that already resolved current ownership this request (e.g. a
+  // leaderboard pass walking lib/collectionSnapshot.ts's ownerOfToken map)
+  // can pass it straight in and skip a redundant RPC call. Everyone else
+  // falls back to a live ownerOf() read via lib/chain.ts - the same helper
+  // every other single-token ownership check in this codebase already uses,
+  // no new RPC plumbing.
+  const owner =
+    currentOwner ?? (await readOwnerOf(record.tokenId).catch(() => null));
+  // Can't prove current ownership right now (RPC hiccup) - fail closed,
+  // same as weeksHeld/isTopHolder returning 0/false when their snapshot
+  // data is missing, rather than trusting a stale claim.
+  if (!owner) return false;
+  return owner.toLowerCase() === record.address.toLowerCase();
+}
+
 export async function getBioVerification(
   tokenId: string,
+  currentOwner?: string,
 ): Promise<BioVerification | null> {
   const raw = await redisCommand("GET", recordKey(tokenId));
-  return typeof raw === "string" ? (JSON.parse(raw) as BioVerification) : null;
+  const record =
+    typeof raw === "string" ? (JSON.parse(raw) as BioVerification) : null;
+  if (!record || record.status !== "verified") return record;
+
+  if (await isStillOwnedByVerifier(record, currentOwner)) return record;
+
+  // Token changed hands since verification - report it as not-currently-
+  // verified to every caller (they all key off `.status === "verified"`)
+  // WITHOUT persisting anything. This is a computed, in-memory-only status
+  // flip; the stored record (and the verified-index ZSET) is untouched, so
+  // the original verifier regains the badge the instant they own the token
+  // again, and the bi-weekly recheck cron (this file's own
+  // listVerifiedTokenIds, below) simply skips re-checking the bio for it in
+  // the meantime rather than mistakenly revoking a still-valid verification.
+  return { ...record, status: "revoked" };
 }
 
 async function writeBioVerification(record: BioVerification): Promise<void> {

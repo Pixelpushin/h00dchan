@@ -230,15 +230,15 @@ export function AdBanner({
       }}
     >
       {entry.label ? (
-        // Paid ads: flanked by the collection's two rarest anons (rank 1
-        // and 2 on the rarity index) instead of plain black pillars - a
-        // real advertiser banner's own aspect ratio rarely matches this
-        // ultra-wide 1168:198 slot, so object-contain was leaving that
-        // space empty. Purely decorative (not linked - the whole banner is
-        // already one <a>, and a nested <a> inside it would be invalid
-        // HTML), same treatment on every paid ad regardless of whether
-        // this specific one happens to fill the frame or not, for a
-        // consistent look slot to slot.
+        // Paid ads: flanked by two random anons drawn from randomTokenPool
+        // (re-picked each time the ad rotates, see the effect above)
+        // instead of plain black pillars - a real advertiser banner's own
+        // aspect ratio rarely matches this ultra-wide 1168:198 slot, so
+        // object-contain was leaving that space empty. Purely decorative
+        // (not linked - the whole banner is already one <a>, and a nested
+        // <a> inside it would be invalid HTML), same treatment on every
+        // paid ad regardless of whether this specific one happens to fill
+        // the frame or not, for a consistent look slot to slot.
         <div className="flex h-full w-full">
           {flankLeft && (
             // eslint-disable-next-line @next/next/no-img-element

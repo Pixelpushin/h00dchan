@@ -6,7 +6,12 @@
 // server-only ADMIN_WALLET_ADDRESSES env var here, so this is safe to
 // import from a "use client" component without pulling server-only code
 // into the browser bundle.
-export const ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
+//
+// ADDRESS_PATTERN itself lives in lib/address.ts (shared with
+// lib/holderMessage.ts and every route that validates an address) -
+// re-exported here so existing `from "@/lib/adminMessage"` imports keep
+// working.
+export { ADDRESS_PATTERN } from "@/lib/address";
 
 // Same freshness window as persona claims (lib/persona.ts's
 // PERSONA_MAX_AGE_MS) - forces a fresh signature periodically rather than

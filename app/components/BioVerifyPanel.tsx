@@ -180,7 +180,7 @@ export function BioVerifyPanel({
           {checking ? "Checking..." : "I updated my bio, check now"}
         </button>
         {error && (
-          <p className="text-xs" style={{ color: "#a12b2b" }}>
+          <p className="text-xs" style={{ color: "var(--hc-danger)" }}>
             {error}
           </p>
         )}
@@ -215,7 +215,7 @@ export function BioVerifyPanel({
         </button>
       </div>
       {error && (
-        <p className="text-xs" style={{ color: "#a12b2b" }}>
+        <p className="text-xs" style={{ color: "var(--hc-danger)" }}>
           {error}
         </p>
       )}

@@ -4,16 +4,20 @@
 // client-supplied "I paid" claims on their own. GET returns the currently
 // active (paid + approved + not-yet-expired) ads for AdBanner to render.
 import { NextRequest, NextResponse } from "next/server";
+import { ADDRESS_PATTERN } from "@/lib/address";
 import { fetchOpenSeaCollection } from "@/lib/opensea";
 import { verifyAdPayment } from "@/lib/adPayment";
-import { createAdSubmission, isTxHashUsed, listActiveAds } from "@/lib/adStore";
+import {
+  createAdSubmission,
+  isTxHashUsed,
+  listActiveAds,
+  markTxHashUsed,
+} from "@/lib/adStore";
 import { findAdPrice } from "@/lib/adConfig";
 import { checkSignalsRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
 
 export async function GET() {
   const ads = await listActiveAds();
@@ -74,6 +78,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Cheap pre-check only, for UX (fail fast before the RPC/OpenSea calls
+  // below) - NOT the correctness gate against a double-spend race, since a
+  // SMEMBERS check-then-later-SADD leaves a window where two concurrent
+  // requests can both pass it for the same txHash.
   if (await isTxHashUsed(txHash)) {
     return NextResponse.json(
       { error: "That transaction has already been used for a submission." },
@@ -89,9 +97,25 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const paymentResult = await verifyAdPayment(txHash, tokenSymbol);
+  const paymentResult = await verifyAdPayment(
+    txHash,
+    tokenSymbol,
+    submitterAddress,
+  );
   if (!paymentResult.ok) {
     return NextResponse.json({ error: paymentResult.reason }, { status: 402 });
+  }
+
+  // The actual gate: verifyAdPayment above is read-only/idempotent, so it's
+  // safe to run before this. Claiming the txHash via the atomic SADD is the
+  // last check before anything is persisted - only one concurrent request
+  // for a given txHash can ever get `true` here, so only one ad can ever be
+  // created for it.
+  if (!(await markTxHashUsed(txHash))) {
+    return NextResponse.json(
+      { error: "That transaction has already been used for a submission." },
+      { status: 409 },
+    );
   }
 
   const ad = await createAdSubmission({

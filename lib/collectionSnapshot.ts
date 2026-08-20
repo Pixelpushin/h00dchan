@@ -13,11 +13,17 @@
 // eth_getBlockByNumber calls (one per unique block a Transfer landed in),
 // and the public Robinhood RPC is documented elsewhere in this codebase
 // (and reconfirmed live earlier today, batch-activating TBAs) as rate-
-// limited under exactly this kind of burst. Cached for 5 minutes -
-// acquisition timestamps are compared against week-wide boundaries, so
-// second-level freshness is never needed, and this keeps the expensive
-// scan off the hot path the same way lib/leaderboard.ts's own cache does
-// for its lighter computation.
+// limited under exactly this kind of burst. Acquisition timestamps are
+// compared against week-wide boundaries, so second-level freshness is
+// never needed - this is stale-while-revalidate, same pattern and same
+// reasoning as lib/leaderboard.ts's own cache: ANY cached value, however
+// old, is served immediately; a background refresh (after(), doesn't
+// block the response) keeps it from going stale forever, deduped so a
+// burst of concurrent requests against a just-expired cache shares one
+// recompute instead of each kicking off their own. Only a true
+// first-ever call (no cache at all) makes a real request wait on the
+// full scan.
+import { after } from "next/server";
 import { CONTRACT } from "@/lib/chain";
 
 const ALCHEMY_RPC_BASE = "https://robinhood-mainnet.g.alchemy.com/v2";
@@ -72,9 +78,21 @@ interface SnapshotCacheGlobal {
     value: CollectionSnapshot;
   } | null;
   __h00dchanCollectionSnapshotPromise?: Promise<CollectionSnapshot> | null;
+  __h00dchanCollectionSnapshotRefreshing?: boolean;
 }
 const cacheHolder = globalThis as SnapshotCacheGlobal;
 
+// DEFERRED block-range chunking: this scans from block 0x0 in one
+// eth_getLogs call, same as lib/chain.ts's fetchBurnedTokenIds and
+// fetchWalletTokensOnChain (see that file's comments for the full
+// reasoning - it hasn't happened here yet either, and a real fix needs a
+// known deploy block to bound a chunked scan against, which isn't
+// recorded anywhere in this codebase). Alchemy hasn't enforced a max
+// range against this call in practice, but if any provider ever does,
+// this fails outright rather than degrading. If chunking lands, this
+// call site should reuse the same range-splitting helper as chain.ts's
+// two call sites, just driving it through alchemyRpc below instead of
+// chain.ts's rpcCall.
 async function computeSnapshot(): Promise<CollectionSnapshot> {
   const logs = await alchemyRpc<RpcLog[]>("eth_getLogs", [
     {
@@ -160,13 +178,13 @@ async function computeSnapshot(): Promise<CollectionSnapshot> {
   return { ownerOfToken, acquiredAtMs, tokensByOwner, topHolder };
 }
 
-export async function getCollectionSnapshot(): Promise<CollectionSnapshot> {
-  const cached = cacheHolder.__h00dchanCollectionSnapshotCache;
-  if (cached && Date.now() - cached.at < CACHE_MS) return cached.value;
-
-  // In-flight de-dup: a burst of concurrent requests during a cold cache
-  // must not each trigger their own full log scan (same class of bug as
-  // the original homepage TTFB spike this session already fixed once).
+// In-flight de-dup: a burst of concurrent requests that all need to
+// actually wait (no cache yet) must not each trigger their own full log
+// scan (same class of bug as the original homepage TTFB spike this
+// session already fixed once). Also reused by refreshInBackground() below
+// so a background refresh and a genuinely-waiting caller share one scan
+// instead of racing two.
+function recomputeSnapshot(): Promise<CollectionSnapshot> {
   if (cacheHolder.__h00dchanCollectionSnapshotPromise) {
     return cacheHolder.__h00dchanCollectionSnapshotPromise;
   }
@@ -183,6 +201,39 @@ export async function getCollectionSnapshot(): Promise<CollectionSnapshot> {
     });
   cacheHolder.__h00dchanCollectionSnapshotPromise = promise;
   return promise;
+}
+
+// Same reasoning as lib/leaderboard.ts's refreshInBackground(): a flag
+// (not just the in-flight promise) guards against stacking up redundant
+// after() callbacks from every request that lands while a stale cache is
+// being refreshed.
+function refreshInBackground(): void {
+  if (cacheHolder.__h00dchanCollectionSnapshotRefreshing) return;
+  cacheHolder.__h00dchanCollectionSnapshotRefreshing = true;
+  after(async () => {
+    try {
+      await recomputeSnapshot();
+    } catch (err) {
+      console.error("Collection snapshot background refresh failed", err);
+    } finally {
+      cacheHolder.__h00dchanCollectionSnapshotRefreshing = false;
+    }
+  });
+}
+
+export async function getCollectionSnapshot(): Promise<CollectionSnapshot> {
+  const cached = cacheHolder.__h00dchanCollectionSnapshotCache;
+  if (cached) {
+    // Stale-while-revalidate: the cached value (however old) is returned
+    // immediately; a background scan only fires once it's past CACHE_MS,
+    // and never blocks this response.
+    if (Date.now() - cached.at >= CACHE_MS) refreshInBackground();
+    return cached.value;
+  }
+
+  // No cache anywhere (first-ever call on this instance) - only path a
+  // real request actually waits on the full scan.
+  return recomputeSnapshot();
 }
 
 // Weeks the current owner has held a token, floored - used by

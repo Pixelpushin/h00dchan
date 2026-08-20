@@ -140,15 +140,6 @@ export async function sendTransaction(
   return response.hash;
 }
 
-// Synchronous read of whatever AppKit already knows about the current
-// session (it persists connection state itself across reloads).
-export function getConnectedAddress(): string | null {
-  if (typeof window === "undefined") return null;
-  const modal = getAppKit();
-  const account = modal.getAccount();
-  return account?.isConnected && account.address ? account.address : null;
-}
-
 // Fires whenever AppKit's connected account changes - covers both a
 // same-provider account switch and a full disconnect (empty array), same
 // contract as the old `accountsChanged` EIP-1193 event this replaces.

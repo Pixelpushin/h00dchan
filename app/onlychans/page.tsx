@@ -139,7 +139,7 @@ export default function OnlyChansPage() {
                 : "Connect Wallet"}
           </button>
           {(connectError || error) && (
-            <p className="text-sm" style={{ color: "#a12b2b" }}>
+            <p className="text-sm" style={{ color: "var(--hc-danger)" }}>
               {connectError ?? error}
             </p>
           )}
@@ -164,7 +164,10 @@ export default function OnlyChansPage() {
 
         {loading && <p className="text-center">Loading...</p>}
         {error && (
-          <p className="text-sm text-center" style={{ color: "#a12b2b" }}>
+          <p
+            className="text-sm text-center"
+            style={{ color: "var(--hc-danger)" }}
+          >
             {error}
           </p>
         )}

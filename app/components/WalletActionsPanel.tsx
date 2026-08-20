@@ -349,7 +349,7 @@ export function WalletActionsPanel({
             </p>
           )}
           {ensStatus === "error" && ensError && (
-            <p className="text-xs" style={{ color: "#a12b2b" }}>
+            <p className="text-xs" style={{ color: "var(--hc-danger)" }}>
               {ensError}
             </p>
           )}
@@ -372,7 +372,7 @@ export function WalletActionsPanel({
         </p>
       )}
       {error && (
-        <p className="text-xs" style={{ color: "#a12b2b" }}>
+        <p className="text-xs" style={{ color: "var(--hc-danger)" }}>
           {error}
         </p>
       )}

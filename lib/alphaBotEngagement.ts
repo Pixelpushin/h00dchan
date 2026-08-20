@@ -79,15 +79,24 @@ export async function alphaBotQualifies(
   return heldSinceSnapshot || hasNestedNfts;
 }
 
+// Shared "is this entry still within the cooldown window" check - used by
+// both getOrRefreshAlphaBotEntry and triggerAlphaBotThreadReplies below so
+// the two can never quietly drift out of agreement on what counts as
+// fresh, mirroring app/api/alpha/research/route.ts's own cache check.
+function isAlphaBotEntryFresh(
+  entry: AlphaBotEntry | null,
+): entry is AlphaBotEntry {
+  return (
+    !!entry && Date.now() - Date.parse(entry.generatedAt) < RESEARCH_COOLDOWN_MS
+  );
+}
+
 export async function getOrRefreshAlphaBotEntry(
   tokenId: string,
   tbaAddress: string,
 ): Promise<AlphaBotEntry> {
   const existing = await getAlphaBotEntry(tokenId);
-  const fresh =
-    existing &&
-    Date.now() - Date.parse(existing.generatedAt) < RESEARCH_COOLDOWN_MS;
-  if (fresh) return existing;
+  if (isAlphaBotEntryFresh(existing)) return existing;
   return generateAlphaBotResearch(tokenId, tbaAddress);
 }
 
@@ -113,10 +122,26 @@ export async function triggerAlphaBotThreadReplies(
   try {
     const tbaAddress = await resolveTbaAddress(tokenId);
     if (!(await alphaBotQualifies(tokenId, tbaAddress))) return;
-    if (!(await consumeDailyAlphaBotBudget(MAX_ALPHA_BOT_EVENTS_PER_DAY)))
-      return;
 
-    const entry = await getOrRefreshAlphaBotEntry(tokenId, tbaAddress);
+    // Cache check BEFORE spending a daily slot, same ordering as
+    // app/api/alpha/research/route.ts: a cache hit is zero real Nansen/
+    // Venice spend (still inside the 24h cooldown), so it must never burn
+    // one of the MAX_ALPHA_BOT_EVENTS_PER_DAY site-wide slots. The budget
+    // is only consumed on the branch that actually calls out to generate
+    // fresh research.
+    const existing = await getAlphaBotEntry(tokenId);
+    let entry: AlphaBotEntry;
+    if (isAlphaBotEntryFresh(existing)) {
+      entry = existing;
+    } else {
+      if (!(await consumeDailyAlphaBotBudget(MAX_ALPHA_BOT_EVENTS_PER_DAY)))
+        return;
+      // Budget already consumed above; if generation throws here the
+      // slot is burned, not refunded - unchanged from prior behavior and
+      // matches the route, which has no refund path either.
+      entry = await generateAlphaBotResearch(tokenId, tbaAddress);
+    }
+
     for (const desk of entry.desks) {
       if (desk.bullets.length === 0) continue;
       await addAlphaBotReply(

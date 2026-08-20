@@ -124,9 +124,15 @@ const TOP_HOLDER_XP = 50;
 
 // Nested holding - a HOODCHAN token's own token-bound wallet holding
 // OTHER HOODCHAN tokens inside it. A recursive flex unique to this
-// project's own TBA infra - naturally self-limiting (bounded by the
-// collection's own size), so no cap needed.
+// project's own TBA infra. Capped for the exact same reason as the
+// collector bonus above, using the same proportions (5 counted tokens):
+// left uncapped, one wallet nesting most of the collection (~1197 tokens
+// observed live) into a single token-bound wallet earned ~35,910 XP -
+// ~350x the collector's own 100 XP ceiling - despite Brady's explicit ask
+// that no wallet be unbeatable via holding count applying just as much to
+// nested holding as it does to plain collecting.
 const NESTED_HOLDING_XP_PER_TOKEN = 30;
+const NESTED_HOLDING_MAX_TOKENS = 5;
 
 // Flat 100 XP per level - simple to reason about, easy to re-tune later
 // without touching anything else (every level number is derived from this
@@ -172,7 +178,9 @@ export function computeLevelProgress(input: QuestInput): LevelProgress {
     Math.min(input.extraCollectionTokens, COLLECTOR_MAX_EXTRA_TOKENS) *
     COLLECTOR_XP_PER_EXTRA_TOKEN;
   const topHolderXp = input.isTopHolder ? TOP_HOLDER_XP : 0;
-  const nestedXp = input.nestedHoldingCount * NESTED_HOLDING_XP_PER_TOKEN;
+  const nestedXp =
+    Math.min(input.nestedHoldingCount, NESTED_HOLDING_MAX_TOKENS) *
+    NESTED_HOLDING_XP_PER_TOKEN;
 
   const breakdown: XpBreakdown = {
     milestoneXp,

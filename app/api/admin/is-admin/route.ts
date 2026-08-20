@@ -5,12 +5,11 @@
 // false for the one address the caller already controls, never returns
 // the whitelist itself, so it's safe to leave unauthenticated.
 import { NextRequest, NextResponse } from "next/server";
+import { ADDRESS_PATTERN } from "@/lib/address";
 import { isAdminAddress } from "@/lib/adminAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
 
 export async function GET(request: NextRequest) {
   const address = request.nextUrl.searchParams.get("address") ?? "";

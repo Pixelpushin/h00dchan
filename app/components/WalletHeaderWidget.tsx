@@ -135,11 +135,11 @@ export function WalletHeaderWidget() {
   // claimed/activated status - the trigger button's whole state machine
   // (gear icon "you don't hold one" vs. bright "Activate") hinges on this,
   // not just on whether a persona happens to be active. null while loading
-  // (or once no address at all) - the button defaults to the "Activate"
-  // urgent state during that brief window rather than "no NFT," since most
-  // connected wallets in this holder-only app DO hold one, and flashing
-  // the wrong state for the common case is worse than a half-second of an
-  // optimistic default.
+  // (or once no address at all) - hasUnactivatedTokens below requires both
+  // ownedTokenCount and myClaimedCount to be non-null, so the button does
+  // NOT jump to the urgent "Activate" state while loading; it falls
+  // through to whichever of the other states (avatar/pill/truncated
+  // address) already applies until both counts resolve.
   //
   // ownedTokenCount/myClaimedCount come from lib/useMyTokens.ts's shared
   // cache, not a local fetch - a real bug reported live: this component

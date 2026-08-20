@@ -161,7 +161,7 @@ export function AlphaResearchPanel({
         </p>
       )}
       {error && (
-        <p className="text-xs mt-2" style={{ color: "#a12b2b" }}>
+        <p className="text-xs mt-2" style={{ color: "var(--hc-danger)" }}>
           {error}
         </p>
       )}

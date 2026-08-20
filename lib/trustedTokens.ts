@@ -42,10 +42,6 @@ const TRUSTED_NFT_SET = new Set(
   TRUSTED_NFT_COLLECTIONS.map((address) => address.toLowerCase()),
 );
 
-export function trustedSymbolFor(address: string): string | null {
-  return TRUSTED_BY_ADDRESS.get(address.toLowerCase()) ?? null;
-}
-
 export function isTrustedToken(address: string): boolean {
   return TRUSTED_BY_ADDRESS.has(address.toLowerCase());
 }

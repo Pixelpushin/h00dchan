@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { verifyPersonaClaim } from "@/lib/auth-server";
-import { checkWriteRateLimit } from "@/lib/rate-limit";
+import {
+  checkWriteIpRateLimit,
+  consumeVerifiedWriteBudget,
+} from "@/lib/rate-limit";
 import { createThread, listThreads, markTokenClaimed } from "@/lib/store";
 import { triggerAiThread } from "@/lib/aiEngagement";
 import { triggerAlphaBotThreadReplies } from "@/lib/alphaBotEngagement";
@@ -85,16 +88,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Cheapest-possible rejection before the crypto/RPC work in
-  // verifyPersonaClaim - see lib/rate-limit.ts for why this matters even
-  // for requests carrying a well-formed signature.
-  const rate = checkWriteRateLimit(request, address, tokenId);
-  if (!rate.allowed) {
+  // Layer 1 (pre-verify): cheapest-possible rejection before the crypto/RPC
+  // work in verifyPersonaClaim - see lib/rate-limit.ts for why this matters
+  // even for requests carrying a well-formed signature. IP-only on purpose:
+  // address/tokenId here are still unverified, client-supplied values, so
+  // keying budget on them at this point would let anyone burn a victim's
+  // budget just by naming the victim's address in the request body - no
+  // signature required. IP is the only dimension available this early that
+  // isn't spoofable by the request body itself.
+  const ipRate = checkWriteIpRateLimit(request);
+  if (!ipRate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please slow down." },
       {
         status: 429,
-        headers: { "Retry-After": String(rate.retryAfterSeconds) },
+        headers: { "Retry-After": String(ipRate.retryAfterSeconds) },
       },
     );
   }
@@ -113,6 +121,24 @@ export async function POST(request: NextRequest) {
         code: verification.code,
       },
       { status: 403 },
+    );
+  }
+
+  // Layer 2 (post-verify): only reached once verifyPersonaClaim has
+  // confirmed `address` really signed this claim AND currently owns
+  // `tokenId` on-chain, so it's now safe to spend this identity's own
+  // budget - nobody but the real holder can ever reach this line for their
+  // address/token. Checked AFTER verification (not before, like the IP
+  // layer) specifically so an unverified requester can never drain a
+  // victim's address/token budget.
+  const identityRate = consumeVerifiedWriteBudget(address, tokenId);
+  if (!identityRate.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(identityRate.retryAfterSeconds) },
+      },
     );
   }
 

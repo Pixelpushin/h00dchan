@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { verifyPersonaClaim } from "@/lib/auth-server";
-import { checkWriteRateLimit } from "@/lib/rate-limit";
+import {
+  checkWriteIpRateLimit,
+  consumeVerifiedWriteBudget,
+} from "@/lib/rate-limit";
 import { addReply, getThread, listPosts, markTokenClaimed } from "@/lib/store";
 import { triggerAiReply } from "@/lib/aiEngagement";
 import { triggerAlphaBotFollowUp } from "@/lib/alphaBotEngagement";
@@ -80,13 +83,18 @@ export async function POST(
     );
   }
 
-  const rate = checkWriteRateLimit(request, address, tokenId);
-  if (!rate.allowed) {
+  // Layer 1 (pre-verify, IP-only) then layer 2 (post-verify, address/token)
+  // - see app/api/threads/route.ts for the full reasoning. Short version:
+  // address/tokenId are still unverified client input at this point, so an
+  // IP-only check is the only thing safe to consume before
+  // verifyPersonaClaim proves who's actually asking.
+  const ipRate = checkWriteIpRateLimit(request);
+  if (!ipRate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please slow down." },
       {
         status: 429,
-        headers: { "Retry-After": String(rate.retryAfterSeconds) },
+        headers: { "Retry-After": String(ipRate.retryAfterSeconds) },
       },
     );
   }
@@ -105,6 +113,20 @@ export async function POST(
         code: verification.code,
       },
       { status: 403 },
+    );
+  }
+
+  // Only spend this address/token's own budget once verifyPersonaClaim has
+  // confirmed the caller actually controls it - see
+  // app/api/threads/route.ts for the full reasoning.
+  const identityRate = consumeVerifiedWriteBudget(address, tokenId);
+  if (!identityRate.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(identityRate.retryAfterSeconds) },
+      },
     );
   }
 
