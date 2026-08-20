@@ -152,12 +152,17 @@ export function WhatIsHoodchan() {
             rug pulls here. Keep your hentai somewhere else.
           </p>
           <p>
-            Also: h00dchan isn&apos;t run by the HOODCHAN team, and its builder
-            wasn&apos;t involved in launching the HOODCHAN token or collection
-            in any way. It&apos;s an independent community project - a fan and
-            longtime holder who knows the artists, believes in them, and built
-            this in his spare time as a form of patronage, nothing more official
-            than that. If you want the actual source - the artist, the
+            <strong>This is a fan-made website.</strong> h00dchan has nothing to
+            do with the team behind the HOODCHAN NFT collection or any token
+            associated with it — they don&apos;t run this site, didn&apos;t
+            build it, and aren&apos;t responsible for it.
+          </p>
+          <p>
+            I just liked the collection, so I bought some of the NFTs. I do give
+            the team a bit of feedback and help out with community stuff here
+            and there, but this site itself is something I built on my own, in
+            my spare time — a form of patronage, not an official arm of the
+            project. If you want the actual official source - the artist, the
             generative tools, the tier list, all of it - that&apos;s over at{" "}
             <a
               href="https://www.hoodchan.website/"
