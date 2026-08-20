@@ -7,11 +7,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { ADDRESS_PATTERN } from "@/lib/address";
 import { fetchOpenSeaCollection } from "@/lib/opensea";
 import { verifyAdPayment } from "@/lib/adPayment";
+import { verifyAdSubmissionSignature } from "@/lib/adAuth";
 import {
   createAdSubmission,
   isTxHashUsed,
   listActiveAds,
   markTxHashUsed,
+  unmarkTxHashUsed,
 } from "@/lib/adStore";
 import { findAdPrice } from "@/lib/adConfig";
 import { checkSignalsRateLimit } from "@/lib/rate-limit";
@@ -51,14 +53,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { openseaUrl, txHash, tokenSymbol, submitterAddress } = (payload ??
-    {}) as Record<string, unknown>;
+  const {
+    openseaUrl,
+    txHash,
+    tokenSymbol,
+    submitterAddress,
+    signature,
+    issuedAt,
+  } = (payload ?? {}) as Record<string, unknown>;
 
   if (
     typeof openseaUrl !== "string" ||
     typeof txHash !== "string" ||
     typeof tokenSymbol !== "string" ||
-    typeof submitterAddress !== "string"
+    typeof submitterAddress !== "string" ||
+    typeof signature !== "string" ||
+    typeof issuedAt !== "string"
   ) {
     return NextResponse.json(
       { error: "Missing or invalid fields." },
@@ -76,6 +86,24 @@ export async function POST(request: NextRequest) {
       { error: `${tokenSymbol} is not an accepted token.` },
       { status: 400 },
     );
+  }
+
+  // The actual fix for a real theft vector: verifyAdPayment below only
+  // proves the on-chain tx's sender matches `submitterAddress` - it can't
+  // prove THIS request came from that address's owner, since treasury
+  // payments are public and submitterAddress was otherwise just a client-
+  // supplied string. A signature over the exact (txHash, submitterAddress)
+  // pair proves the caller controls that wallet's private key - checked
+  // first, before any RPC/OpenSea calls, so an unauthenticated attempt
+  // never gets far enough to matter.
+  const authResult = verifyAdSubmissionSignature({
+    txHash,
+    submitterAddress,
+    signature,
+    issuedAt,
+  });
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.reason }, { status: 401 });
   }
 
   // Cheap pre-check only, for UX (fail fast before the RPC/OpenSea calls
@@ -118,15 +146,27 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const ad = await createAdSubmission({
-    openseaUrl: collectionResult.collection.openseaUrl,
-    name: collectionResult.collection.name,
-    imageUrl: collectionResult.collection.imageUrl,
-    avatarUrl: collectionResult.collection.avatarUrl,
-    submitterAddress,
-    tokenSymbol,
-    txHash,
-  });
-
-  return NextResponse.json({ ad }, { status: 201 });
+  // If persisting the ad fails after the txHash was already claimed above,
+  // roll the claim back - otherwise a transient Redis write hiccup would
+  // permanently burn a real payment with no ad ever created (the same
+  // txHash retried later would just 409 forever).
+  try {
+    const ad = await createAdSubmission({
+      openseaUrl: collectionResult.collection.openseaUrl,
+      name: collectionResult.collection.name,
+      imageUrl: collectionResult.collection.imageUrl,
+      avatarUrl: collectionResult.collection.avatarUrl,
+      submitterAddress,
+      tokenSymbol,
+      txHash,
+    });
+    return NextResponse.json({ ad }, { status: 201 });
+  } catch (error) {
+    console.error(`Failed to persist ad submission for tx ${txHash}`, error);
+    await unmarkTxHashUsed(txHash);
+    return NextResponse.json(
+      { error: "Unable to save your submission right now - please try again." },
+      { status: 500 },
+    );
+  }
 }

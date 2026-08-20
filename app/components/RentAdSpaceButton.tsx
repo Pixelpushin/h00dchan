@@ -16,7 +16,8 @@
 import { useCallback, useState } from "react";
 import { Interface, parseEther, parseUnits } from "ethers";
 import { useWalletAddress } from "@/lib/useWalletAddress";
-import { connectWallet, sendTransaction } from "@/lib/wallet";
+import { connectWallet, sendTransaction, signMessage } from "@/lib/wallet";
+import { buildAdSubmissionAuthMessage } from "@/lib/adMessage";
 import {
   AD_PRICE_TABLE,
   AD_SLOT_DAYS,
@@ -94,6 +95,19 @@ export function RentAdSpaceButton() {
       setStage("submitting");
       setError(null);
       try {
+        // Proves this browser controls submitterAddress's private key -
+        // the actual fix for a real theft vector (see lib/adMessage.ts's
+        // comment): without this, anyone who saw the on-chain payment could
+        // submit their own ad using the real payer's address and steal the
+        // slot. One extra wallet prompt right after the payment prompt.
+        const issuedAt = new Date().toISOString();
+        const message = buildAdSubmissionAuthMessage(
+          txHash,
+          submitterAddress,
+          issuedAt,
+        );
+        const signature = await signMessage(submitterAddress, message);
+
         const res = await fetch("/api/ads", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -102,6 +116,8 @@ export function RentAdSpaceButton() {
             txHash,
             tokenSymbol,
             submitterAddress,
+            signature,
+            issuedAt,
           }),
         });
         const body = await res.json().catch(() => null);

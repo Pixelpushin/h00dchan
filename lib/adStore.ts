@@ -66,6 +66,18 @@ export async function markTxHashUsed(txHash: string): Promise<boolean> {
   return added === 1;
 }
 
+// Compensating action for a real edge case: the caller that wins
+// markTxHashUsed's race still has to persist the ad submission afterward
+// (a separate Redis write) - if THAT fails, the txHash would otherwise stay
+// permanently burned with no ad ever created, turning "the write hiccuped"
+// into "this payment can never be submitted again." Only ever call this
+// immediately after a markTxHashUsed(txHash) that returned true and the
+// following createAdSubmission then failed - never call it speculatively,
+// since that would reopen the exact race markTxHashUsed exists to close.
+export async function unmarkTxHashUsed(txHash: string): Promise<void> {
+  await redisCommand("SREM", USED_TX_HASHES_KEY, txHash.toLowerCase());
+}
+
 export async function createAdSubmission(
   input: Omit<AdSubmission, "id" | "status" | "createdAt" | "expiresAt">,
 ): Promise<AdSubmission> {
