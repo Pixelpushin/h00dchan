@@ -34,17 +34,6 @@ interface TbaInfo {
   activated: boolean;
 }
 
-async function fetchClaimedStatus(tokenId: string): Promise<boolean> {
-  try {
-    const res = await fetch(`/api/claim?tokenId=${tokenId}`);
-    if (!res.ok) return false;
-    const data = (await res.json()) as { claimed?: boolean };
-    return data.claimed === true;
-  } catch {
-    return false;
-  }
-}
-
 type LoadState = "idle" | "loading-tokens" | "ready" | "error";
 
 async function fetchTokenMetadataViaApi(
@@ -194,19 +183,32 @@ export default function CollectionPage() {
           ...(walletBody.levels ?? {}),
         };
 
-        const [metadata, claimedFlags] = await Promise.all([
-          Promise.all(tokenIds.map((id) => fetchTokenMetadataViaApi(id))),
-          Promise.all(tokenIds.map((id) => fetchClaimedStatus(id))),
-        ]);
+        const metadata = await Promise.all(
+          tokenIds.map((id) => fetchTokenMetadataViaApi(id)),
+        );
         if (latestOwnerRef.current !== owner) return;
 
         const resolved = metadata
           .filter((m): m is TokenMetadata => m !== null)
           .sort((a, b) => Number(a.tokenId) - Number(b.tokenId));
         setTokens(resolved);
+        // /api/wallet-tokens already recomputes claimed status per token
+        // server-side (on-chain-reverified, see route.ts) - derive from its
+        // claimedTokenIds field instead of firing one redundant
+        // /api/claim?tokenId=X per owned token here. Both sides are
+        // string tokenIds already (TokenMetadata.tokenId is always
+        // String(tokenId) - lib/chain.ts - and wallet-tokens' tokenIds/
+        // claimedTokenIds are built from that same string array), but
+        // normalize with String() anyway so a future numeric tokenId
+        // on either side can't silently break the Set lookup.
+        const claimedIdSet = new Set(
+          ((walletBody.claimedTokenIds as Array<string | number>) ?? []).map(
+            (id) => String(id),
+          ),
+        );
         const claimedMap: Record<string, boolean> = {};
-        tokenIds.forEach((id, i) => {
-          if (claimedFlags[i]) claimedMap[id] = true;
+        tokenIds.forEach((id) => {
+          if (claimedIdSet.has(String(id))) claimedMap[id] = true;
         });
         setWallets(walletMap);
         setClaimedTokens(claimedMap);
