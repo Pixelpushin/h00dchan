@@ -20,6 +20,11 @@ const SECTIONS = [
     label: "Costs",
     desc: "Every paid API/service this app depends on, and what it costs.",
   },
+  {
+    href: "/admin/registry",
+    label: "CircleJerkFinance registry",
+    desc: "Remove garbage/scam listings from the community asset registry.",
+  },
 ];
 
 export default function AdminHubPage() {

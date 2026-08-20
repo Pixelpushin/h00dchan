@@ -35,6 +35,7 @@ export function SiteHeader() {
           <Link href="/collection">collection</Link>
           <Link href="/wallet">wallet</Link>
           <Link href="/alpha">alpha</Link>
+          <Link href="/CircleJerkFinance">circlejerkfinance</Link>
           <Link href="/leaderboard">leaderboard</Link>
           <Link href="/developers">developers</Link>
           <a

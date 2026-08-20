@@ -45,6 +45,14 @@ const ENDPOINTS: Endpoint[] = [
     summary: "Which HOODCHAN tokens a given address currently holds.",
     example: "curl https://www.hoodchan.org/api/v1/wallet/0xYourAddressHere",
   },
+  {
+    method: "GET",
+    path: "/api/v1/registry/holdings/{address}",
+    summary:
+      "Which CircleJerkFinance-listed community projects a given address currently holds - the mutual-whitelist check other community projects integrate against.",
+    example:
+      "curl https://www.hoodchan.org/api/v1/registry/holdings/0xYourAddressHere",
+  },
 ];
 
 export default function DevelopersPage() {
