@@ -29,27 +29,12 @@ interface AssetOption {
   balanceRaw: string;
 }
 
-// Individual-NFT keys are namespaced ("nft:<contract>:<tokenId>") so they
-// can't collide with an ERC-20 contract address ending up in the same flat
-// dropdown by coincidence. ALL_NFTS_KEY is the bulk-send option - "toggle
-// all NFT send or one at a time, same as ERC-20" (there's no bulk option
-// for ERC-20/ETH since you only ever hold one balance per token, but a
-// wallet can hold many distinct NFTs, so bulk is the NFT-specific case
-// that actually needs its own entry).
+// This dropdown only ever offers a bulk "send every NFT" option - sending
+// one individual NFT lives as its own button directly on that NFT's card
+// in WalletHoldingsView instead (reported live as the more intuitive
+// place for it: "add a send button to the individual ones in wallet
+// viewer, send all in dropdown with ERC-20s").
 const ALL_NFTS_KEY = "all-nfts";
-
-function nftKey(nft: WalletNft): string {
-  return `nft:${nft.contractAddress}:${nft.tokenId}`;
-}
-
-function parseNftKey(
-  key: string,
-): { contractAddress: string; tokenId: string } | null {
-  if (!key.startsWith("nft:")) return null;
-  const [, contractAddress, tokenId] = key.split(":");
-  if (!contractAddress || !tokenId) return null;
-  return { contractAddress, tokenId };
-}
 
 type EnsStatus = "idle" | "loading" | "resolved" | "error";
 
@@ -134,6 +119,15 @@ export function WalletActionsPanel({
   const [assetKey, setAssetKey] = useState("eth");
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
+  // NFTs are indivisible (no "amount" - always exactly one of everything
+  // held), so the amount input only makes sense for ETH/ERC-20. Clearing
+  // it on switch avoids a stale value lingering in state for no reason
+  // once it's hidden.
+  const isNftSelection = assetKey === ALL_NFTS_KEY;
+  function handleAssetKeyChange(next: string) {
+    setAssetKey(next);
+    if (next === ALL_NFTS_KEY) setAmount("");
+  }
 
   // Resolution results are keyed by the exact recipient text they were
   // resolved/errored for (ensResolvedFor / ensErrorFor), and ensStatus below
@@ -264,6 +258,34 @@ export function WalletActionsPanel({
         throw new Error("Enter a valid recipient address or ENS name.");
       }
 
+      // Bulk NFT send - "toggle all NFT send or one at a time." No batching
+      // primitive exists for a TBA's execute() (unlike claim, which can
+      // authorize many tokenIds under one signed message), so this is a
+      // sequential loop: one on-chain tx, one wallet confirmation, per NFT.
+      if (assetKey === ALL_NFTS_KEY) {
+        if (nfts.length === 0) throw new Error("No NFTs to send.");
+        let lastHash: string | null = null;
+        for (let i = 0; i < nfts.length; i++) {
+          const nft = nfts[i];
+          setStatus(
+            `Confirm sending ${i + 1} of ${nfts.length} in your wallet...`,
+          );
+          const tx = buildSendNftTx(
+            tbaAddress,
+            nft.contractAddress,
+            nft.tokenId,
+            targetAddress,
+          );
+          lastHash = await sendTransaction(account, tx);
+        }
+        setTxHash(lastHash);
+        setStatus(
+          `Sent all ${nfts.length} NFTs - waiting for confirmation on-chain.`,
+        );
+        setRecipient("");
+        return;
+      }
+
       const asset = assets.find((a) => a.key === assetKey);
       if (!asset) throw new Error("Pick an asset to send.");
 
@@ -338,24 +360,39 @@ export function WalletActionsPanel({
         <form className="flex flex-col gap-2" onSubmit={handleSend}>
           <div className="flex flex-col sm:flex-row gap-2">
             <select
-              className="hc-form-input"
-              value={assetKey}
-              onChange={(e) => setAssetKey(e.target.value)}
-            >
-              {assets.map((asset) => (
-                <option key={asset.key} value={asset.key}>
-                  {asset.label}
-                </option>
-              ))}
-            </select>
-            <input
               className="hc-form-input flex-1"
-              placeholder="amount"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              inputMode="decimal"
-            />
+              value={assetKey}
+              onChange={(e) => handleAssetKeyChange(e.target.value)}
+            >
+              <optgroup label="Tokens">
+                {assets.map((asset) => (
+                  <option key={asset.key} value={asset.key}>
+                    {asset.label}
+                  </option>
+                ))}
+              </optgroup>
+              {nfts.length > 0 && (
+                <optgroup label="NFTs">
+                  <option value={ALL_NFTS_KEY}>All NFTs ({nfts.length})</option>
+                </optgroup>
+              )}
+            </select>
+            {!isNftSelection && (
+              <input
+                className="hc-form-input flex-1"
+                placeholder="amount"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                inputMode="decimal"
+              />
+            )}
           </div>
+          {assetKey === ALL_NFTS_KEY && (
+            <p className="hc-thread-meta text-xs">
+              Sends every NFT in this wallet, one at a time - your wallet will
+              ask you to confirm each one separately ({nfts.length} total).
+            </p>
+          )}
           <input
             className="hc-form-input"
             placeholder="recipient address (0x...) or ENS name"

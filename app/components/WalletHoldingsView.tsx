@@ -8,9 +8,14 @@
 // counterfactual TBA that's never been activated, can already receive
 // arbitrary junk NFTs/tokens sent by anyone - the toggle exists for anyone
 // who wants to see everything anyway.
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { isAddress } from "ethers";
 import { isTrustedNftCollection, isTrustedToken } from "@/lib/trustedTokens";
-import type { WalletHoldings } from "@/lib/alchemy";
+import type { WalletHoldings, WalletNft } from "@/lib/alchemy";
+import { connectWallet, sendTransaction } from "@/lib/wallet";
+import { useWalletAddress } from "@/lib/useWalletAddress";
+import { buildSendNftTx } from "@/lib/tba";
+import { readOwnerOf, BLOCK_EXPLORER_URL } from "@/lib/chain";
 
 function truncateAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -29,13 +34,100 @@ function formatTokenAmount(rawBalance: string, decimals: number): string {
 }
 
 export function WalletHoldingsView({
+  tokenId,
+  tbaAddress,
   nfts,
   tokenBalances,
 }: {
+  tokenId: string;
+  tbaAddress: string;
   nfts: WalletHoldings["nfts"];
   tokenBalances: WalletHoldings["tokenBalances"];
 }) {
   const [showAll, setShowAll] = useState(false);
+
+  // Same ownership check as WalletActionsPanel, independently - this
+  // component is the one that actually renders the per-NFT send button,
+  // and it needs to know locally whether the connected wallet is even
+  // allowed to send before showing one. Duplicated rather than threaded
+  // down as a prop from a sibling component, so each panel stays a
+  // self-contained unit (matches this file's own existing convention of
+  // being independently usable, not coupled to WalletActionsPanel's
+  // internal state).
+  const connectedAddress = useWalletAddress();
+  const [ownerAddress, setOwnerAddress] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    readOwnerOf(tokenId)
+      .then((owner) => {
+        if (!cancelled) setOwnerAddress(owner);
+      })
+      .catch(() => {
+        if (!cancelled) setOwnerAddress(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tokenId]);
+  const canSend =
+    !!connectedAddress &&
+    !!ownerAddress &&
+    connectedAddress.toLowerCase() === ownerAddress.toLowerCase();
+
+  const [sendingNft, setSendingNft] = useState<WalletNft | null>(null);
+  const [sendRecipient, setSendRecipient] = useState("");
+  const [sendBusy, setSendBusy] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendStatus, setSendStatus] = useState<string | null>(null);
+  const [sendTxHash, setSendTxHash] = useState<string | null>(null);
+
+  function openSendModal(nft: WalletNft) {
+    setSendingNft(nft);
+    setSendRecipient("");
+    setSendError(null);
+    setSendStatus(null);
+    setSendTxHash(null);
+  }
+
+  function closeSendModal() {
+    if (sendBusy) return; // don't let a stray click close mid-send
+    setSendingNft(null);
+  }
+
+  async function handleSendNft(e: React.FormEvent) {
+    e.preventDefault();
+    if (!sendingNft) return;
+    const trimmed = sendRecipient.trim();
+    if (!isAddress(trimmed)) {
+      setSendError("Enter a valid recipient address.");
+      return;
+    }
+    setSendError(null);
+    setSendStatus(null);
+    setSendBusy(true);
+    try {
+      const account = await connectWallet();
+      if (account.toLowerCase() !== ownerAddress?.toLowerCase()) {
+        throw new Error(
+          "Connected wallet doesn't currently own this anon - switch wallets and try again.",
+        );
+      }
+      setSendStatus("Confirm the send in your wallet...");
+      const tx = buildSendNftTx(
+        tbaAddress,
+        sendingNft.contractAddress,
+        sendingNft.tokenId,
+        trimmed,
+      );
+      const hash = await sendTransaction(account, tx);
+      setSendTxHash(hash);
+      setSendStatus("Sent - waiting for confirmation on-chain.");
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Send failed.");
+    } finally {
+      setSendBusy(false);
+    }
+  }
 
   const trustedNfts = nfts.filter((nft) =>
     isTrustedNftCollection(nft.contractAddress),
@@ -107,6 +199,15 @@ export function WalletHoldingsView({
                 <div className="p-1.5 text-center hc-thread-meta text-[0.65rem] truncate">
                   {nft.name ?? `#${nft.tokenId}`}
                 </div>
+                {canSend && (
+                  <button
+                    type="button"
+                    className="hc-button-ghost hc-button w-full text-[0.65rem] py-1"
+                    onClick={() => openSendModal(nft)}
+                  >
+                    Send
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -147,6 +248,86 @@ export function WalletHoldingsView({
           </div>
         )}
       </div>
+
+      {sendingNft && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+          onClick={closeSendModal}
+        >
+          <div
+            className="hc-box w-full max-w-xs p-4 flex flex-col gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {sendingNft.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={sendingNft.imageUrl}
+                alt={sendingNft.name ?? sendingNft.tokenId}
+                className="w-full aspect-square object-cover rounded"
+              />
+            ) : (
+              <div
+                className="w-full aspect-square rounded"
+                style={{ background: "var(--hc-box-alt)" }}
+              />
+            )}
+            <div className="text-sm font-bold">
+              {sendingNft.name ?? `#${sendingNft.tokenId}`}
+            </div>
+            <form className="flex flex-col gap-2" onSubmit={handleSendNft}>
+              <input
+                className="hc-form-input"
+                placeholder="to (0x...)"
+                value={sendRecipient}
+                onChange={(e) => setSendRecipient(e.target.value)}
+                disabled={sendBusy}
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  className="hc-button-urgent flex-1 text-sm"
+                  disabled={sendBusy}
+                >
+                  {sendBusy ? "Working..." : "send"}
+                </button>
+                <button
+                  type="button"
+                  className="hc-button-ghost hc-button flex-1 text-sm"
+                  onClick={closeSendModal}
+                  disabled={sendBusy}
+                >
+                  cancel
+                </button>
+              </div>
+            </form>
+            {sendStatus && (
+              <p
+                className="hc-thread-meta text-xs"
+                style={{ color: "var(--hc-greentext)" }}
+              >
+                {sendStatus}
+              </p>
+            )}
+            {sendError && (
+              <p className="text-xs" style={{ color: "var(--hc-danger)" }}>
+                {sendError}
+              </p>
+            )}
+            {sendTxHash && (
+              <a
+                href={`${BLOCK_EXPLORER_URL}/tx/${sendTxHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hc-link text-xs font-mono break-all"
+              >
+                view transaction
+              </a>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }

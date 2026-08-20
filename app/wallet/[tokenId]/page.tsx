@@ -378,6 +378,8 @@ export default async function WalletPage({
             />
 
             <WalletHoldingsView
+              tokenId={tokenId}
+              tbaAddress={tbaAddress}
               nfts={holdings.nfts}
               tokenBalances={holdings.tokenBalances}
             />
