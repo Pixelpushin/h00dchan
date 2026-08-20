@@ -9,7 +9,10 @@
 // app/api/threads/route.ts, just without also creating a post.
 import { NextRequest, NextResponse } from "next/server";
 import { verifyPersonaClaim } from "@/lib/auth-server";
-import { checkWriteRateLimit } from "@/lib/rate-limit";
+import {
+  checkWriteIpRateLimit,
+  consumeVerifiedWriteBudget,
+} from "@/lib/rate-limit";
 import { isTokenClaimed, markTokenClaimed } from "@/lib/store";
 import { isValidTokenId } from "@/lib/persona";
 
@@ -41,13 +44,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const rate = checkWriteRateLimit(request, address, tokenId);
-  if (!rate.allowed) {
+  // Pre-verify: IP-only, since address/tokenId are still just unverified
+  // client input at this point - keying budget on them here is exactly the
+  // griefing gap fixed on the thread/post write routes (anyone can spend a
+  // victim's public address's budget with no signature). See
+  // lib/rate-limit.ts's checkWriteIpRateLimit/consumeVerifiedWriteBudget
+  // comment for the full reasoning.
+  const ipRate = checkWriteIpRateLimit(request);
+  if (!ipRate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please slow down." },
       {
         status: 429,
-        headers: { "Retry-After": String(rate.retryAfterSeconds) },
+        headers: { "Retry-After": String(ipRate.retryAfterSeconds) },
       },
     );
   }
@@ -65,6 +74,20 @@ export async function POST(request: NextRequest) {
         code: verification.code,
       },
       { status: 403 },
+    );
+  }
+
+  // Post-verify: address/tokenId are now proven (signature recovered to
+  // address, and address currently owns tokenId), so it's safe to spend
+  // their budget here.
+  const verifiedRate = consumeVerifiedWriteBudget(address, tokenId);
+  if (!verifiedRate.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(verifiedRate.retryAfterSeconds) },
+      },
     );
   }
 

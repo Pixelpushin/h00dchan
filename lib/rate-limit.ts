@@ -6,18 +6,17 @@ import { NextRequest } from "next/server";
 // a fresh budget per instance. The real fix is a Redis-backed fixed-window
 // counter via lib/store.ts's redisCommand (INCR the key, EXPIRE it only on
 // the first increment of the window) instead of the local Maps below. That
-// is NOT done here because it would force checkWriteRateLimit,
-// checkSignalsRateLimit, and checkPublicApiRateLimit to become async (a
-// Redis round trip can't stay synchronous), which breaks every existing
-// call site - none of them currently `await` these calls. As of this
-// writing that's 15 call sites across 15 route files that would all need a
-// same-PR `await` added:
-//   checkWriteRateLimit      - app/api/bio-verify/start/route.ts
-//                             - app/api/alpha/research/route.ts
+// is NOT done here because it would force checkWriteIpRateLimit,
+// consumeVerifiedWriteBudget, checkSignalsRateLimit, and
+// checkPublicApiRateLimit to become async (a Redis round trip can't stay
+// synchronous), which breaks every existing call site - none of them
+// currently `await` these calls. As of this writing:
+//   checkWriteIpRateLimit +   - app/api/threads/route.ts
+//   consumeVerifiedWriteBudget - app/api/threads/[threadId]/posts/route.ts
 //                             - app/api/claim/route.ts
 //                             - app/api/claim/batch/route.ts
-//                             - app/api/threads/route.ts
-//                             - app/api/threads/[threadId]/posts/route.ts
+//                             - app/api/bio-verify/start/route.ts
+//                             - app/api/alpha/research/route.ts
 //   checkSignalsRateLimit    - app/api/ads/route.ts
 //                             - app/api/bio-verify/check/route.ts
 //                             - app/api/signals/route.ts
@@ -27,6 +26,9 @@ import { NextRequest } from "next/server";
 //                             - app/api/v1/collection/route.ts
 //                             - app/api/v1/tokens/route.ts
 //                             - app/api/v1/wallet/[address]/route.ts
+//                             - app/api/wallet-tokens/route.ts
+//                             - app/api/notifications/route.ts (GET + POST)
+//                             - app/api/ens/resolve/route.ts
 // Until someone does that whole sweep in one PR, keep every exported check
 // here synchronous with today's signatures - a half-migrated
 // sync/async split is worse than the current single-instance limitation.
@@ -88,6 +90,15 @@ function consume(
   return { allowed: true, retryAfterSeconds: 0 };
 }
 
+// Known limitation, not fixed here: if neither header is present, every
+// caller falls into one shared "unknown" bucket, so on a deployment where
+// this genuinely happens at any real volume, one caller's traffic can trip
+// every other headerless caller's limit too. Not addressed because it
+// doesn't apply to this app's actual deployment target - Vercel's edge
+// network always sets x-forwarded-for - and there's no reliable per-caller
+// fallback identifier to use instead when both headers are absent. Would
+// need revisiting before deploying anywhere that isn't Vercel (or behind a
+// proxy that doesn't set either header).
 export function getClientIp(request: NextRequest): string {
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) return forwarded.split(",")[0]?.trim() || "unknown";
@@ -109,57 +120,23 @@ const IP_MAX = 20;
 const ADDRESS_MAX = 15;
 const TOKEN_MAX = 10;
 
-export function checkWriteRateLimit(
-  request: NextRequest,
-  address: string,
-  tokenId: string,
-): RateLimitResult {
-  const now = Date.now();
-  prune(ipLimit, now);
-  prune(addressLimit, now);
-  prune(tokenLimit, now);
-
-  const ip = consume(ipLimit, getClientIp(request), IP_MAX, now);
-  if (!ip.allowed) return { ...ip, scope: "ip" };
-
-  const byAddress = consume(
-    addressLimit,
-    address.toLowerCase(),
-    ADDRESS_MAX,
-    now,
-  );
-  if (!byAddress.allowed) return { ...byAddress, scope: "address" };
-
-  const byToken = consume(tokenLimit, tokenId, TOKEN_MAX, now);
-  if (!byToken.allowed) return { ...byToken, scope: "token" };
-
-  return { allowed: true, retryAfterSeconds: 0 };
-}
-
-// Dual-layer pair for routes that want the address/token budget to only be
-// spendable by someone who has actually proven ownership (see
-// app/api/threads/route.ts and app/api/threads/[threadId]/posts/route.ts).
-// checkWriteRateLimit above still keys address/token budget on whatever the
-// request body claims BEFORE verifyPersonaClaim runs, which is exactly the
-// gap this pair closes: a client sends any address it likes, no signature
-// required to spend that address's budget. Splitting it means:
+// Dual-layer pair used by every write route (threads, posts, claim,
+// claim/batch, bio-verify/start, alpha/research). The whole reason this is
+// two functions instead of one combined check: address/tokenId are just
+// unverified client-supplied strings until verifyPersonaClaim (or its
+// batch/bio-verify equivalent) confirms them, so a combined check that
+// consumes address/token budget BEFORE that verification lets anyone spend
+// a victim's budget with no signature at all - fire garbage-signed
+// requests using a victim's public address/tokenId (both visible on-chain)
+// and their real posting budget is gone.
 //   1. checkWriteIpRateLimit runs first, pre-verify, cheap-rejection - it's
-//      IP-only (not spoofable via request body) so it's safe to consume
-//      before proving anything, same as checkWriteRateLimit's IP layer.
-//      Shares the same ipLimit map/budget as checkWriteRateLimit so the IP
-//      dimension stays one consistent budget across every write route.
-//   2. consumeVerifiedWriteBudget runs ONLY after verifyPersonaClaim
-//      returns ok:true, keyed on the address/tokenId that verification just
-//      confirmed the caller actually controls (signature recovery matched
-//      `address`, and a live ownership check confirmed `address` currently
-//      owns `tokenId`) - so an attacker spamming a victim's public address
-//      with no valid signature never reaches this call, and only ever
-//      burns their own IP budget from step 1. Shares the same
-//      addressLimit/tokenLimit maps as checkWriteRateLimit so a token/
-//      address that's already near its budget via one of the routes still
-//      using the pre-verify combined check (bio-verify/start, alpha/
-//      research, claim, claim/batch) doesn't get a second, independent
-//      budget here.
+//      IP-only (not spoofable via request body), so it's safe to consume
+//      before proving anything.
+//   2. consumeVerifiedWriteBudget runs ONLY after verification returns
+//      ok:true, keyed on the address/tokenId verification just confirmed
+//      the caller actually controls - an attacker spamming a victim's
+//      public address with no valid signature never reaches this call, and
+//      only ever burns their own IP budget from step 1.
 export function checkWriteIpRateLimit(request: NextRequest): RateLimitResult {
   const now = Date.now();
   prune(ipLimit, now);
@@ -227,4 +204,76 @@ export function checkPublicApiRateLimit(request: NextRequest): RateLimitResult {
     now,
   );
   return { ...result, scope: "ip" };
+}
+
+// Own budget, tighter than every limit above - app/api/wallet-tokens
+// previously shared PUBLIC_API_IP_MAX (120/5min), which is sized for the
+// public dev API's cheap, mostly-cached reads. This route is the single
+// most expensive one in the app (dozens-to-hundreds of live on-chain RPC
+// calls per request, maxDuration=60s) and is reachable with nothing more
+// than a syntactically valid address in a query string - 120 requests at
+// that cost is real, sustained RPC load, not a meaningful cap. A real
+// visitor loading /collection or reconnecting a wallet a few times in 5
+// minutes stays well under this; a script rotating the address param to
+// force unlimited scans does not.
+const expensiveScanIpLimit = new Map<string, RateEntry>();
+const EXPENSIVE_SCAN_IP_MAX = 10;
+
+export function checkExpensiveScanRateLimit(
+  request: NextRequest,
+): RateLimitResult {
+  const now = Date.now();
+  prune(expensiveScanIpLimit, now);
+  const result = consume(
+    expensiveScanIpLimit,
+    getClientIp(request),
+    EXPENSIVE_SCAN_IP_MAX,
+    now,
+  );
+  return { ...result, scope: "ip" };
+}
+
+// app/api/notifications GET also does a live fetchWalletTokensOnChain scan
+// (same cost class as the expensive-scan route above), but unlike that
+// route it's polled automatically every 30s per connected wallet
+// (lib/useHasNewActivity.ts) - a real single wallet makes ~10 requests per
+// 5-minute window just sitting on the site normally. A single IP-only
+// budget sized for that cadence breaks for anyone behind a shared IP
+// (office NAT, CGNAT): confirmed the previous shared PUBLIC_API_IP_MAX
+// bucket (120/5min) means as few as ~12 concurrent real visitors polling
+// normally - zero abuse involved - exhaust it for everyone on that IP.
+// Two independent dimensions instead of one: a generous IP budget still
+// blunts a scripted flood, and a per-address budget (sized for one real
+// wallet's own polling cadence, with headroom) means legitimate concurrent
+// users behind a shared IP each get their own budget instead of colliding.
+const notificationsIpLimit = new Map<string, RateEntry>();
+const notificationsAddressLimit = new Map<string, RateEntry>();
+const NOTIFICATIONS_IP_MAX = 300;
+const NOTIFICATIONS_ADDRESS_MAX = 15;
+
+export function checkNotificationsRateLimit(
+  request: NextRequest,
+  address: string,
+): RateLimitResult {
+  const now = Date.now();
+  prune(notificationsIpLimit, now);
+  prune(notificationsAddressLimit, now);
+
+  const ip = consume(
+    notificationsIpLimit,
+    getClientIp(request),
+    NOTIFICATIONS_IP_MAX,
+    now,
+  );
+  if (!ip.allowed) return { ...ip, scope: "ip" };
+
+  const byAddress = consume(
+    notificationsAddressLimit,
+    address.toLowerCase(),
+    NOTIFICATIONS_ADDRESS_MAX,
+    now,
+  );
+  if (!byAddress.allowed) return { ...byAddress, scope: "address" };
+
+  return { allowed: true, retryAfterSeconds: 0 };
 }

@@ -6,7 +6,10 @@
 // batching just means building one message instead of N.
 import { NextRequest, NextResponse } from "next/server";
 import { verifyBatchPersonaClaim } from "@/lib/auth-server";
-import { checkWriteRateLimit } from "@/lib/rate-limit";
+import {
+  checkWriteIpRateLimit,
+  consumeVerifiedWriteBudget,
+} from "@/lib/rate-limit";
 import { markTokenClaimed } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -47,16 +50,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Keyed on a fixed "batch-claim" token slot rather than any real
-  // tokenId - the per-IP and per-address limits are what matter for this
-  // action, not a per-token one.
-  const rate = checkWriteRateLimit(request, address, "batch-claim");
-  if (!rate.allowed) {
+  // Pre-verify: IP-only - address is still just unverified client input
+  // here, so keying budget on it is the same griefing gap fixed on the
+  // other write routes.
+  const ipRate = checkWriteIpRateLimit(request);
+  if (!ipRate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please slow down." },
       {
         status: 429,
-        headers: { "Retry-After": String(rate.retryAfterSeconds) },
+        headers: { "Retry-After": String(ipRate.retryAfterSeconds) },
       },
     );
   }
@@ -74,6 +77,20 @@ export async function POST(request: NextRequest) {
         code: verification.code,
       },
       { status: 403 },
+    );
+  }
+
+  // Post-verify: address is now proven (signature recovered to it, and the
+  // batch's own per-token ownership checks ran). Keyed on a fixed
+  // "batch-claim" token slot rather than any real tokenId, same as before.
+  const verifiedRate = consumeVerifiedWriteBudget(address, "batch-claim");
+  if (!verifiedRate.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(verifiedRate.retryAfterSeconds) },
+      },
     );
   }
 

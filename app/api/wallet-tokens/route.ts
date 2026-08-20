@@ -17,7 +17,7 @@
 // incidental one this RPC's own infra can't reliably satisfy under load.
 import { NextRequest, NextResponse } from "next/server";
 import { ADDRESS_PATTERN } from "@/lib/address";
-import { checkPublicApiRateLimit } from "@/lib/rate-limit";
+import { checkExpensiveScanRateLimit } from "@/lib/rate-limit";
 import { fetchWalletTokensOnChain, readBlockNumber } from "@/lib/chain";
 import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
 import {
@@ -44,9 +44,11 @@ export async function GET(request: NextRequest) {
   // calls per request, maxDuration=60) and `address` is an unauthenticated
   // query param anyone can set to anything - keying a limit on it alone
   // would let an attacker just rotate the address param forever, so this
-  // has to be IP-keyed (checkPublicApiRateLimit, same helper the public
-  // /api/v1/* routes use) rather than per-address.
-  const rate = checkPublicApiRateLimit(request);
+  // has to be IP-keyed. Own tighter budget (checkExpensiveScanRateLimit,
+  // 10/5min), not the general public-API one - 120/5min is sized for cheap
+  // reads, not a route that fires dozens-to-hundreds of live RPC calls per
+  // hit.
+  const rate = checkExpensiveScanRateLimit(request);
   if (!rate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please slow down." },

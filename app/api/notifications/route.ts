@@ -11,17 +11,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ADDRESS_PATTERN } from "@/lib/address";
 import { fetchWalletTokensOnChain } from "@/lib/chain";
-import { checkPublicApiRateLimit } from "@/lib/rate-limit";
+import { checkNotificationsRateLimit } from "@/lib/rate-limit";
 import { getNotifLastSeen, listThreads, setNotifLastSeen } from "@/lib/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  // Unauthenticated (address is just a query param) and does a live RPC
-  // call via fetchWalletTokensOnChain - IP-keyed so this can't be turned
-  // into an unbounded RPC-flood vector either.
-  const rate = checkPublicApiRateLimit(request);
+  const address = request.nextUrl.searchParams.get("address") ?? "";
+  if (!ADDRESS_PATTERN.test(address)) {
+    return NextResponse.json({ error: "Invalid address." }, { status: 400 });
+  }
+
+  // Unauthenticated and does a live RPC call via fetchWalletTokensOnChain -
+  // dual IP + address budget (see lib/rate-limit.ts's
+  // checkNotificationsRateLimit comment: this is polled automatically
+  // every 30s per connected wallet, so a single IP-only budget breaks for
+  // anyone behind a shared IP with just a few concurrent real visitors).
+  const rate = checkNotificationsRateLimit(request, address);
   if (!rate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please slow down." },
@@ -30,11 +37,6 @@ export async function GET(request: NextRequest) {
         headers: { "Retry-After": String(rate.retryAfterSeconds) },
       },
     );
-  }
-
-  const address = request.nextUrl.searchParams.get("address") ?? "";
-  if (!ADDRESS_PATTERN.test(address)) {
-    return NextResponse.json({ error: "Invalid address." }, { status: 400 });
   }
 
   try {
@@ -63,19 +65,6 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  // Same reasoning as GET above - unauthenticated, no signature involved,
-  // so IP is the only safe key.
-  const rate = checkPublicApiRateLimit(request);
-  if (!rate.allowed) {
-    return NextResponse.json(
-      { error: "Too many requests. Please slow down." },
-      {
-        status: 429,
-        headers: { "Retry-After": String(rate.retryAfterSeconds) },
-      },
-    );
-  }
-
   let payload: unknown;
   try {
     payload = await request.json();
@@ -85,6 +74,19 @@ export async function POST(request: NextRequest) {
   const { address } = (payload ?? {}) as Record<string, unknown>;
   if (typeof address !== "string" || !ADDRESS_PATTERN.test(address)) {
     return NextResponse.json({ error: "Invalid address." }, { status: 400 });
+  }
+
+  // Same dual IP + address budget as GET, for consistency - this write
+  // itself is cheap, but it's called from the same polling/menu-open flow.
+  const rate = checkNotificationsRateLimit(request, address);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rate.retryAfterSeconds) },
+      },
+    );
   }
 
   await setNotifLastSeen(address);

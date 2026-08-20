@@ -9,7 +9,10 @@
 // it - both should always answer "does this anon qualify" identically.
 import { NextRequest, NextResponse } from "next/server";
 import { verifyPersonaClaim } from "@/lib/auth-server";
-import { checkWriteRateLimit } from "@/lib/rate-limit";
+import {
+  checkWriteIpRateLimit,
+  consumeVerifiedWriteBudget,
+} from "@/lib/rate-limit";
 import { MAX_ALPHA_BOT_EVENTS_PER_DAY } from "@/lib/alphaBotConfig";
 import {
   consumeDailyAlphaBotBudget,
@@ -52,13 +55,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const rate = checkWriteRateLimit(request, address, tokenId);
-  if (!rate.allowed) {
+  // Pre-verify: IP-only - address/tokenId are still just unverified client
+  // input here, same griefing gap fixed on the other write routes.
+  const ipRate = checkWriteIpRateLimit(request);
+  if (!ipRate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please slow down." },
       {
         status: 429,
-        headers: { "Retry-After": String(rate.retryAfterSeconds) },
+        headers: { "Retry-After": String(ipRate.retryAfterSeconds) },
       },
     );
   }
@@ -76,6 +81,18 @@ export async function POST(request: NextRequest) {
         code: verification.code,
       },
       { status: 403 },
+    );
+  }
+
+  // Post-verify: address/tokenId are now proven.
+  const verifiedRate = consumeVerifiedWriteBudget(address, tokenId);
+  if (!verifiedRate.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(verifiedRate.retryAfterSeconds) },
+      },
     );
   }
 

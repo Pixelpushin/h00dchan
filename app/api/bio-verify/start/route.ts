@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyBioVerifyAuth } from "@/lib/auth-server";
-import { checkWriteRateLimit } from "@/lib/rate-limit";
+import {
+  checkWriteIpRateLimit,
+  consumeVerifiedWriteBudget,
+} from "@/lib/rate-limit";
 import { startBioVerification } from "@/lib/bioVerifyStore";
 import {
   phraseFromSeed,
@@ -39,13 +42,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing fields." }, { status: 400 });
   }
 
-  const limit = checkWriteRateLimit(request, address, tokenId);
-  if (!limit.allowed) {
+  // Pre-verify: IP-only - address/tokenId are still just unverified client
+  // input here, same griefing gap fixed on the other write routes.
+  const ipRate = checkWriteIpRateLimit(request);
+  if (!ipRate.allowed) {
     return NextResponse.json(
       { error: "Too many attempts, slow down." },
       {
         status: 429,
-        headers: { "Retry-After": String(limit.retryAfterSeconds) },
+        headers: { "Retry-After": String(ipRate.retryAfterSeconds) },
       },
     );
   }
@@ -60,6 +65,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: auth.reason, code: auth.code },
       { status: 401 },
+    );
+  }
+
+  // Post-verify: address/tokenId are now proven.
+  const verifiedRate = consumeVerifiedWriteBudget(address, tokenId);
+  if (!verifiedRate.allowed) {
+    return NextResponse.json(
+      { error: "Too many attempts, slow down." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(verifiedRate.retryAfterSeconds) },
+      },
     );
   }
 
