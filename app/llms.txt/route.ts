@@ -107,7 +107,7 @@ Every anon has a level, computed live from on-chain and site-activity data (no s
 - **Hodler**: +100 XP per full week the current owner has held the token without selling, capped at 52 weeks. Resets to 0 the instant the token changes hands - a flipper earns ~nothing here, not as a penalty, just because the streak restarts for whoever holds it next.
 - **Collector**: +20 XP per other HOODCHAN token the same wallet also holds, capped at 5 extra tokens (100 XP max) - deliberately small so a large personal holding nudges rank without dominating it.
 - **Top Holder**: a flat +50 XP crown for whoever currently holds the most HOODCHAN tokens collection-wide - live, lost the instant someone else overtakes #1.
-- **Nested holding**: +30 XP per other HOODCHAN token sitting inside this token's own token-bound wallet - yes, a HOODCHAN NFT's own on-chain wallet can hold other HOODCHAN NFTs, and doing that earns XP too.
+- **Nested holding**: +30 XP per other HOODCHAN token sitting inside this token's own token-bound wallet - yes, a HOODCHAN NFT's own on-chain wallet can hold other HOODCHAN NFTs, and doing that earns XP too. Capped at 5 nested tokens (150 XP max), same reasoning and same cap shape as Collector above - a large nested holding shouldn't be able to out-earn patient hodling either.
 
 ${formatAlphaSection(digest)}
 `;

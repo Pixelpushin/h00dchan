@@ -296,7 +296,8 @@ export default async function WalletPage({
                   </li>
                   <li className="opacity-80">
                     📦 stash a HOODCHAN inside this anon&apos;s own wallet: +30
-                    XP each ({levelProgress.breakdown.nestedXp} XP so far)
+                    XP each, up to 5 ({levelProgress.breakdown.nestedXp} XP so
+                    far)
                   </li>
                 </ul>
               </details>
