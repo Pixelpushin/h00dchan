@@ -86,6 +86,58 @@ export async function consumeDailyAlphaBotBudget(
   return count <= maxPerDay;
 }
 
+const DAILY_TOKEN_POST_PREFIX = "alphabot:daily-posts:";
+
+// Per-anon daily posting cap, same atomic day-bucketed INCR shape as
+// consumeDailyAlphaBotBudget above, just keyed per tokenId instead of
+// site-wide - see lib/alphaBotConfig.ts's MAX_ALPHA_BOT_POSTS_PER_TOKEN_PER_DAY
+// for why this exists (a cache-hit event costs zero real spend, so the
+// site-wide budget alone doesn't cap how often one anon can post).
+export async function consumeDailyAlphaBotPostCap(
+  tokenId: string,
+  maxPerDay: number,
+): Promise<boolean> {
+  const dayKey = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+  const key = `${DAILY_TOKEN_POST_PREFIX}${dayKey}:${tokenId}`;
+  const count = (await redisCommand("INCR", key)) as number;
+  if (count === 1) {
+    await redisCommand("EXPIRE", key, 172_800);
+  }
+  return count <= maxPerDay;
+}
+
+const GENERATION_LOCK_PREFIX = "alphabot:generating:";
+const GENERATION_LOCK_TTL_SECONDS = 45; // covers one full generateAlphaBotResearch call with margin - self-expires rather than deadlocking if a process dies mid-generation
+
+// Real race, not just theoretical: two near-simultaneous triggers for the
+// SAME tokenId (two browser tabs, or a thread-create landing right next to
+// a reply in the same thread) can both read "no fresh cache entry" before
+// either one finishes writing its result, causing two full Nansen+Venice
+// generations - two Nansen credit spends and two daily-budget slots burned
+// for what the user experiences as one action. SET...NX is atomic in
+// Redis, so only one concurrent caller for a given tokenId ever gets
+// `true` back; the other should treat "someone else is already generating
+// this" as equivalent to a cache-miss-but-can't-proceed and skip rather
+// than double-generate. Note: the in-memory fallback (no KV_REST_API_URL
+// configured) does NOT implement NX semantics - see lib/store.ts's
+// memoryCommand SET case, which always succeeds - so this lock is only a
+// real guarantee against production's actual Redis; acceptable since that
+// fallback path is single-process dev/local use already, not the
+// concurrent-request production path this race matters for.
+export async function acquireAlphaBotGenerationLock(
+  tokenId: string,
+): Promise<boolean> {
+  const result = await redisCommand(
+    "SET",
+    `${GENERATION_LOCK_PREFIX}${tokenId}`,
+    "1",
+    "NX",
+    "EX",
+    GENERATION_LOCK_TTL_SECONDS,
+  );
+  return result === "OK";
+}
+
 const LABELS_CACHE_PREFIX = "alphabot:labels:";
 const LABELS_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 

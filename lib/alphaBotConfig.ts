@@ -22,6 +22,18 @@ export const ALPHA_BOT_SNAPSHOT_CUTOFF_MS = Date.parse(
 // lib/alphaBotStore.ts's consumeDailyAlphaBotBudget for the atomic check.
 export const MAX_ALPHA_BOT_EVENTS_PER_DAY = 5;
 
+// Per-anon cap, independent of the site-wide budget above - closes a real
+// gap: a cache-hit event (still within the 24h research cooldown) costs
+// zero real Nansen/Venice spend, so it never touches
+// MAX_ALPHA_BOT_EVENTS_PER_DAY at all. Without this, one qualifying holder
+// could script new threads as fast as the write-path rate limiter allows
+// and get an unbounded number of free desk replies (stale, identical
+// research restated over and over) - a spam/board-quality problem even
+// though it costs the site nothing in API spend. Deliberately well under
+// the site-wide cap so no single anon can monopolize the real-spend budget
+// either.
+export const MAX_ALPHA_BOT_POSTS_PER_TOKEN_PER_DAY = 2;
+
 // Standard warning, verbatim, everywhere Alpha Bot content shows up - the
 // wallet-page panel, the public /alpha page, and every single reply it
 // posts on the board (see lib/alphaBotEngagement.ts). Explicit instruction:

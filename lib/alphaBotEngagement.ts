@@ -4,9 +4,17 @@
 // thread -> the desk talks back. Deliberately narrow on both ends - only
 // the thread's own OP token ever gets a desk response (never random other
 // posters, "only talk to the owner of the bots nested in the wallet" was
-// explicit), and every trigger burns from a hard site-wide daily budget
-// (this is a paid-API experiment, not a guaranteed-forever feature) before
-// anything gets generated or posted.
+// explicit).
+//
+// Every trigger checks TWO independent caps before anything gets generated
+// or posted: a per-anon daily posting cap (consumeDailyAlphaBotPostCap -
+// applies even to a cache-hit, which costs zero real API spend but is
+// still a board-quality/spam concern) and, only on the branch that
+// actually generates fresh research, a hard site-wide daily budget
+// (consumeDailyAlphaBotBudget - this is a paid-API experiment, not a
+// guaranteed-forever feature). A cache hit never touches the site-wide
+// budget at all, by design - see getOrRefreshAlphaBotEntry/
+// triggerAlphaBotThreadReplies below for why that ordering matters.
 import { CONTRACT, CHAIN_ID_HEX } from "@/lib/chain";
 import {
   getCollectionSnapshot,
@@ -17,9 +25,12 @@ import {
   ALPHA_BOT_DISCLAIMER,
   ALPHA_BOT_SNAPSHOT_CUTOFF_MS,
   MAX_ALPHA_BOT_EVENTS_PER_DAY,
+  MAX_ALPHA_BOT_POSTS_PER_TOKEN_PER_DAY,
 } from "@/lib/alphaBotConfig";
 import {
+  acquireAlphaBotGenerationLock,
   consumeDailyAlphaBotBudget,
+  consumeDailyAlphaBotPostCap,
   getAlphaBotEntry,
   type AlphaBotEntry,
 } from "@/lib/alphaBotStore";
@@ -123,6 +134,20 @@ export async function triggerAlphaBotThreadReplies(
     const tbaAddress = await resolveTbaAddress(tokenId);
     if (!(await alphaBotQualifies(tokenId, tbaAddress))) return;
 
+    // Per-anon cap, checked before anything else - gates BOTH branches
+    // below (cache-hit and fresh-generation) equally, since a cache-hit
+    // event costs zero real spend and would otherwise be uncapped no
+    // matter how many times this same anon triggers it in a day. See
+    // lib/alphaBotConfig.ts's MAX_ALPHA_BOT_POSTS_PER_TOKEN_PER_DAY.
+    if (
+      !(await consumeDailyAlphaBotPostCap(
+        tokenId,
+        MAX_ALPHA_BOT_POSTS_PER_TOKEN_PER_DAY,
+      ))
+    ) {
+      return;
+    }
+
     // Cache check BEFORE spending a daily slot, same ordering as
     // app/api/alpha/research/route.ts: a cache hit is zero real Nansen/
     // Venice spend (still inside the 24h cooldown), so it must never burn
@@ -134,6 +159,15 @@ export async function triggerAlphaBotThreadReplies(
     if (isAlphaBotEntryFresh(existing)) {
       entry = existing;
     } else {
+      // Atomic per-tokenId lock BEFORE spending the daily slot - closes a
+      // real race where two near-simultaneous triggers for the same anon
+      // (two tabs, or a thread-create landing next to a reply) both read
+      // "no fresh entry" and both generate, double-spending Nansen credits
+      // for one user action. Losing the lock is treated the same as
+      // losing the budget check below - just skip, the other caller's
+      // generation (already in flight) will populate the cache for next
+      // time.
+      if (!(await acquireAlphaBotGenerationLock(tokenId))) return;
       if (!(await consumeDailyAlphaBotBudget(MAX_ALPHA_BOT_EVENTS_PER_DAY)))
         return;
       // Budget already consumed above; if generation throws here the
@@ -168,12 +202,27 @@ export async function triggerAlphaBotFollowUp(
   try {
     const tbaAddress = await resolveTbaAddress(tokenId);
     if (!(await alphaBotQualifies(tokenId, tbaAddress))) return;
+    // Same per-anon cap as the thread-reply path, shared across both -
+    // an owner replying in their own thread repeatedly is exactly the
+    // other way to rack up unbounded posts from one anon.
+    if (
+      !(await consumeDailyAlphaBotPostCap(
+        tokenId,
+        MAX_ALPHA_BOT_POSTS_PER_TOKEN_PER_DAY,
+      ))
+    ) {
+      return;
+    }
     // A follow-up only makes sense once there's already research to talk
     // back from - no cached entry means this owner hasn't triggered the
     // opening round yet (or it's expired past recall), nothing to
     // continue.
     const entry = await getAlphaBotEntry(tokenId);
     if (!entry) return;
+    // Same lock as the thread-reply path - two near-simultaneous follow-up
+    // replies for the same anon would otherwise both generate and both
+    // spend real Nansen/Venice credit for what's one user action.
+    if (!(await acquireAlphaBotGenerationLock(tokenId))) return;
     if (!(await consumeDailyAlphaBotBudget(MAX_ALPHA_BOT_EVENTS_PER_DAY)))
       return;
 
