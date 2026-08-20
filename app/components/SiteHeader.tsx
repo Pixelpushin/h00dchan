@@ -33,6 +33,7 @@ export function SiteHeader() {
         <nav className="hc-nav flex flex-wrap items-center gap-2 sm:gap-4 pb-1">
           <Link href="/board">board</Link>
           <Link href="/collection">collection</Link>
+          <Link href="/wallet">wallet</Link>
           <Link href="/alpha">alpha</Link>
           <Link href="/leaderboard">leaderboard</Link>
           <Link href="/developers">developers</Link>

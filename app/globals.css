@@ -815,6 +815,25 @@ body {
   font-weight: 700;
 }
 
+/* Top-right, opposite corner from the level badge (bottom-left) so the two
+   never collide - how many OTHER HOODCHAN NFTs this anon's own
+   token-bound wallet holds nested inside it. */
+.hc-profile-card-nested-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff5e6;
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .hc-profile-card-has-level .hc-profile-card-plate {
   left: 40px;
 }

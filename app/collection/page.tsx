@@ -104,6 +104,12 @@ export default function CollectionPage() {
   const [tokens, setTokens] = useState<TokenMetadata[]>([]);
   const [wallets, setWallets] = useState<Record<string, TbaInfo>>({});
   const [levels, setLevels] = useState<Record<string, number>>({});
+  // How many OTHER HOODCHAN NFTs each owned token's own token-bound wallet
+  // holds nested inside it - drives the "float nested holders to the top"
+  // sort below, requested live so it's obvious at a glance which anons
+  // have something stashed in them without opening each one's own wallet
+  // page individually.
+  const [nestedCounts, setNestedCounts] = useState<Record<string, number>>({});
   const [claimedTokens, setClaimedTokens] = useState<Record<string, boolean>>(
     {},
   );
@@ -151,12 +157,14 @@ export default function CollectionPage() {
       setWallets(renderCache.wallets as Record<string, TbaInfo>);
       setClaimedTokens(renderCache.claimedTokens);
       setLevels(renderCache.levels ?? {});
+      setNestedCounts(renderCache.nestedCounts ?? {});
       setState("ready");
     } else {
       setState("loading-tokens");
       setWallets({});
       setClaimedTokens({});
       setLevels({});
+      setNestedCounts({});
     }
 
     async function attempt(isRetry: boolean): Promise<void> {
@@ -182,15 +190,28 @@ export default function CollectionPage() {
           ...(renderCache?.levels ?? {}),
           ...(walletBody.levels ?? {}),
         };
+        const nestedCountMap: Record<string, number> = {
+          ...(renderCache?.nestedCounts ?? {}),
+          ...(walletBody.nestedCounts ?? {}),
+        };
 
         const metadata = await Promise.all(
           tokenIds.map((id) => fetchTokenMetadataViaApi(id)),
         );
         if (latestOwnerRef.current !== owner) return;
 
+        // Nested holders float to the top (most-nested first); tokenId
+        // ascending is just the tiebreaker for everyone else, same order
+        // as before this sort existed.
         const resolved = metadata
           .filter((m): m is TokenMetadata => m !== null)
-          .sort((a, b) => Number(a.tokenId) - Number(b.tokenId));
+          .sort((a, b) => {
+            const nestedDiff =
+              (nestedCountMap[b.tokenId] ?? 0) -
+              (nestedCountMap[a.tokenId] ?? 0);
+            if (nestedDiff !== 0) return nestedDiff;
+            return Number(a.tokenId) - Number(b.tokenId);
+          });
         setTokens(resolved);
         // /api/wallet-tokens already recomputes claimed status per token
         // server-side (on-chain-reverified, see route.ts) - derive from its
@@ -213,12 +234,14 @@ export default function CollectionPage() {
         setWallets(walletMap);
         setClaimedTokens(claimedMap);
         setLevels(levelMap);
+        setNestedCounts(nestedCountMap);
         setState("ready");
         writeWalletRenderCache(owner, {
           tokens: resolved,
           wallets: walletMap,
           claimedTokens: claimedMap,
           levels: levelMap,
+          nestedCounts: nestedCountMap,
         });
       } catch (err) {
         if (latestOwnerRef.current !== owner) return;
@@ -687,6 +710,7 @@ export default function CollectionPage() {
                         : 0;
                 const wallet = wallets[token.tokenId];
                 const level = levels[token.tokenId];
+                const nestedCount = nestedCounts[token.tokenId] ?? 0;
 
                 const dimmed = Boolean(persona) && !isActivePersona;
 
@@ -702,6 +726,14 @@ export default function CollectionPage() {
                       className={`hc-profile-card block w-full ${level !== undefined ? "hc-profile-card-has-level" : ""}`}
                     >
                       <TokenImage token={token} />
+                      {nestedCount > 0 && (
+                        <span
+                          className="hc-profile-card-nested-badge"
+                          title={`${nestedCount} nested HOODCHAN${nestedCount === 1 ? "" : "s"}`}
+                        >
+                          📦 {nestedCount}
+                        </span>
+                      )}
                       {level !== undefined && (
                         <span className="hc-profile-card-level-badge">
                           <span className="hc-profile-card-level-label">

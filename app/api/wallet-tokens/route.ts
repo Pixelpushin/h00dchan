@@ -106,6 +106,13 @@ export async function GET(request: NextRequest) {
     // once the collection page - which already uses this same
     // isTokenClaimed check - showed everything activated).
     const claimedTokenIds: string[] = [];
+    // Same nestedHoldingCount lookup the level calc below already runs per
+    // token (a free O(1) lookup against the shared cached snapshot, no
+    // extra RPC) - exposed here too so callers (the collection page) can
+    // show/sort on it directly instead of only seeing it baked into an
+    // opaque level number. Zero-count tokens are omitted rather than
+    // written as 0, keeping this payload small for the common case.
+    const nestedCounts: Record<string, number> = {};
     for (let i = 0; i < tokenIds.length; i += TBA_CONCURRENCY) {
       const batch = tokenIds.slice(i, i + TBA_CONCURRENCY);
       const results = await Promise.all(
@@ -136,6 +143,9 @@ export async function GET(request: NextRequest) {
               // holder/nested are free (one shared cached snapshot, O(1)
               // lookups), so those stay accurate. The dedicated profile
               // page and leaderboard both compute the real value.
+              const nested = snapshot
+                ? nestedHoldingCount(snapshot, tbaAddress)
+                : 0;
               const level = computeLevelProgress({
                 claimed,
                 threadsStarted: humanThreadsStarted,
@@ -146,9 +156,7 @@ export async function GET(request: NextRequest) {
                   ? extraCollectionTokens(snapshot, tokenId)
                   : 0,
                 isTopHolder: snapshot ? isTopHolder(snapshot, tokenId) : false,
-                nestedHoldingCount: snapshot
-                  ? nestedHoldingCount(snapshot, tbaAddress)
-                  : 0,
+                nestedHoldingCount: nested,
                 bioVerified: bioVerification?.status === "verified",
               }).level;
               return [
@@ -156,6 +164,7 @@ export async function GET(request: NextRequest) {
                 { address: tbaAddress, activated },
                 level,
                 claimed,
+                nested,
               ] as const;
             } catch {
               // one retry, then give up on this token for this request -
@@ -170,6 +179,7 @@ export async function GET(request: NextRequest) {
           wallets[entry[0]] = entry[1];
           levels[entry[0]] = entry[2];
           if (entry[3]) claimedTokenIds.push(entry[0]);
+          if (entry[4] > 0) nestedCounts[entry[0]] = entry[4];
         }
       }
     }
@@ -180,6 +190,7 @@ export async function GET(request: NextRequest) {
       wallets,
       levels,
       claimedTokenIds,
+      nestedCounts,
     });
   } catch (error) {
     console.error(`Failed to load wallet tokens for ${address}`, error);
