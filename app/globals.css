@@ -514,7 +514,16 @@ body {
 }
 
 .hc-profile-card-dimmed {
-  opacity: 0.82;
+  opacity: 0.55;
+  filter: grayscale(0.6);
+  transition:
+    opacity 0.15s ease,
+    filter 0.15s ease;
+}
+
+.hc-profile-card-dimmed:hover {
+  opacity: 0.85;
+  filter: grayscale(0.15);
 }
 
 .hc-selected-badge {
