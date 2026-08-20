@@ -14,11 +14,12 @@ import { useWalletAddress } from "@/lib/useWalletAddress";
 import {
   buildCreateAccountTx,
   buildSendEthTx,
+  buildSendNftTx,
   buildSendTokenTx,
   isTbaActivated,
 } from "@/lib/tba";
 import { readOwnerOf, BLOCK_EXPLORER_URL } from "@/lib/chain";
-import type { WalletHoldings } from "@/lib/alchemy";
+import type { WalletHoldings, WalletNft } from "@/lib/alchemy";
 import { WalletIcon } from "@/app/components/Icons";
 
 interface AssetOption {
@@ -26,6 +27,28 @@ interface AssetOption {
   label: string;
   decimals: number;
   balanceRaw: string;
+}
+
+// Individual-NFT keys are namespaced ("nft:<contract>:<tokenId>") so they
+// can't collide with an ERC-20 contract address ending up in the same flat
+// dropdown by coincidence. ALL_NFTS_KEY is the bulk-send option - "toggle
+// all NFT send or one at a time, same as ERC-20" (there's no bulk option
+// for ERC-20/ETH since you only ever hold one balance per token, but a
+// wallet can hold many distinct NFTs, so bulk is the NFT-specific case
+// that actually needs its own entry).
+const ALL_NFTS_KEY = "all-nfts";
+
+function nftKey(nft: WalletNft): string {
+  return `nft:${nft.contractAddress}:${nft.tokenId}`;
+}
+
+function parseNftKey(
+  key: string,
+): { contractAddress: string; tokenId: string } | null {
+  if (!key.startsWith("nft:")) return null;
+  const [, contractAddress, tokenId] = key.split(":");
+  if (!contractAddress || !tokenId) return null;
+  return { contractAddress, tokenId };
 }
 
 type EnsStatus = "idle" | "loading" | "resolved" | "error";
@@ -64,12 +87,14 @@ export function WalletActionsPanel({
   initialActivated,
   ethBalanceWei,
   tokenBalances,
+  nfts,
 }: {
   tokenId: string;
   tbaAddress: string;
   initialActivated: boolean;
   ethBalanceWei: string;
   tokenBalances: WalletHoldings["tokenBalances"];
+  nfts: WalletNft[];
 }) {
   const connectedAddress = useWalletAddress();
   const [ownerAddress, setOwnerAddress] = useState<string | null>(null);

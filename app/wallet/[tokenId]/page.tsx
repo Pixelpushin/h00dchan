@@ -374,6 +374,7 @@ export default async function WalletPage({
               initialActivated={activated}
               ethBalanceWei={holdings.ethBalanceWei}
               tokenBalances={holdings.tokenBalances}
+              nfts={holdings.nfts}
             />
 
             <WalletHoldingsView

@@ -27,8 +27,19 @@ const ACCOUNT_ABI = [
 const ERC20_ABI = [
   "function transfer(address to, uint256 amount) returns (bool)",
 ];
+// safeTransferFrom, not transferFrom - the TBA is a contract calling this
+// on its own behalf (from === the TBA itself), and safeTransferFrom's
+// receiver-hook check protects against sending an NFT into a contract
+// address that can't actually hold it, same safety property transferFrom
+// doesn't give you. Explicit 3-arg signature only (no bytes data param) -
+// ERC-721 overloads safeTransferFrom, and ethers needs the exact selector
+// disambiguated rather than left to guess which one.
+const ERC721_ABI = [
+  "function safeTransferFrom(address from, address to, uint256 tokenId)",
+];
 const accountInterface = new Interface(ACCOUNT_ABI);
 const erc20Interface = new Interface(ERC20_ABI);
+const erc721Interface = new Interface(ERC721_ABI);
 
 // operation 0 = plain CALL (the only one Tokenbound's guardian allows a
 // regular EOA owner to use - 1/2/3 are DELEGATECALL/CREATE/CREATE2, gated
@@ -105,6 +116,34 @@ export function buildSendTokenTx(
     to: tbaAddress,
     data: accountInterface.encodeFunctionData("execute", [
       tokenContract,
+      BigInt(0),
+      transferData,
+      OPERATION_CALL,
+    ]),
+  };
+}
+
+// Same idea, but for an NFT (ERC-721) the TBA holds - including another
+// HOODCHAN nested inside this one's own wallet, the exact case the
+// nested-holding XP bonus rewards locking into a TBA in the first place;
+// this is the other half of that feature, letting it come back out. `from`
+// is the TBA itself, not the caller's own EOA - the TBA holds the NFT, the
+// connected wallet is just the one authorized to tell it to move.
+export function buildSendNftTx(
+  tbaAddress: string,
+  nftContractAddress: string,
+  nftTokenId: string,
+  to: string,
+): { to: string; data: string } {
+  const transferData = erc721Interface.encodeFunctionData("safeTransferFrom", [
+    tbaAddress,
+    to,
+    nftTokenId,
+  ]);
+  return {
+    to: tbaAddress,
+    data: accountInterface.encodeFunctionData("execute", [
+      nftContractAddress,
       BigInt(0),
       transferData,
       OPERATION_CALL,
