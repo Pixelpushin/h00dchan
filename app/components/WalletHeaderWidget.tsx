@@ -22,6 +22,7 @@ import { connectWallet, disconnectWallet } from "@/lib/wallet";
 import { useWalletAddress } from "@/lib/useWalletAddress";
 import { useHasNewActivity } from "@/lib/useHasNewActivity";
 import { useActivePersona } from "@/lib/usePersona";
+import { useMyTokens } from "@/lib/useMyTokens";
 import { BLOCK_EXPLORER_URL } from "@/lib/chain";
 import type { TokenMetadata } from "@/lib/chain";
 import { PostImage } from "@/app/components/PostImage";
@@ -61,7 +62,7 @@ async function fetchTokenMetadata(
 export function WalletHeaderWidget() {
   const router = useRouter();
   const address = useWalletAddress();
-  const { persona, switchPersona } = useActivePersona();
+  const { persona, personaHistory, switchPersona } = useActivePersona();
   const [connecting, setConnecting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showOthers, setShowOthers] = useState(false);
@@ -133,65 +134,52 @@ export function WalletHeaderWidget() {
   // Does this connected address hold ANY HOODCHAN at all, regardless of
   // claimed/activated status - the trigger button's whole state machine
   // (gear icon "you don't hold one" vs. bright "Activate") hinges on this,
-  // not just on whether a persona happens to be active. Same on-chain
-  // wallet-token scan /collection uses (lib/chain.ts's
-  // fetchWalletTokensOnChain via app/api/wallet-tokens), just reading the
-  // returned count, not fetching per-token art/metadata - lighter than
-  // what that page does with the same response. null while loading (or
-  // once no address at all) - the button defaults to the "Activate"
-  // urgent state during that brief window rather than "no NFT," since
-  // most connected wallets in this holder-only app DO hold one, and
-  // flashing the wrong state for the common case is worse than a
-  // half-second of an optimistic default.
-  const [ownedTokenCount, setOwnedTokenCount] = useState<number | null>(null);
-  useEffect(() => {
-    if (!address) return;
-    let cancelled = false;
-    fetch(`/api/wallet-tokens?${new URLSearchParams({ address })}`)
-      .then((res) => (res.ok ? res.json() : { tokenIds: [] }))
-      .then((body) => {
-        if (!cancelled) {
-          setOwnedTokenCount(
-            Array.isArray(body.tokenIds) ? body.tokenIds.length : 0,
-          );
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setOwnedTokenCount(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [address]);
+  // not just on whether a persona happens to be active. null while loading
+  // (or once no address at all) - the button defaults to the "Activate"
+  // urgent state during that brief window rather than "no NFT," since most
+  // connected wallets in this holder-only app DO hold one, and flashing
+  // the wrong state for the common case is worse than a half-second of an
+  // optimistic default.
+  //
+  // ownedTokenCount/myClaimedCount come from lib/useMyTokens.ts's shared
+  // cache, not a local fetch - a real bug reported live: this component
+  // used to fetch both counts once per address in its own isolated effect,
+  // with nothing telling it to refetch when app/collection/page.tsx
+  // activated tokens elsewhere. The header stayed stuck on "Activate NFTs"
+  // (which also skips straight past the avatar/isActive check below, since
+  // hasUnactivatedTokens is checked first) until the address itself
+  // changed. Every component that mutates claim status now writes through
+  // this same shared cache, so this component picks the change up
+  // immediately, no reload required.
+  const { claimedTokenIds, ownedTokenCount, myClaimedCount } =
+    useMyTokens(address);
   const hasNoTokens = ownedTokenCount === 0;
 
-  // Quick-switch candidates - cheap reverse-index lookup (lib/store.ts's
-  // listMyClaimedTokens), not the full on-chain wallet scan HomeClient
-  // does. Fetched once per connected address, not per dropdown-open, so
-  // the panel feels instant when opened.
-  const [myClaimedCount, setMyClaimedCount] = useState<number | null>(null);
+  // Quick-switch list, most-recently-used first (personaHistory) followed
+  // by any other claimed anons - "store previously selected ones for quick
+  // swapping" was explicitly requested, and putting them first (instead of
+  // just claim order) means the anons someone actually posts as surface
+  // ahead of ones they've never touched since claiming.
   useEffect(() => {
-    if (!address) return;
-    let cancelled = false;
-    fetch(`/api/persona/mine?${new URLSearchParams({ address })}`)
-      .then((res) => (res.ok ? res.json() : { tokenIds: [] }))
-      .then((body) => {
-        if (cancelled) return;
-        const ids = (body.tokenIds as string[]) ?? [];
-        setMyClaimedCount(ids.length);
-        setOtherTokenIds(
-          ids
-            .filter((id) => id !== persona?.tokenId)
-            .slice(0, QUICK_SWITCH_LIMIT),
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setOtherTokenIds([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [address, persona?.tokenId]);
+    // queueMicrotask: this repo's lint rule flags setState called
+    // synchronously in an effect body - same fix pattern used elsewhere
+    // (AdBanner.tsx, collection/page.tsx).
+    queueMicrotask(() => {
+      if (!claimedTokenIds) {
+        setOtherTokenIds([]);
+        return;
+      }
+      const historyIds = personaHistory
+        .map((c) => c.tokenId)
+        .filter((id) => claimedTokenIds.includes(id));
+      const rest = claimedTokenIds.filter((id) => !historyIds.includes(id));
+      setOtherTokenIds(
+        [...historyIds, ...rest]
+          .filter((id) => id !== persona?.tokenId)
+          .slice(0, QUICK_SWITCH_LIMIT),
+      );
+    });
+  }, [claimedTokenIds, personaHistory, persona?.tokenId]);
   // Owns at least one HOODCHAN that ISN'T yet claimed - not just "has no
   // active persona right now." Reported live as a real gap: activating
   // one anon used to make this button go calm even if the same wallet

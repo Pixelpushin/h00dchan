@@ -9,11 +9,11 @@
 // taking over the middle of the screen. This page is that destination -
 // same claim/activate logic as before, just moved off "/" entirely.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { WalletIcon, ChatIcon } from "@/app/components/Icons";
+import { WalletIcon } from "@/app/components/Icons";
 import { onAccountsChanged, signMessage, connectWallet } from "@/lib/wallet";
 import { useActivePersona } from "@/lib/usePersona";
+import { markTokensClaimed, refreshMyTokens } from "@/lib/useMyTokens";
 
 const OPENSEA_COLLECTION_URL = "https://opensea.io/collection/h00dchan";
 import { ipfsGatewayUrls, type TokenMetadata } from "@/lib/chain";
@@ -65,7 +65,13 @@ async function fetchTokenMetadataViaApi(
 // on every load instead of the already-resolved (often Blob-backed, fast)
 // URL was the actual cause of images loading in slowly one at a time on
 // pages with many of these at once.
-function TokenImage({ token }: { token: TokenMetadata }) {
+function TokenImage({
+  token,
+  className = "w-full aspect-square object-cover",
+}: {
+  token: TokenMetadata;
+  className?: string;
+}) {
   const rawImageUri =
     typeof token.raw.image === "string" ? token.raw.image : "";
   const sources = useMemo(() => {
@@ -89,7 +95,7 @@ function TokenImage({ token }: { token: TokenMetadata }) {
     <img
       src={src}
       alt={token.name}
-      className="w-full aspect-square object-cover"
+      className={className}
       onError={() => {
         setAttempt((current) =>
           current + 1 < sources.length ? current + 1 : current,
@@ -100,8 +106,8 @@ function TokenImage({ token }: { token: TokenMetadata }) {
 }
 
 export default function CollectionPage() {
-  const router = useRouter();
-  const { persona, savePersona } = useActivePersona();
+  const { persona, savePersona, switchPersona } = useActivePersona();
+  const [selectingId, setSelectingId] = useState<string | null>(null);
   const [address, setAddress] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [state, setState] = useState<LoadState>("idle");
@@ -252,6 +258,8 @@ export default function CollectionPage() {
         }
 
         setClaimedTokens((current) => ({ ...current, [token.tokenId]: true }));
+        markTokensClaimed(address, [token.tokenId]);
+        refreshMyTokens(address);
         if (options?.forceActive || !persona) {
           savePersona(claim);
         }
@@ -334,6 +342,12 @@ export default function CollectionPage() {
 
         totalSucceeded += succeeded.length;
         allFailed.push(...failed);
+        if (succeeded.length > 0) {
+          markTokensClaimed(
+            address,
+            succeeded.map(([tokenId]) => tokenId),
+          );
+        }
 
         if (!activePersona && succeeded.length > 0) {
           const activeTokenId = succeeded
@@ -350,6 +364,7 @@ export default function CollectionPage() {
       }
 
       if (activePersona && !persona) savePersona(activePersona);
+      if (totalSucceeded > 0) refreshMyTokens(address);
 
       if (allFailed.length > 0) {
         setError(
@@ -387,9 +402,27 @@ export default function CollectionPage() {
     dismissExplainer();
   }, [handleActivateAll, dismissExplainer]);
 
-  const handleChat = useCallback(() => {
-    router.push("/board");
-  }, [router]);
+  // Making an already-claimed anon the active one - routed through
+  // switchPersona (lib/usePersona.ts) instead of re-running handleClaim's
+  // own signMessage call, so re-selecting an anon signed within the last
+  // 15 minutes (e.g. switching back and forth between two you're actively
+  // using) reuses that signature instead of prompting the wallet again
+  // every single time - the same reuse switchPersona already gives
+  // WalletHeaderWidget's quick-switch list.
+  const handleSelect = useCallback(
+    async (tokenId: string) => {
+      setSelectingId(tokenId);
+      setError(null);
+      try {
+        await switchPersona(tokenId);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to switch anon.");
+      } finally {
+        setSelectingId(null);
+      }
+    },
+    [switchPersona],
+  );
 
   useEffect(() => {
     return onAccountsChanged((accounts) => {
@@ -532,44 +565,82 @@ export default function CollectionPage() {
 
         {state === "ready" && tokens.length > 0 && (
           <>
-            {hasUnclaimedTokens ? (
-              <div className="mb-4 flex flex-col items-center gap-1">
-                <button
-                  onClick={handleActivateAll}
-                  disabled={bulkActivating || claimingId !== null}
-                  className="hc-button-urgent"
-                >
-                  {bulkStage === "signing"
-                    ? bulkProgress
-                      ? `Sign in wallet (${bulkProgress.current} of ${bulkProgress.total})...`
-                      : "Sign in wallet..."
-                    : bulkStage === "confirming"
-                      ? "Activating - do not close this tab..."
-                      : "Activate All"}
-                </button>
-                <p className="hc-thread-meta text-xs">
-                  {bulkStage === "confirming"
-                    ? "Verifying ownership on-chain - this can take a few seconds for a lot of anons."
-                    : bulkProgress
-                      ? `You have more than ${MAX_BATCH_CLAIM_SIZE} unclaimed anons - this needs ${bulkProgress.total} signatures, one per group of ${MAX_BATCH_CLAIM_SIZE}.`
-                      : "One signature activates every unclaimed anon below."}
-                </p>
+            <div className="mb-4 flex flex-col sm:flex-row sm:items-start sm:justify-center gap-3 w-full">
+              {hasUnclaimedTokens ? (
+                <div className="flex flex-col items-center gap-1">
+                  <button
+                    onClick={handleActivateAll}
+                    disabled={bulkActivating || claimingId !== null}
+                    className="hc-button-urgent"
+                  >
+                    {bulkStage === "signing"
+                      ? bulkProgress
+                        ? `Sign in wallet (${bulkProgress.current} of ${bulkProgress.total})...`
+                        : "Sign in wallet..."
+                      : bulkStage === "confirming"
+                        ? "Activating - do not close this tab..."
+                        : "Activate All"}
+                  </button>
+                  <p className="hc-thread-meta text-xs">
+                    {bulkStage === "confirming"
+                      ? "Verifying ownership on-chain - this can take a few seconds for a lot of anons."
+                      : bulkProgress
+                        ? `You have more than ${MAX_BATCH_CLAIM_SIZE} unclaimed anons - this needs ${bulkProgress.total} signatures, one per group of ${MAX_BATCH_CLAIM_SIZE}.`
+                        : "One signature activates every unclaimed anon below."}
+                  </p>
+                </div>
+              ) : (
+                // Nothing left to do - shown as a real completed state, not
+                // just silently removed, so it's obvious the earlier action
+                // actually finished rather than looking like the button
+                // vanished/broke.
+                <div className="flex flex-col items-center gap-1">
+                  <button
+                    disabled
+                    className="hc-button"
+                    style={{ opacity: 0.5, cursor: "default" }}
+                  >
+                    ✓ All Activated
+                  </button>
+                </div>
+              )}
+
+              {/* Currently selected - the anon a post/reply actually goes
+                  out as right now. Requested live: this should be visible
+                  right here next to the activation status, not something
+                  you have to infer from scanning the grid below for a
+                  highlighted card. */}
+              <div className="hc-box hc-current-persona-panel">
+                {(() => {
+                  const selectedToken = persona
+                    ? tokens.find((t) => t.tokenId === persona.tokenId)
+                    : undefined;
+                  if (!selectedToken) {
+                    return (
+                      <span className="hc-thread-meta text-xs">
+                        No anon selected to post as yet - pick one below.
+                      </span>
+                    );
+                  }
+                  return (
+                    <>
+                      <TokenImage
+                        token={selectedToken}
+                        className="hc-current-persona-avatar"
+                      />
+                      <div className="text-left">
+                        <div className="hc-thread-meta text-xs">
+                          Currently posting as
+                        </div>
+                        <div className="text-sm font-bold">
+                          Anon #{selectedToken.tokenId}
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
-            ) : (
-              // Nothing left to do - shown as a real completed state, not
-              // just silently removed, so it's obvious the earlier action
-              // actually finished rather than looking like the button
-              // vanished/broke.
-              <div className="mb-4 flex flex-col items-center gap-1">
-                <button
-                  disabled
-                  className="hc-button"
-                  style={{ opacity: 0.5, cursor: "default" }}
-                >
-                  ✓ All Activated
-                </button>
-              </div>
-            )}
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 w-full">
               {tokens.map((token) => {
                 const isActivePersona =
@@ -588,8 +659,15 @@ export default function CollectionPage() {
                 const wallet = wallets[token.tokenId];
                 const level = levels[token.tokenId];
 
+                const dimmed = Boolean(persona) && !isActivePersona;
+
                 return (
-                  <div key={token.tokenId} className="hc-box overflow-hidden">
+                  <div
+                    key={token.tokenId}
+                    className={`hc-box overflow-hidden ${
+                      isActivePersona ? "hc-profile-card-selected" : ""
+                    } ${dimmed ? "hc-profile-card-dimmed" : ""}`}
+                  >
                     <Link
                       href={`/wallet/${token.tokenId}`}
                       className={`hc-profile-card block w-full ${level !== undefined ? "hc-profile-card-has-level" : ""}`}
@@ -631,39 +709,39 @@ export default function CollectionPage() {
                         </div>
                       )}
                       {isActivePersona ? (
+                        // No button here on purpose - this IS the selected
+                        // one. Requested live: a "Chat as this anon" button
+                        // on the card you're already posting as was
+                        // confusing next to every other card's action
+                        // button; a clear badge instead makes "this is the
+                        // one" unambiguous at a glance, and the card's own
+                        // highlighted border (hc-profile-card-selected)
+                        // reinforces it across the whole grid.
+                        <span className="hc-selected-badge text-xs">
+                          ✓ Currently selected
+                        </span>
+                      ) : isClaimed ? (
+                        // Same solid button style as every other
+                        // interactive action on this page now (previously
+                        // a lighter "ghost" style just for this one case) -
+                        // requested live: one consistent "this is clickable"
+                        // color across the grid instead of some cards using
+                        // a bold button and others a faint outline one.
                         <button
-                          onClick={handleChat}
+                          onClick={() => handleSelect(token.tokenId)}
+                          disabled={selectingId !== null}
                           className="hc-button w-full text-xs"
                         >
-                          <ChatIcon className="hc-btn-icon" />
-                          Chat as this anon
+                          {selectingId === token.tokenId
+                            ? "Sign in wallet..."
+                            : "Select this anon"}
                         </button>
-                      ) : isClaimed ? (
-                        <div className="flex flex-col gap-1.5">
-                          <span
-                            className="text-xs font-bold"
-                            style={{ color: "var(--hc-header-to)" }}
-                          >
-                            ✓ Activated
-                          </span>
-                          <button
-                            onClick={() =>
-                              handleClaim(token, { forceActive: true })
-                            }
-                            disabled={isClaiming}
-                            className="hc-button-ghost hc-button w-full text-xs"
-                          >
-                            {isClaiming
-                              ? "Sign in wallet..."
-                              : "Post as this anon instead"}
-                          </button>
-                        </div>
                       ) : (
                         <>
                           <button
                             onClick={() => handleClaim(token)}
                             disabled={isClaiming}
-                            className="hc-button-ghost hc-button w-full text-xs"
+                            className="hc-button w-full text-xs"
                           >
                             {isClaiming
                               ? claimStage === "signing"

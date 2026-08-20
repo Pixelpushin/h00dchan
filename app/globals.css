@@ -506,6 +506,46 @@ body {
   border-radius: 3px;
 }
 
+/* --- Collection page: currently-selected persona card + panel ---------- */
+
+.hc-profile-card-selected {
+  border: 2px solid var(--hc-header-to);
+  box-shadow: 0 0 0 2px rgba(193, 87, 31, 0.25);
+}
+
+.hc-profile-card-dimmed {
+  opacity: 0.82;
+}
+
+.hc-selected-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  background: var(--hc-header-to);
+  color: #fff;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  width: 100%;
+}
+
+.hc-current-persona-panel {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  min-width: 220px;
+}
+
+.hc-current-persona-avatar {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 3px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
 /* --- Board index ------------------------------------------------------- */
 
 .hc-thread-row {
