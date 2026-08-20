@@ -38,11 +38,23 @@ export function WalletHoldingsView({
   tbaAddress,
   nfts,
   tokenBalances,
+  nftNestedCounts = {},
+  nftTrustedTokens = {},
 }: {
   tokenId: string;
   tbaAddress: string;
   nfts: WalletHoldings["nfts"];
   tokenBalances: WalletHoldings["tokenBalances"];
+  // Keyed by `${contractAddress}-${tokenId}` (same key this component
+  // already uses for each NFT's React key) - same "float notable holdings
+  // to the top" idea app/collection/page.tsx applies to a holder's own
+  // grid, one level deeper: a nested HOODCHAN can itself hold further-
+  // nested HOODCHANs or whitelisted ERC-20s. Optional/defaulted since
+  // computing this is the SERVER page's job (app/wallet/[tokenId]/page.tsx)
+  // - a caller that doesn't have it yet just gets the un-sorted, un-badged
+  // grid this component always showed before this feature existed.
+  nftNestedCounts?: Record<string, number>;
+  nftTrustedTokens?: Record<string, string[]>;
 }) {
   const [showAll, setShowAll] = useState(false);
 
@@ -140,7 +152,24 @@ export function WalletHoldingsView({
     trustedNfts.length +
     (tokenBalances.length - trustedTokens.length);
 
-  const visibleNfts = showAll ? nfts : trustedNfts;
+  // Same nested-first-then-trusted-token-count sort as app/collection/
+  // page.tsx, applied to this nested-one-level-deeper grid.
+  function nftSortKey(nft: WalletNft): string {
+    return `${nft.contractAddress}-${nft.tokenId}`;
+  }
+  const sortedNfts = [...(showAll ? nfts : trustedNfts)].sort((a, b) => {
+    const nestedDiff =
+      (nftNestedCounts[nftSortKey(b)] ?? 0) -
+      (nftNestedCounts[nftSortKey(a)] ?? 0);
+    if (nestedDiff !== 0) return nestedDiff;
+    const tokenDiff =
+      (nftTrustedTokens[nftSortKey(b)]?.length ?? 0) -
+      (nftTrustedTokens[nftSortKey(a)]?.length ?? 0);
+    if (tokenDiff !== 0) return tokenDiff;
+    return Number(a.tokenId) - Number(b.tokenId);
+  });
+
+  const visibleNfts = sortedNfts;
   const visibleTokens = showAll ? tokenBalances : trustedTokens;
 
   return (
@@ -183,19 +212,37 @@ export function WalletHoldingsView({
                 key={`${nft.contractAddress}-${nft.tokenId}`}
                 className="hc-box overflow-hidden"
               >
-                {nft.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={nft.imageUrl}
-                    alt={nft.name ?? nft.tokenId}
-                    className="w-full aspect-square object-cover"
-                  />
-                ) : (
-                  <div
-                    className="w-full aspect-square"
-                    style={{ background: "var(--hc-box-alt)" }}
-                  />
-                )}
+                <div className="relative">
+                  {nft.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={nft.imageUrl}
+                      alt={nft.name ?? nft.tokenId}
+                      className="w-full aspect-square object-cover"
+                    />
+                  ) : (
+                    <div
+                      className="w-full aspect-square"
+                      style={{ background: "var(--hc-box-alt)" }}
+                    />
+                  )}
+                  {(nftNestedCounts[nftSortKey(nft)] ?? 0) > 0 && (
+                    <span
+                      className="hc-profile-card-nested-badge"
+                      title={`${nftNestedCounts[nftSortKey(nft)]} nested HOODCHAN${nftNestedCounts[nftSortKey(nft)] === 1 ? "" : "s"}`}
+                    >
+                      📦 {nftNestedCounts[nftSortKey(nft)]}
+                    </span>
+                  )}
+                  {(nftTrustedTokens[nftSortKey(nft)]?.length ?? 0) > 0 && (
+                    <span
+                      className="hc-profile-card-token-badge"
+                      title={`Holds: ${nftTrustedTokens[nftSortKey(nft)].join(", ")}`}
+                    >
+                      💰 {nftTrustedTokens[nftSortKey(nft)].length}
+                    </span>
+                  )}
+                </div>
                 <div className="p-1.5 text-center hc-thread-meta text-[0.65rem] truncate">
                   {nft.name ?? `#${nft.tokenId}`}
                 </div>

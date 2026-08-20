@@ -13,7 +13,13 @@ import { isValidTokenId } from "@/lib/persona";
 import { computeTbaAddress, isTbaActivated } from "@/lib/tba";
 import { fetchWalletHoldings, type WalletHoldings } from "@/lib/alchemy";
 import { PostImage } from "@/app/components/PostImage";
-import { BLOCK_EXPLORER_URL, CONTRACT, rpcCall } from "@/lib/chain";
+import {
+  BLOCK_EXPLORER_URL,
+  CONTRACT,
+  readBalanceOf,
+  rpcCall,
+} from "@/lib/chain";
+import { TRUSTED_TOKENS } from "@/lib/trustedTokens";
 import { WalletHoldingsView } from "@/app/components/WalletHoldingsView";
 import { WalletActionsPanel } from "@/app/components/WalletActionsPanel";
 import { computeLevelProgress } from "@/lib/leveling";
@@ -170,6 +176,58 @@ export default async function WalletPage({
       holdings = await fetchWalletHoldings(tbaAddress);
     } catch {
       holdingsError = "Unable to load holdings for this wallet right now.";
+    }
+  }
+
+  // Same "float notable holdings to the top" treatment app/collection/
+  // page.tsx already applies to a holder's OWN token grid, one level
+  // deeper: a HOODCHAN nested inside THIS anon's wallet can itself have
+  // further-nested HOODCHANs or whitelisted ERC-20s in its own TBA -
+  // reported live as missing here, this grid was showing nested items in
+  // plain Alchemy order with no indication any of them held anything
+  // notable. Only meaningful for nested items that are HOODCHAN itself
+  // (a nested item from some other collection has no TBA/nested-holding
+  // concept), and only computed for however many nested items actually
+  // exist here - realistically a handful, not the hundreds a full
+  // collection-page holder might own, so no chunking needed the way
+  // /api/wallet-tokens has to for a whole wallet's worth of tokens.
+  const nftNestedCounts: Record<string, number> = {};
+  const nftTrustedTokens: Record<string, string[]> = {};
+  if (holdings && holdings.nfts.length > 0) {
+    const ownHoodchans = holdings.nfts.filter(
+      (nft) => nft.contractAddress.toLowerCase() === CONTRACT.toLowerCase(),
+    );
+    if (ownHoodchans.length > 0) {
+      try {
+        const nestedSnapshot = await getCollectionSnapshot();
+        await Promise.all(
+          ownHoodchans.map(async (nft) => {
+            try {
+              const nftTbaAddress = await computeTbaAddress(nft.tokenId);
+              const key = `${nft.contractAddress}-${nft.tokenId}`;
+              const nested = nestedHoldingCount(nestedSnapshot, nftTbaAddress);
+              if (nested > 0) nftNestedCounts[key] = nested;
+              const trustedBalances = await Promise.all(
+                TRUSTED_TOKENS.map((t) =>
+                  readBalanceOf(t.address, nftTbaAddress).catch(() =>
+                    BigInt(0),
+                  ),
+                ),
+              );
+              const held = TRUSTED_TOKENS.filter(
+                (_, i) => trustedBalances[i] > BigInt(0),
+              ).map((t) => t.symbol);
+              if (held.length > 0) nftTrustedTokens[key] = held;
+            } catch {
+              // leave this one nested item unenriched (no badge) rather
+              // than fail the whole grid over one bad RPC call.
+            }
+          }),
+        );
+      } catch {
+        // snapshot unavailable - nested items just show with no badges,
+        // same as before this feature existed.
+      }
     }
   }
 
@@ -382,6 +440,8 @@ export default async function WalletPage({
               tbaAddress={tbaAddress}
               nfts={holdings.nfts}
               tokenBalances={holdings.tokenBalances}
+              nftNestedCounts={nftNestedCounts}
+              nftTrustedTokens={nftTrustedTokens}
             />
           </>
         )}
