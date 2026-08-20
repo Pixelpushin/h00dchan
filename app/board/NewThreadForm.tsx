@@ -46,7 +46,7 @@ export function NewThreadForm() {
         ) : (
           <>
             <Link href="/" className="hc-link">
-              Connect your wallet and claim a token
+              Connect your wallet and activate an anon
             </Link>{" "}
             to start a thread.
           </>

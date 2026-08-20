@@ -47,7 +47,7 @@ export function ReplyForm({ threadId }: { threadId: string }) {
         ) : (
           <>
             <Link href="/" className="hc-link">
-              Connect your wallet and claim a token
+              Connect your wallet and activate an anon
             </Link>{" "}
             to reply to this thread.
           </>

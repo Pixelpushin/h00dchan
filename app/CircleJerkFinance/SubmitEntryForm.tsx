@@ -45,7 +45,7 @@ export function SubmitEntryForm({
         ) : (
           <>
             <Link href="/" className="hc-link">
-              Connect your wallet and claim a token
+              Connect your wallet and activate an anon
             </Link>{" "}
             to submit a project.
           </>
