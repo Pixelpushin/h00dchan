@@ -76,6 +76,17 @@ export async function GET(request: NextRequest) {
     const TBA_CONCURRENCY = 8;
     const wallets: Record<string, { address: string; activated: boolean }> = {};
     const levels: Record<string, number> = {};
+    // Reuses the same live, on-chain-ownership-reverified isTokenClaimed()
+    // check this loop already runs per token for the level calc, instead
+    // of a caller needing a second independent lookup (previously
+    // WalletHeaderWidget cross-checked against /api/persona/mine, a Redis
+    // reverse index that trusts its stored record's address rather than
+    // re-confirming current on-chain ownership - two independently
+    // computed "claimed" signals that could legitimately disagree and got
+    // reported live as the header staying stuck on "Activate NFTs" even
+    // once the collection page - which already uses this same
+    // isTokenClaimed check - showed everything activated).
+    const claimedTokenIds: string[] = [];
     for (let i = 0; i < tokenIds.length; i += TBA_CONCURRENCY) {
       const batch = tokenIds.slice(i, i + TBA_CONCURRENCY);
       const results = await Promise.all(
@@ -125,6 +136,7 @@ export async function GET(request: NextRequest) {
                 tokenId,
                 { address: tbaAddress, activated },
                 level,
+                claimed,
               ] as const;
             } catch {
               // one retry, then give up on this token for this request -
@@ -138,11 +150,18 @@ export async function GET(request: NextRequest) {
         if (entry) {
           wallets[entry[0]] = entry[1];
           levels[entry[0]] = entry[2];
+          if (entry[3]) claimedTokenIds.push(entry[0]);
         }
       }
     }
 
-    return NextResponse.json({ tokenIds, lastScannedBlock, wallets, levels });
+    return NextResponse.json({
+      tokenIds,
+      lastScannedBlock,
+      wallets,
+      levels,
+      claimedTokenIds,
+    });
   } catch (error) {
     console.error(`Failed to load wallet tokens for ${address}`, error);
     return NextResponse.json(
