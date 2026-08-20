@@ -35,14 +35,29 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener);
 }
 
+// Throws on a failed fetch instead of quietly resolving to an empty
+// tokenIds list - a real bug reported live: /api/wallet-tokens does a live
+// on-chain scan that can transiently fail (RPC hiccup, timeout), and
+// swallowing that into `{ tokenIds: [] }` used to write a false "owns
+// zero tokens" result straight into the shared cache below, flashing the
+// header's avatar button into its "no HOODCHAN in this wallet" gear icon
+// even though the wallet still holds everything. Letting it throw means
+// refreshMyTokens (below) can tell "this fetch genuinely came back empty"
+// apart from "this fetch failed" and only ever trust the former.
 async function doFetch(address: string): Promise<MyTokens> {
+  const [ownedRes, claimedRes] = await Promise.all([
+    fetch(`/api/wallet-tokens?${new URLSearchParams({ address })}`),
+    fetch(`/api/persona/mine?${new URLSearchParams({ address })}`),
+  ]);
+  if (!ownedRes.ok) {
+    throw new Error(`wallet-tokens fetch failed (${ownedRes.status})`);
+  }
+  if (!claimedRes.ok) {
+    throw new Error(`persona/mine fetch failed (${claimedRes.status})`);
+  }
   const [ownedBody, claimedBody] = await Promise.all([
-    fetch(`/api/wallet-tokens?${new URLSearchParams({ address })}`)
-      .then((res) => (res.ok ? res.json() : { tokenIds: [] }))
-      .catch(() => ({ tokenIds: [] })),
-    fetch(`/api/persona/mine?${new URLSearchParams({ address })}`)
-      .then((res) => (res.ok ? res.json() : { tokenIds: [] }))
-      .catch(() => ({ tokenIds: [] })),
+    ownedRes.json(),
+    claimedRes.json(),
   ]);
   return {
     ownedTokenIds: Array.isArray(ownedBody.tokenIds) ? ownedBody.tokenIds : [],
@@ -55,14 +70,27 @@ async function doFetch(address: string): Promise<MyTokens> {
 // Re-fetches from the server and replaces the cached entry for `address` -
 // call after any action that changes claim status. De-duped: a second call
 // while one's already in flight for the same address just joins it, rather
-// than firing a redundant request.
+// than firing a redundant request. On failure, deliberately leaves
+// whatever's already cached alone (see doFetch's comment above) rather
+// than overwriting good data with a wrong "zero tokens" result - a first-
+// ever load that fails retries once after a few seconds instead of
+// leaving the UI stuck.
 export async function refreshMyTokens(address: string): Promise<void> {
   const existing = inflight.get(address);
   if (existing) return existing;
+  const hadCache = cache.has(address);
   const promise = doFetch(address)
     .then((result) => {
       cache.set(address, result);
       notify();
+    })
+    .catch((err) => {
+      console.error(`useMyTokens: refresh failed for ${address}`, err);
+      if (!hadCache) {
+        setTimeout(() => {
+          if (!cache.has(address)) refreshMyTokens(address);
+        }, 3000);
+      }
     })
     .finally(() => {
       inflight.delete(address);

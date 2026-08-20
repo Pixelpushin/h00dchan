@@ -8,7 +8,7 @@
 // the header (WalletHeaderWidget's "Browse all your anons ->") instead of
 // taking over the middle of the screen. This page is that destination -
 // same claim/activate logic as before, just moved off "/" entirely.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { WalletIcon } from "@/app/components/Icons";
 import { onAccountsChanged, signMessage, connectWallet } from "@/lib/wallet";
@@ -139,7 +139,22 @@ export default function CollectionPage() {
   const EXPLAINER_SEEN_KEY = "h00dchan:activation-explainer-seen";
   const [showExplainer, setShowExplainer] = useState(false);
 
+  // Guards against a real race reported live: "error loading, then showed
+  // them, then they disappeared and said error loading again." AppKit's
+  // subscribeAccount (lib/wallet.ts's onAccountsChanged) fires on ANY
+  // account-state change, not just an actual address change - session
+  // hydration/balance-refresh events after a fresh connect can re-fire it
+  // with the SAME address a moment later, which used to call loadTokens a
+  // second time while the first call was still in flight. Whichever call
+  // resolved last won, so a transient hiccup on the second (redundant)
+  // call could overwrite the first call's already-successful render with
+  // an error. latestOwnerRef records the most recently REQUESTED owner;
+  // any attempt whose owner no longer matches it by the time it resolves
+  // is stale and bails without touching state.
+  const latestOwnerRef = useRef<string | null>(null);
+
   const loadTokens = useCallback(async (owner: string) => {
+    latestOwnerRef.current = owner;
     setError(null);
     const renderCache = readWalletRenderCache(owner);
     if (renderCache) {
@@ -183,6 +198,8 @@ export default function CollectionPage() {
           Promise.all(tokenIds.map((id) => fetchTokenMetadataViaApi(id))),
           Promise.all(tokenIds.map((id) => fetchClaimedStatus(id))),
         ]);
+        if (latestOwnerRef.current !== owner) return;
+
         const resolved = metadata
           .filter((m): m is TokenMetadata => m !== null)
           .sort((a, b) => Number(a.tokenId) - Number(b.tokenId));
@@ -202,6 +219,7 @@ export default function CollectionPage() {
           levels: levelMap,
         });
       } catch (err) {
+        if (latestOwnerRef.current !== owner) return;
         if (renderCache) {
           console.error("Background wallet refresh failed", err);
           if (!isRetry) {
@@ -427,11 +445,20 @@ export default function CollectionPage() {
   useEffect(() => {
     return onAccountsChanged((accounts) => {
       if (!accounts?.length) {
+        latestOwnerRef.current = null;
         setAddress(null);
         setTokens([]);
         setState("idle");
         return;
       }
+      // AppKit's subscribeAccount (lib/wallet.ts's onAccountsChanged) fires
+      // on any account-state change, not just an actual address change -
+      // skip re-running the whole token load for a redundant firing with
+      // the same address (latestOwnerRef still protects against a stale
+      // in-flight call clobbering state either way, but there's no reason
+      // to fire a second full fetch cycle when nothing about the address
+      // itself changed).
+      if (accounts[0] === latestOwnerRef.current) return;
       setAddress(accounts[0]);
       loadTokens(accounts[0]);
     });
