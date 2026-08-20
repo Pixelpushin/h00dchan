@@ -212,12 +212,20 @@ export function checkPublicApiRateLimit(request: NextRequest): RateLimitResult {
 // most expensive one in the app (dozens-to-hundreds of live on-chain RPC
 // calls per request, maxDuration=60s) and is reachable with nothing more
 // than a syntactically valid address in a query string - 120 requests at
-// that cost is real, sustained RPC load, not a meaningful cap. A real
-// visitor loading /collection or reconnecting a wallet a few times in 5
-// minutes stays well under this; a script rotating the address param to
-// force unlimited scans does not.
+// that cost is real, sustained RPC load, not a meaningful cap.
+//
+// Was 10 - confirmed live as genuinely too tight: this endpoint is called
+// independently by BOTH WalletHeaderWidget (lib/useMyTokens.ts, on every
+// page) and app/collection/page.tsx's own separate fetch, so a normal
+// visit-then-check-/collection browsing session can burn 2 calls per page
+// view before a single manual reload. A user reloading a few times to
+// check whether a page update landed silently fell back to stale cached
+// data (wrong sort order, missing badges) once the limit tripped, which
+// read as "the feature doesn't work" rather than "you're rate-limited."
+// 30 keeps real headroom for that while still being a fraction of the old
+// shared 120/5min bucket.
 const expensiveScanIpLimit = new Map<string, RateEntry>();
-const EXPENSIVE_SCAN_IP_MAX = 10;
+const EXPENSIVE_SCAN_IP_MAX = 30;
 
 export function checkExpensiveScanRateLimit(
   request: NextRequest,
