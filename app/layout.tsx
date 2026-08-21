@@ -22,6 +22,15 @@ export const metadata: Metadata = {
   description: "The anonymous message board for HOODCHAN NFT holders.",
 };
 
+// ClankerProgress (rendered below, on every route) reads live on-chain
+// totalSupply() on every request - most routes already set this
+// individually, but a handful (collection, developers, onlychans, wallet
+// index) didn't, so their static HTML baked in a stale count from build
+// time and never updated after burns. Setting it here at the root layout
+// guarantees every route re-renders it live, instead of relying on each
+// new page remembering to opt in.
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
