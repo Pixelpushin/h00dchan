@@ -133,15 +133,32 @@ export async function refreshMyTokens(address: string): Promise<void> {
       // token that's truly no longer owned is filtered out via the
       // ownedTokenIds intersection below, so nothing stale lingers once
       // it actually leaves the wallet.
-      const previouslyClaimed = cache.get(address)?.claimedTokenIds ?? [];
+      const previousEntry = cache.get(address);
+      const previouslyClaimed = previousEntry?.claimedTokenIds ?? [];
       const ownedSet = new Set(result.ownedTokenIds);
       const claimedSet = new Set(result.claimedTokenIds);
       previouslyClaimed.forEach((id) => {
         if (ownedSet.has(id)) claimedSet.add(id);
       });
+      // Same "only ever add, never drop" guard as claimedTokenIds above,
+      // applied to wallets[*].activated - a per-token isTbaActivated() RPC
+      // read can transiently fail/return false or drop the token entirely
+      // (see /api/wallet-tokens's own retry-then-give-up loop), which would
+      // otherwise flip a just-confirmed activation back to "not activated"
+      // in the shared cache the instant this refetch lands.
+      const wallets = { ...result.wallets };
+      const previousWallets = previousEntry?.wallets ?? {};
+      Object.entries(previousWallets).forEach(([tokenId, info]) => {
+        if (!info.activated || !ownedSet.has(tokenId)) return;
+        const fresh = wallets[tokenId];
+        if (!fresh || !fresh.activated) {
+          wallets[tokenId] = fresh ? { ...fresh, activated: true } : info;
+        }
+      });
       cache.set(address, {
         ...result,
         claimedTokenIds: [...claimedSet],
+        wallets,
         fetchedAt: Date.now(),
       });
       notify();
@@ -180,6 +197,30 @@ export function markTokensClaimed(address: string, tokenIds: string[]): void {
     // not a real fetch, so it shouldn't reset the staleness clock that
     // decides when the next real fetch is due. Falls back to "now" only
     // when there's no prior real fetch to inherit a timestamp from.
+    fetchedAt: current?.fetchedAt ?? Date.now(),
+  });
+  notify();
+}
+
+// Optimistic local update for a single token's TBA activation - mirrors
+// markTokensClaimed above. Called right after a createAccount() tx confirms
+// (WalletActionsPanel.tsx), before the fire-and-forget refreshMyTokens that
+// reconciles with the server.
+export function markTbaActivated(
+  address: string,
+  tokenId: string,
+  tbaAddress: string,
+): void {
+  const current = cache.get(address);
+  cache.set(address, {
+    ownedTokenIds: current?.ownedTokenIds ?? [],
+    claimedTokenIds: current?.claimedTokenIds ?? [],
+    wallets: {
+      ...(current?.wallets ?? {}),
+      [tokenId]: { address: tbaAddress, activated: true },
+    },
+    levels: current?.levels ?? {},
+    nestedCounts: current?.nestedCounts ?? {},
     fetchedAt: current?.fetchedAt ?? Date.now(),
   });
   notify();

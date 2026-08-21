@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { isAddress, parseUnits } from "ethers";
 import { connectWallet, sendTransaction } from "@/lib/wallet";
 import { useWalletAddress } from "@/lib/useWalletAddress";
+import { markTbaActivated, refreshMyTokens } from "@/lib/useMyTokens";
 import {
   buildCreateAccountTx,
   buildSendEthTx,
@@ -223,6 +224,17 @@ export function WalletActionsPanel({
       }
       setActivated(true);
       setStatus("Wallet activated - you can now send from it below.");
+      // setActivated above is local-only - the shared cross-component cache
+      // in lib/useMyTokens.ts (consumed by the /collection grid's
+      // wallets[tokenId].activated check) has no idea this token just
+      // activated until it's told. Same class of bug documented in that
+      // file ("header stuck on Activate NFTs" for claimedTokenIds): any
+      // call site that changes activation status has to update the shared
+      // cache itself, nothing does it automatically. Optimistic patch first
+      // (instant, and immune to a flaky RPC read undoing what we just
+      // confirmed on-chain), then a fire-and-forget refetch to reconcile.
+      markTbaActivated(account, tokenId, tbaAddress);
+      refreshMyTokens(account);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Activation failed.");
     } finally {
