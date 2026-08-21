@@ -5,7 +5,6 @@ import {
   consumeVerifiedWriteBudget,
 } from "@/lib/rate-limit";
 import { createThread, listThreads, markTokenClaimed } from "@/lib/store";
-import { triggerAiThread } from "@/lib/aiEngagement";
 import { triggerAlphaBotThreadReplies } from "@/lib/alphaBotEngagement";
 import {
   claimRewardSlot,
@@ -154,21 +153,22 @@ export async function POST(request: NextRequest) {
     body.trim(),
   );
 
-  // Every human-created thread triggers exactly one new AI thread
-  // elsewhere on the board (one-for-one, not a batch - cheaper, and the
-  // board no longer generates content on its own timer), immediately.
-  // Separately, THIS thread only gets the staggered-reward extra replies
-  // if it clears lib/threadQuality.ts's bar - the reward is meant for
-  // genuinely witty/funny posts, not every post, or it's just a second
-  // blind bot-spam mechanic. after() runs this once the response has
-  // already been sent, so none of it adds Venice-call or Redis latency to
-  // the human's own post. triggerAiThread swallows its own errors
-  // internally (lib/aiEngagement.ts) - a Venice hiccup here can never
-  // break the human's post, which has already succeeded by this point.
+  // This thread only gets the staggered-reward extra replies if it clears
+  // lib/threadQuality.ts's bar - the reward is meant for genuinely witty/
+  // funny posts, not every post, or it's just a second blind bot-spam
+  // mechanic. after() runs this once the response has already been sent,
+  // so none of it adds Venice-call or Redis latency to the human's own
+  // post.
+  //
+  // No AI-thread trigger here anymore (explicit instruction: only humans
+  // start threads, bots are reply guys now) - Alpha Bot may still reply
+  // within THIS thread (below) if the token that started it qualifies, and
+  // lib/aiEngagement.ts's triggerAiReply fires from the reply endpoint
+  // instead, but nothing creates a brand-new thread except a real human
+  // via createThread above.
   after(async () => {
     const [quality] = await Promise.all([
       scoreThreadQuality(thread.subject, [post]),
-      triggerAiThread(),
       // Own try/catch internally (lib/alphaBotEngagement.ts) - qualifies()
       // no-ops for anyone under the hold-duration bar or once today's
       // site-wide budget is spent, so this is a cheap no-op far more often

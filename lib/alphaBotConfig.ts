@@ -34,6 +34,18 @@ export const MAX_ALPHA_BOT_EVENTS_PER_DAY = 5;
 // either.
 export const MAX_ALPHA_BOT_POSTS_PER_TOKEN_PER_DAY = 2;
 
+// Alpha Bot's one narrow exception to "only humans start new threads"
+// (explicit instruction) - it can headline a brand-new thread of its own,
+// but only for a genuinely notable finding (judged by Venice alongside the
+// normal desk research, see lib/alphaBotResearch.ts's "newsworthy" field -
+// a high bar by design, most wallets should never clear it) AND at most
+// once per this cooldown, site-wide, regardless of how many different
+// anons' research would otherwise qualify. "Once a couple days" (explicit
+// instruction) - keeps this feeling like real, occasional alpha (the
+// @aixbt_agent-style bar it's modeled on), not another recurring bot
+// mechanic. See lib/alphaBotStore.ts's consumeAlphaBotNewThreadCooldown.
+export const ALPHA_BOT_NEW_THREAD_COOLDOWN_DAYS = 2;
+
 // Standard warning, verbatim, everywhere Alpha Bot content shows up - the
 // wallet-page panel, the public /alpha page, and every single reply it
 // posts on the board (see lib/alphaBotEngagement.ts). Explicit instruction:

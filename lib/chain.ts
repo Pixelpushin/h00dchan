@@ -46,9 +46,10 @@ const FETCH_TIMEOUT_MS = 8_000;
 async function ethCall(
   selector: string,
   tokenId: number | string | bigint,
+  rpcUrl: string = RPC_URL,
 ): Promise<string> {
   const data = `0x${selector}${encodeUint256(tokenId)}`;
-  const res = await fetch(RPC_URL, {
+  const res = await fetch(rpcUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -86,10 +87,22 @@ function decodeString(hex: string): string {
   return new TextDecoder().decode(bytes);
 }
 
+// rpcUrl defaults to the plain public RPC but, unlike before, can now be
+// pointed at Alchemy - see lib/auth-server.ts's verifyPersonaClaim/
+// verifyBatchPersonaClaim, the actual gate behind every claim/post/reply
+// on the site, which used to hit this hardcoded to the public RPC with
+// zero (single-claim) or one (batch-claim) retry. That RPC is already
+// documented elsewhere in this codebase (lib/holderAuth.ts) as flaky
+// under load - here it meant a real, repeatedly-owned token could
+// spuriously fail its ownership check on every single retry, not just
+// once, since the same burst of concurrent eth_calls tends to fail the
+// same way again. Reported live as "Activate All" never fully clearing
+// for a large wallet no matter how many times it was retried.
 export async function readOwnerOf(
   tokenId: number | string | bigint,
+  rpcUrl: string = RPC_URL,
 ): Promise<string> {
-  const result = await ethCall(SELECTOR_OWNER_OF, tokenId);
+  const result = await ethCall(SELECTOR_OWNER_OF, tokenId, rpcUrl);
   return decodeAddress(result);
 }
 

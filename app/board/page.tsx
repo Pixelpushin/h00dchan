@@ -92,6 +92,14 @@ export default async function BoardPage({
                 <div className="min-w-0">
                   <div className="hc-thread-subject text-base">
                     {thread.subject}
+                    {thread.isAiThread && (
+                      <span
+                        className="hc-post-ai-badge ml-1"
+                        title="AI-generated thread - this token hadn't been claimed by its holder yet when it was posted"
+                      >
+                        (AI)
+                      </span>
+                    )}
                   </div>
                   <div className="hc-thread-meta mt-1">
                     Anon #{thread.tokenId} · {thread.replyCount}{" "}

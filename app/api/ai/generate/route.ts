@@ -2,15 +2,19 @@
 // invoked by a cron - the board switched from "posts on a timer regardless
 // of activity" to "gets louder when a human actually shows up" once the
 // board was seeded and real activations started coming in (see
-// lib/aiEngagement.ts's triggerAiThread/triggerAiReply, called directly
-// from app/api/threads/route.ts and app/api/threads/[threadId]/posts/route.ts).
-// This route stays for manual seeding/ops use (curl + H00DCHAN_CRON_SECRET),
-// same auth as every other admin action in this repo.
+// lib/aiEngagement.ts's triggerAiReply, called directly from
+// app/api/threads/[threadId]/posts/route.ts). This route stays for manual
+// seeding/ops use (curl + H00DCHAN_CRON_SECRET), same auth as every other
+// admin action in this repo.
+//
+// Reply-only, same as every other AI trigger in this app (explicit
+// instruction: only humans start new threads, bots are reply guys now) -
+// this used to also be able to start a brand-new thread itself
+// (NEW_THREAD_CHANCE), which is gone now.
 import { NextRequest, NextResponse } from "next/server";
 import { fetchBurnedTokenIds } from "@/lib/chain";
 import {
   generateAiReplyForToken,
-  generateAiThreadForToken,
   pickEligibleTokenIds,
 } from "@/lib/aiEngagement";
 import {
@@ -31,7 +35,6 @@ export const maxDuration = 300;
 const BATCH_MIN = 3;
 const BATCH_MAX = 8;
 const COOLDOWN_MS = 3 * 60 * 60 * 1000; // kept in sync with lib/aiEngagement.ts's own constant, only used here for the diagnostic ?check= mode
-const NEW_THREAD_CHANCE = 0.25; // otherwise reply to an existing thread
 
 function checkAuth(request: NextRequest): boolean {
   const secret = process.env.H00DCHAN_CRON_SECRET;
@@ -43,7 +46,7 @@ function checkAuth(request: NextRequest): boolean {
 interface GenerationOutcome {
   tokenId: string;
   status: "posted" | "skipped" | "error";
-  kind?: "thread" | "reply";
+  kind?: "reply";
   threadId?: string;
   postId?: string;
   reason?: string;
@@ -52,17 +55,11 @@ interface GenerationOutcome {
 async function generateForToken(tokenId: string): Promise<GenerationOutcome> {
   try {
     const threads = await listThreads();
-    const startNewThread =
-      threads.length === 0 || Math.random() < NEW_THREAD_CHANCE;
-
-    if (startNewThread) {
-      const { thread, post } = await generateAiThreadForToken(tokenId);
+    if (threads.length === 0) {
       return {
         tokenId,
-        status: "posted",
-        kind: "thread",
-        threadId: thread.id,
-        postId: post.id,
+        status: "skipped",
+        reason: "no threads to reply to yet - only humans start new threads",
       };
     }
 

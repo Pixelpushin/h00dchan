@@ -167,12 +167,15 @@ Return valid JSON only, matching this shape:
     { "name": "Research Desk", "bullets": ["...", ...] },
     { "name": "Risk Desk", "bullets": ["...", ...] },
     { "name": "Skeptic", "bullets": ["...", ...] }
-  ]
+  ],
+  "newsworthy": { "worth_a_new_thread": true|false, "subject": "...", "body": "..." }
 }
 
 CRITICAL - do not pad, do not restate emptiness three different ways: each desk should ONLY include bullets if it genuinely has something distinct to say about THIS data. If a desk has nothing worth adding beyond what another desk already covers (or the data is too thin for that desk's angle specifically - e.g. Risk Desk has nothing to flag, or Skeptic has nothing real to push back on), return an EMPTY bullets array for that desk instead of writing filler like "nothing here" or "wallet's quiet" in your own words - silence from a desk is fine and expected, three desks all separately announcing "nothing to report" is exactly what NOT to do. It is completely normal and correct for this to return 0, 1, or 2 desks with actual content, not always all 3.
 
 1-3 short bullets per desk that DOES have something to say, each under 30 words, casual trading-desk tone (contractions fine, a little dry humor fine) but grounded ONLY in the real data above - do not invent anything. Round numbers when you use them (e.g. "~$1,200," "a few thousand dollars," "roughly a dozen NFTs") rather than restating exact decimal amounts or dollar-and-cents figures line-by-line - this should read as analysis and commentary, not a reprint of the raw data rows. If the Skeptic desk has any bullets at all, its LAST bullet must end with "DYOR." as its own short closing line, since none of this is financial advice even though it's real data.
+
+SEPARATE JUDGMENT - "newsworthy": most wallets, even ones with some balance, are NOT worth their own headline. Set "worth_a_new_thread": true ONLY for something a sharp trader would genuinely want to know about right now - a large or unusual position, a striking concentration, a rare/notable Nansen label, a genuinely surprising cross-chain pattern. Default to false; an ordinary wallet with modest, unremarkable holdings is NOT newsworthy just because it has SOME data. If true, write "subject" (a short punchy headline, under 80 characters) and "body" (1-3 sentences) in the style of @aixbt_agent on Crypto Twitter: terse, declarative, specific numbers/facts stated plainly, zero hedging or filler, no "DYOR" (the site appends its own disclaimer separately - don't duplicate it), grounded ONLY in the real data above. If false, omit "subject" and "body" entirely (or leave them empty) - don't force content to justify a true you don't actually believe.
 `.trim();
 }
 
@@ -223,13 +226,22 @@ export async function generateAlphaBotResearch(
   // in a different voice is spam, not commentary - if there's genuinely
   // nothing, post nothing.
   if (!wallets.some(walletHasSignal)) {
-    const entry: AlphaBotEntry = { ...baseEntry, desks: [], bullets: [] };
+    const entry: AlphaBotEntry = {
+      ...baseEntry,
+      desks: [],
+      bullets: [],
+      newsworthy: null,
+      threadStarted: false,
+    };
     await saveAlphaBotEntry(entry);
     return entry;
   }
 
   const raw = await callVenice(buildDeskPrompt(tokenId, wallets), veniceApiKey);
-  const parsed = JSON.parse(cleanJsonText(raw)) as { desks?: unknown };
+  const parsed = JSON.parse(cleanJsonText(raw)) as {
+    desks?: unknown;
+    newsworthy?: unknown;
+  };
 
   const desks: AlphaDesk[] = Array.isArray(parsed.desks)
     ? parsed.desks
@@ -246,10 +258,30 @@ export async function generateAlphaBotResearch(
         .filter((d) => d.bullets.length > 0)
     : [];
 
+  let newsworthy: { subject: string; body: string } | null = null;
+  if (
+    typeof parsed.newsworthy === "object" &&
+    parsed.newsworthy !== null &&
+    (parsed.newsworthy as { worth_a_new_thread?: unknown })
+      .worth_a_new_thread === true
+  ) {
+    const n = parsed.newsworthy as { subject?: unknown; body?: unknown };
+    if (
+      typeof n.subject === "string" &&
+      n.subject.trim() &&
+      typeof n.body === "string" &&
+      n.body.trim()
+    ) {
+      newsworthy = { subject: n.subject.trim(), body: n.body.trim() };
+    }
+  }
+
   const entry: AlphaBotEntry = {
     ...baseEntry,
     desks,
     bullets: desks.flatMap((d) => d.bullets),
+    newsworthy,
+    threadStarted: false,
   };
   await saveAlphaBotEntry(entry);
   return entry;

@@ -23,22 +23,29 @@ import {
 import {
   ALPHA_BOT_ATTRIBUTION,
   ALPHA_BOT_DISCLAIMER,
+  ALPHA_BOT_NEW_THREAD_COOLDOWN_DAYS,
   ALPHA_BOT_SNAPSHOT_CUTOFF_MS,
   MAX_ALPHA_BOT_EVENTS_PER_DAY,
   MAX_ALPHA_BOT_POSTS_PER_TOKEN_PER_DAY,
 } from "@/lib/alphaBotConfig";
 import {
   acquireAlphaBotGenerationLock,
+  consumeAlphaBotNewThreadCooldown,
   consumeDailyAlphaBotBudget,
   consumeDailyAlphaBotPostCap,
   getAlphaBotEntry,
+  saveAlphaBotEntry,
   type AlphaBotEntry,
 } from "@/lib/alphaBotStore";
 import {
   generateAlphaBotFollowUp,
   generateAlphaBotResearch,
 } from "@/lib/alphaBotResearch";
-import { addAlphaBotReply, type Thread } from "@/lib/store";
+import {
+  addAlphaBotReply,
+  createAlphaBotThread,
+  type Thread,
+} from "@/lib/store";
 import * as tbaKit from "@pixelpushin/tba-kit";
 
 const RESEARCH_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -125,7 +132,12 @@ export async function getOrRefreshAlphaBotEntry(
   const existing = await getAlphaBotEntry(tokenId);
   if (isAlphaBotEntryFresh(existing)) return existing;
   const holderAddress = await resolveHolderAddress(tokenId);
-  return generateAlphaBotResearch(tokenId, tbaAddress, holderAddress);
+  const entry = await generateAlphaBotResearch(
+    tokenId,
+    tbaAddress,
+    holderAddress,
+  );
+  return maybeStartAlphaBotThread(entry);
 }
 
 // Every single Alpha Bot post carries the full warning, not a soft "DYOR"
@@ -138,6 +150,46 @@ export async function getOrRefreshAlphaBotEntry(
 // display of it.
 function deskPostBody(deskName: string, bullets: string[]): string {
   return `**${deskName}:**\n${bullets.map((b) => `- ${b}`).join("\n")}\n\n${ALPHA_BOT_ATTRIBUTION} ${ALPHA_BOT_DISCLAIMER}`;
+}
+
+// Alpha Bot's one narrow exception to "only humans start new threads" -
+// see lib/alphaBotConfig.ts's ALPHA_BOT_NEW_THREAD_COOLDOWN_DAYS. Only
+// ever reached right after a FRESH generation (never a cache-hit reuse -
+// both call sites below only invoke this immediately after
+// generateAlphaBotResearch returns), so a given research result can only
+// ever attempt this once, and entry.threadStarted (persisted) means it's
+// recorded even after the fact so re-displaying this same cached entry
+// elsewhere never implies a second thread got started from it. The
+// site-wide cooldown check happens LAST, after confirming there's
+// actually a newsworthy finding to post - an ordinary result should never
+// burn the cooldown window that a genuinely notable one might need.
+async function maybeStartAlphaBotThread(
+  entry: AlphaBotEntry,
+): Promise<AlphaBotEntry> {
+  if (!entry.newsworthy || entry.threadStarted) return entry;
+  if (
+    !(await consumeAlphaBotNewThreadCooldown(
+      ALPHA_BOT_NEW_THREAD_COOLDOWN_DAYS,
+    ))
+  ) {
+    return entry;
+  }
+  try {
+    await createAlphaBotThread(
+      entry.newsworthy.subject,
+      entry.tokenId,
+      `${entry.newsworthy.body}\n\n${ALPHA_BOT_ATTRIBUTION} ${ALPHA_BOT_DISCLAIMER}`,
+    );
+  } catch (error) {
+    console.error(
+      `Alpha Bot new-thread post failed for #${entry.tokenId}`,
+      error,
+    );
+    return entry;
+  }
+  const updated: AlphaBotEntry = { ...entry, threadStarted: true };
+  await saveAlphaBotEntry(updated);
+  return updated;
 }
 
 // Fired once per qualifying new thread (app/api/threads/route.ts's after()
@@ -196,6 +248,7 @@ export async function triggerAlphaBotThreadReplies(
         tbaAddress,
         holderAddress,
       );
+      entry = await maybeStartAlphaBotThread(entry);
     }
 
     for (const desk of entry.desks) {

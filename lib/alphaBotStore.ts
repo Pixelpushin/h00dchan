@@ -30,6 +30,17 @@ export interface AlphaBotEntry {
   bullets: string[];
   totalValueUsd: number | null;
   labels: string[];
+  // Venice's own judgment, made alongside the desk research (same call, no
+  // extra spend): is this specific finding genuinely notable enough to
+  // headline its own new thread (aixbt-style - see lib/alphaBotConfig.ts's
+  // ALPHA_BOT_NEW_THREAD_COOLDOWN_DAYS)? null on a cache-hit reuse (the
+  // judgment isn't re-run against stale data) or when generation skipped
+  // entirely (nothing to research). threadStarted records whether this
+  // specific entry actually got to post its own thread - kept even after
+  // the fact so re-displaying this same cached entry elsewhere never
+  // implies "and here's a new thread" a second time.
+  newsworthy: { subject: string; body: string } | null;
+  threadStarted: boolean;
 }
 
 const INDEX_KEY = "alphabot:index";
@@ -139,6 +150,32 @@ export async function acquireAlphaBotGenerationLock(
     "NX",
     "EX",
     GENERATION_LOCK_TTL_SECONDS,
+  );
+  return result === "OK";
+}
+
+const NEW_THREAD_COOLDOWN_KEY = "alphabot:new-thread-cooldown";
+
+// Site-wide gate on Alpha Bot's new-thread privilege (see
+// lib/alphaBotConfig.ts's ALPHA_BOT_NEW_THREAD_COOLDOWN_DAYS) - same
+// SET...NX...EX atomic-lock shape as acquireAlphaBotGenerationLock above,
+// just with a multi-day TTL instead of a 45s one. Returns true only for
+// the caller that "wins" and may actually post the new thread; every other
+// qualifying anon's research within the cooldown window sees false and
+// just... doesn't get its own thread this time, no matter how notable its
+// own findings are. One fixed key, not per-anon - the cooldown is meant to
+// cap the SITE's total cadence of AI-started threads, not give each anon
+// its own independent allowance.
+export async function consumeAlphaBotNewThreadCooldown(
+  cooldownDays: number,
+): Promise<boolean> {
+  const result = await redisCommand(
+    "SET",
+    NEW_THREAD_COOLDOWN_KEY,
+    "1",
+    "NX",
+    "EX",
+    cooldownDays * 24 * 60 * 60,
   );
   return result === "OK";
 }

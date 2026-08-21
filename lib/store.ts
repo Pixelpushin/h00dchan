@@ -249,16 +249,25 @@ export interface Post {
   tokenId: string;
   body: string;
   createdAt: string;
-  // Only ever true for posts written via createAiPost/createAiReply below -
-  // human posts (app/api/threads, app/api/threads/[threadId]/posts) never
-  // set this. Rendered as a visible "(AI)" badge (see PostHeader) - the
-  // whole point of this system is that AI authorship stays honest and
-  // labeled, never passed off as a real holder's words.
+  // Only ever true for posts written via createAiReply/addAlphaBotReply
+  // below - human posts (app/api/threads, app/api/threads/[threadId]/posts)
+  // never set this, and neither does anything else: only humans start new
+  // threads now, AI (both the persona shitpost engine and Alpha Bot) only
+  // ever replies within a thread someone else already started. Rendered as
+  // a visible "(AI)" badge (see PostHeader) - the whole point of this
+  // system is that AI authorship stays honest and labeled, never passed
+  // off as a real holder's words.
   isAi?: boolean;
 }
 
 export interface ThreadWithCounts extends Thread {
   replyCount: number; // excludes the OP post itself
+  // Whether this thread's OP post was AI-authored - see hydrateThreadIds.
+  // Board listings show this as a visible badge so an AI-started thread
+  // never reads as if a real holder posted it, the same "always labeled,
+  // never passed off as a real holder's words" promise Post.isAi already
+  // makes for individual posts within a thread.
+  isAiThread: boolean;
 }
 
 async function nextId(counterKey: string): Promise<string> {
@@ -325,8 +334,9 @@ export async function createThread(
   const post: Post = { id: postId, threadId, tokenId, body, createdAt: now };
   await writePost(post);
   // Human-thread tracking for leveling (lib/leveling.ts) - this is the
-  // one function only a real human-authored thread ever goes through
-  // (createAiPost is the AI's equivalent, deliberately not tracked here).
+  // ONLY function that ever creates a new thread now (AI no longer starts
+  // threads at all, see lib/aiEngagement.ts), so every thread is
+  // human-tracked by construction going forward.
   await redisCommand("RPUSH", `human-threads-by-token:${tokenId}`, threadId);
 
   return { thread, post };
@@ -385,7 +395,11 @@ function invalidateListThreadsCache(): void {
 // Shared by listThreads() (below) and listThreadsPage() (further down) -
 // same per-id GET-thread + LLEN-post-count + chunked-concurrency shape
 // either way, the only difference is which slice of thread ids each one
-// hands in.
+// hands in. Also resolves isAiThread the same way isThreadHuman() does
+// (LRANGE for the OP's id, GET for the OP post itself) rather than calling
+// that function directly, so this stays two Redis calls total per thread
+// instead of three (isThreadHuman's own LRANGE would otherwise duplicate
+// this one).
 async function hydrateThreadIds(ids: string[]): Promise<ThreadWithCounts[]> {
   const threads: (ThreadWithCounts | null)[] = [];
   for (let i = 0; i < ids.length; i += THREAD_FETCH_CONCURRENCY) {
@@ -394,8 +408,23 @@ async function hydrateThreadIds(ids: string[]): Promise<ThreadWithCounts[]> {
       batch.map(async (id) => {
         const thread = await readThread(id);
         if (!thread) return null;
-        const postCount = (await redisCommand("LLEN", `posts:${id}`)) as number;
-        return { ...thread, replyCount: Math.max(0, postCount - 1) };
+        const [postCount, opIds] = await Promise.all([
+          redisCommand("LLEN", `posts:${id}`) as Promise<number>,
+          redisCommand("LRANGE", `posts:${id}`, 0, 0) as Promise<string[]>,
+        ]);
+        let isAiThread = false;
+        const opId = opIds[0];
+        if (opId) {
+          const raw = await redisCommand("GET", `post:${opId}`);
+          if (typeof raw === "string") {
+            isAiThread = (JSON.parse(raw) as Post).isAi === true;
+          }
+        }
+        return {
+          ...thread,
+          replyCount: Math.max(0, postCount - 1),
+          isAiThread,
+        };
       }),
     );
     threads.push(...batchResults);
@@ -843,40 +872,6 @@ export class TokenClaimedError extends Error {
   }
 }
 
-export async function createAiPost(
-  subject: string,
-  tokenId: string,
-  body: string,
-): Promise<{ thread: Thread; post: Post }> {
-  if (await isTokenClaimed(tokenId)) {
-    throw new TokenClaimedError(tokenId);
-  }
-
-  const threadId = await nextId("thread:counter");
-  const now = new Date().toISOString();
-  const thread: Thread = {
-    id: threadId,
-    subject,
-    tokenId,
-    createdAt: now,
-    bumpedAt: now,
-  };
-  await writeThread(thread);
-
-  const postId = await nextId("post:counter");
-  const post: Post = {
-    id: postId,
-    threadId,
-    tokenId,
-    body,
-    createdAt: now,
-    isAi: true,
-  };
-  await writePost(post);
-
-  return { thread, post };
-}
-
 export async function createAiReply(
   threadId: string,
   tokenId: string,
@@ -938,6 +933,43 @@ export async function addAlphaBotReply(
   }
 
   return post;
+}
+
+// Alpha Bot's ONE exception to "only humans start new threads" (see
+// createThread's own comment above and lib/aiEngagement.ts's top-of-file
+// note) - a real, genuinely-notable finding can headline its own thread,
+// gated by lib/alphaBotEngagement.ts's newsworthy check + site-wide
+// cooldown before this is ever called. isAi: true always, same "never
+// passed off as a real holder's words" promise as every other AI-authored
+// post - this one just also gets to be an OP instead of only ever a reply.
+export async function createAlphaBotThread(
+  subject: string,
+  tokenId: string,
+  body: string,
+): Promise<{ thread: Thread; post: Post }> {
+  const threadId = await nextId("thread:counter");
+  const now = new Date().toISOString();
+  const thread: Thread = {
+    id: threadId,
+    subject,
+    tokenId,
+    createdAt: now,
+    bumpedAt: now,
+  };
+  await writeThread(thread);
+
+  const postId = await nextId("post:counter");
+  const post: Post = {
+    id: postId,
+    threadId,
+    tokenId,
+    body,
+    createdAt: now,
+    isAi: true,
+  };
+  await writePost(post);
+
+  return { thread, post };
 }
 
 // --- Token metadata cache ----------------------------------------------

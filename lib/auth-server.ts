@@ -19,7 +19,7 @@
 //       signature periodically
 import { verifyMessage } from "ethers";
 import { ADDRESS_PATTERN } from "@/lib/address";
-import { OWNERSHIP_CHECK_CONCURRENCY, readOwnerOf } from "@/lib/chain";
+import { OWNERSHIP_CHECK_CONCURRENCY, readOwnerOf, RPC_URL } from "@/lib/chain";
 import {
   buildAuthMessage,
   buildBatchAuthMessage,
@@ -29,6 +29,42 @@ import {
   PERSONA_MAX_AGE_MS,
   type PersonaClaim,
 } from "@/lib/persona";
+
+// Same reasoning and shape as lib/holderAuth.ts's ALCHEMY_RPC_URL: the
+// plain public Robinhood Chain RPC is documented there (and confirmed
+// live, more than once, elsewhere in this codebase) as flaky under real
+// load. Every claim/post/reply on the site gates on the ownership check
+// below, so this is the single highest-leverage place for that flakiness
+// to matter - a spurious failure here doesn't just misdraw a leaderboard
+// row, it tells a real holder they don't own their own token.
+const ALCHEMY_RPC_URL = process.env.ALCHEMY_API_KEY
+  ? `https://robinhood-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`
+  : RPC_URL;
+
+// 3 attempts with growing backoff, same convention as
+// lib/alphaBotEngagement.ts's withRetry and app/api/wallet-tokens/
+// route.ts's per-token loop - one bare retry (what this used to be, or
+// less) isn't enough headroom against a genuinely busy RPC, confirmed live
+// via a real large wallet's "Activate All" never fully clearing no matter
+// how many times it was retried by hand.
+async function readOwnerOfWithRetry(
+  tokenId: number | string | bigint,
+): Promise<string> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await readOwnerOf(tokenId, ALCHEMY_RPC_URL);
+    } catch (err) {
+      lastError = err;
+      if (attempt < 2) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, 300 * (attempt + 1)),
+        );
+      }
+    }
+  }
+  throw lastError;
+}
 
 // Machine-readable alongside the human-readable `reason`, so callers (see
 // lib/postAsPersona.ts) can branch on exact failure kind instead of
@@ -155,7 +191,7 @@ export async function verifyPersonaClaim(
 
   let owner: string;
   try {
-    owner = await readOwnerOf(tokenId);
+    owner = await readOwnerOfWithRetry(tokenId);
   } catch {
     return {
       ok: false,
@@ -282,33 +318,30 @@ export async function verifyBatchPersonaClaim(claim: {
   // of a legitimate batch. Chunked (OWNERSHIP_CHECK_CONCURRENCY, same
   // budget lib/chain.ts's fetchWalletTokensOnChain uses against this same
   // RPC), not one unbounded Promise.all - firing up to MAX_BATCH_CLAIM_SIZE
-  // (50) simultaneous eth_calls at Robinhood Chain's RPC in one shot was
-  // confirmed live in production to spuriously fail a real holder's
-  // ownership checks under that burst (same RPC-under-load instability
-  // already hit and fixed twice elsewhere in this codebase - see
-  // app/api/wallet-tokens/route.ts's TBA lookups), which meant a real
-  // owner's tokens came back "unable to verify ownership" and never got
-  // marked claimed even though they genuinely held them. One retry per
-  // token before giving up, same as the wallet-tokens fix.
+  // (50) simultaneous eth_calls in one shot was confirmed live in
+  // production to spuriously fail a real holder's ownership checks under
+  // that burst. readOwnerOfWithRetry (Alchemy-backed, 3 attempts) is the
+  // real fix for that, not just this chunking - a single bare retry
+  // against the plain public RPC (what this used to be) wasn't enough
+  // headroom: the same overloaded RPC tends to fail the SAME way again on
+  // an immediate retry, so a real holder's "Activate All" could fail for
+  // the same subset of tokens on every attempt, not just once. Reported
+  // live as it never fully clearing no matter how many times it was retried.
   const perToken: Record<string, { ok: boolean; reason?: string }> = {};
   for (let i = 0; i < tokenIds.length; i += OWNERSHIP_CHECK_CONCURRENCY) {
     const batch = tokenIds.slice(i, i + OWNERSHIP_CHECK_CONCURRENCY);
     const results = await Promise.all(
       batch.map(async (tokenId) => {
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            const owner = await readOwnerOf(tokenId);
-            return [
-              tokenId,
-              owner.toLowerCase() === address.toLowerCase()
-                ? { ok: true }
-                : { ok: false, reason: "You no longer hold this token." },
-            ] as const;
-          } catch {
-            // One retry, then give up on this token - a single dropped
-            // request is more likely transient RPC flakiness than a real
-            // ownership problem.
-          }
+        try {
+          const owner = await readOwnerOfWithRetry(tokenId);
+          return [
+            tokenId,
+            owner.toLowerCase() === address.toLowerCase()
+              ? { ok: true }
+              : { ok: false, reason: "You no longer hold this token." },
+          ] as const;
+        } catch {
+          // readOwnerOfWithRetry already exhausted its own retries.
         }
         return [
           tokenId,
@@ -384,7 +417,7 @@ export async function verifyBioVerifyAuth(input: {
 
   let owner: string;
   try {
-    owner = await readOwnerOf(tokenId);
+    owner = await readOwnerOfWithRetry(tokenId);
   } catch {
     return {
       ok: false,

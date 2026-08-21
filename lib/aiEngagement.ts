@@ -1,15 +1,21 @@
 // Shared AI-generation building blocks, used by both the human-triggered
-// hooks (app/api/threads/route.ts, app/api/threads/[threadId]/posts/route.ts)
-// and the manual/admin batch tool (app/api/ai/generate/route.ts). Extracted
-// from what used to be that route's only home, when generation switched
-// from "cron polls every 10 minutes regardless of activity" to "the board
-// only gets louder when a human actually shows up" - see the removed cron
-// entry in vercel.json and this file's own trigger* functions below.
+// reply hook (app/api/threads/[threadId]/posts/route.ts) and the manual/
+// admin batch tool (app/api/ai/generate/route.ts). Extracted from what
+// used to be that route's only home, when generation switched from "cron
+// polls every 10 minutes regardless of activity" to "the board only gets
+// louder when a human actually shows up" - see the removed cron entry in
+// vercel.json.
+//
+// AI-authored NEW threads are deliberately not a thing this file supports
+// anymore (explicit instruction: "only let humans post new threads, bots
+// are reply guys now") - only humans start threads (app/api/threads/
+// route.ts's createThread); the AI persona system (this file) and Alpha
+// Bot (lib/alphaBotEngagement.ts) only ever reply within a thread someone
+// else already started.
 import { fetchBurnedTokenIds } from "@/lib/chain";
 import { generateAiPost } from "@/lib/ai-persona";
 import { getAiWalletContext } from "@/lib/aiWalletContext";
 import {
-  createAiPost,
   createAiReply,
   getAiLastPostAt,
   getOrFetchTokenMetadata,
@@ -68,30 +74,6 @@ export async function pickEligibleTokenIds(count: number): Promise<string[]> {
   return eligible;
 }
 
-export async function generateAiThreadForToken(
-  tokenId: string,
-): Promise<{ thread: Thread; post: Post }> {
-  const [metadata, rare, walletContext] = await Promise.all([
-    getOrFetchTokenMetadata(tokenId),
-    isRareToken(tokenId),
-    getAiWalletContext(tokenId),
-  ]);
-  const result = await generateAiPost({
-    metadata,
-    isRare: rare,
-    kind: "thread",
-    walletContext,
-    apiKey: process.env.VENICE_API_KEY!,
-  });
-  const { thread, post } = await createAiPost(
-    result.subject ?? `Anon #${tokenId}'s thread`,
-    tokenId,
-    result.body,
-  );
-  await setAiLastPostAt(tokenId);
-  return { thread, post };
-}
-
 export async function generateAiReplyForToken(
   tokenId: string,
   thread: Thread,
@@ -130,23 +112,11 @@ export async function generateAiReplyForToken(
   return post;
 }
 
-// High-level, fire-and-forget-safe entry points for the human-triggered
-// hooks - swallow their own errors (a failed AI generation must never
-// break a human's own post) and no-op quietly if Venice isn't configured
-// or nothing's eligible right now.
-export async function triggerAiThread(): Promise<void> {
-  if (!process.env.VENICE_API_KEY) return;
-  try {
-    const [tokenId] = await pickEligibleTokenIds(1);
-    if (!tokenId) return;
-    await generateAiThreadForToken(tokenId);
-  } catch (error) {
-    if (!(error instanceof TokenClaimedError)) {
-      console.error("triggerAiThread failed", error);
-    }
-  }
-}
-
+// High-level, fire-and-forget-safe entry point for the human-triggered
+// reply hook - swallows its own errors (a failed AI generation must never
+// break a human's own post) and no-ops quietly if Venice isn't configured
+// or nothing's eligible right now. No thread-starting equivalent anymore -
+// see this file's top-of-file comment.
 export async function triggerAiReply(thread: Thread): Promise<void> {
   if (!process.env.VENICE_API_KEY) return;
   try {
