@@ -17,6 +17,11 @@ export interface AlphaDesk {
 export interface AlphaBotEntry {
   tokenId: string;
   address: string; // the TBA address that was actually researched
+  // The actual holder's own wallet (current owner of this anon), also
+  // researched alongside the TBA above - null when it's the same address
+  // (shouldn't happen structurally) or genuinely couldn't be resolved.
+  // See lib/alphaBotResearch.ts's generateAlphaBotResearch.
+  holderAddress: string | null;
   generatedAt: string;
   desks: AlphaDesk[];
   // Flattened view of every desk's bullets in order - kept for the

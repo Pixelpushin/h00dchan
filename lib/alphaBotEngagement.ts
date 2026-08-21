@@ -90,6 +90,22 @@ export async function alphaBotQualifies(
   return heldSinceSnapshot || hasNestedNfts;
 }
 
+// The anon's own token-bound wallet only ever holds what's been nested
+// inside it - the current owner's actual EOA (or, if nested inside
+// another anon, that anon's own TBA) can hold a very different, often
+// much larger, real on-chain footprint. Research previously only ever
+// looked at the TBA ("what's nested"), missing the holder's own wallet
+// entirely - reported live as a real gap once the research came back
+// as "empty" for anons whose real holder wallet clearly wasn't. Comes
+// from the same cached collection snapshot alphaBotQualifies already
+// reads, so this costs no extra RPC call.
+export async function resolveHolderAddress(
+  tokenId: string,
+): Promise<string | null> {
+  const snapshot = await getCollectionSnapshot();
+  return snapshot.ownerOfToken.get(tokenId) ?? null;
+}
+
 // Shared "is this entry still within the cooldown window" check - used by
 // both getOrRefreshAlphaBotEntry and triggerAlphaBotThreadReplies below so
 // the two can never quietly drift out of agreement on what counts as
@@ -108,7 +124,8 @@ export async function getOrRefreshAlphaBotEntry(
 ): Promise<AlphaBotEntry> {
   const existing = await getAlphaBotEntry(tokenId);
   if (isAlphaBotEntryFresh(existing)) return existing;
-  return generateAlphaBotResearch(tokenId, tbaAddress);
+  const holderAddress = await resolveHolderAddress(tokenId);
+  return generateAlphaBotResearch(tokenId, tbaAddress, holderAddress);
 }
 
 // Every single Alpha Bot post carries the full warning, not a soft "DYOR"
@@ -173,7 +190,12 @@ export async function triggerAlphaBotThreadReplies(
       // Budget already consumed above; if generation throws here the
       // slot is burned, not refunded - unchanged from prior behavior and
       // matches the route, which has no refund path either.
-      entry = await generateAlphaBotResearch(tokenId, tbaAddress);
+      const holderAddress = await resolveHolderAddress(tokenId);
+      entry = await generateAlphaBotResearch(
+        tokenId,
+        tbaAddress,
+        holderAddress,
+      );
     }
 
     for (const desk of entry.desks) {

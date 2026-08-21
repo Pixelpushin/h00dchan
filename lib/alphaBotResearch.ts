@@ -92,17 +92,47 @@ interface HoldingLine {
   valueUsd: number;
 }
 
-function formatDataBlock(
-  tokenId: string,
+interface WalletResearch {
+  role: string; // e.g. "Anon #12's own token-bound wallet" / "the holder's main wallet"
+  address: string;
+  balances: HoldingLine[];
+  labels: string[];
+}
+
+// Below this, a wallet's USD balance doesn't count as "has something to
+// report" on its own - a few cents of dust shouldn't be enough to trigger
+// a full desk round. Labels or actual holdings still count regardless of
+// this threshold (a labeled address with $0 tracked value is still real
+// signal, e.g. a fresh wallet Nansen has already tagged).
+const DUST_THRESHOLD_USD = 1;
+
+function walletHasSignal(w: WalletResearch): boolean {
+  const totalValueUsd = w.balances.reduce((sum, b) => sum + b.valueUsd, 0);
+  return (
+    totalValueUsd > DUST_THRESHOLD_USD ||
+    w.balances.length > 0 ||
+    w.labels.length > 0
+  );
+}
+
+async function researchWallet(
+  role: string,
   address: string,
-  topHoldings: HoldingLine[],
-  totalValueUsd: number,
-  labels: string[],
-): string {
-  return `Anon #${tokenId}, wallet ${address}.
+): Promise<WalletResearch> {
+  const [balances, labels] = await Promise.all([
+    fetchAddressBalances(address).catch(() => []),
+    fetchLabelsCached(address),
+  ]);
+  return { role, address, balances, labels };
+}
 
+function formatWalletBlock(w: WalletResearch): string {
+  const topHoldings = [...w.balances]
+    .sort((a, b) => b.valueUsd - a.valueUsd)
+    .slice(0, MAX_HOLDINGS_IN_PROMPT);
+  const totalValueUsd = w.balances.reduce((sum, b) => sum + b.valueUsd, 0);
+  return `${w.role}, address ${w.address}.
 Total portfolio value across all chains: $${totalValueUsd.toFixed(2)}
-
 Top holdings (${topHoldings.length}):
 ${
   topHoldings.length > 0
@@ -114,19 +144,19 @@ ${
         .join("\n")
     : "(none found)"
 }
-
-Nansen labels on this address (${labels.length}):
-${labels.length > 0 ? labels.join(", ") : "(none)"}`;
+Nansen labels on this address (${w.labels.length}):
+${w.labels.length > 0 ? w.labels.join(", ") : "(none)"}`;
 }
 
-function buildDeskPrompt(dataBlock: string): string {
+function buildDeskPrompt(tokenId: string, wallets: WalletResearch[]): string {
+  const dataBlock = wallets.map(formatWalletBlock).join("\n\n");
   return `
-You are three people at a small crypto trading desk, riffing on ONE real wallet's real on-chain data pulled from Nansen for h00dchan (an anonymous message board for HOODCHAN NFT holders). Unlike every other AI-written thing on this site (which is deliberate fake satire), this is real research on a real wallet - never invent a holding, label, or number that isn't in the data below. If the data is sparse, say so plainly instead of padding it out.
+You are three people at a small crypto trading desk, riffing on Anon #${tokenId}'s real on-chain data pulled from Nansen for h00dchan (an anonymous message board for HOODCHAN NFT holders). This covers ${wallets.length > 1 ? "BOTH the anon's own token-bound wallet AND the actual holder's main wallet that owns this anon" : "the anon's wallet"} - treat them as one person's combined footprint, not two separate subjects, and feel free to compare/contrast the two if both are present. Unlike every other AI-written thing on this site (which is deliberate fake satire), this is real research on real wallets - never invent a holding, label, or number that isn't in the data below.
 
 The three voices:
-- "Research Desk" - states what's actually in the wallet, plainly, like reading off a terminal. Casual trader voice, not corporate: e.g. "decent NFT stack sitting on Robinhood chain here" or "mostly parked in stables, not doing much."
-- "Risk Desk" - flags anything worth a second look purely from the data (concentration in one asset, an unusual label, a near-empty wallet, thin liquidity implied by small positions) - or says there's nothing notable if that's true.
-- "Skeptic" - pushes back or cross-checks the other two, out loud, in the same casual voice - "wallet's too quiet to say much," "one label doesn't make a trend," that kind of thing. Directly reference what Research Desk or Risk Desk just said.
+- "Research Desk" - states what's actually in the wallet(s), plainly, like reading off a terminal. Casual trader voice, not corporate: e.g. "decent NFT stack sitting on Robinhood chain here" or "mostly parked in stables, not doing much."
+- "Risk Desk" - flags anything worth a second look purely from the data (concentration in one asset, an unusual label, thin liquidity implied by small positions).
+- "Skeptic" - pushes back or cross-checks the other two, out loud, in the same casual voice. Directly reference what Research Desk or Risk Desk just said.
 
 Real data:
 ${dataBlock}
@@ -140,35 +170,65 @@ Return valid JSON only, matching this shape:
   ]
 }
 
-1-3 short bullets per desk, each under 30 words, casual trading-desk tone (contractions fine, a little dry humor fine) but grounded ONLY in the real data above - do not invent anything. Round numbers when you use them (e.g. "~$1,200," "a few thousand dollars," "roughly a dozen NFTs") rather than restating exact decimal amounts or dollar-and-cents figures line-by-line - this should read as analysis and commentary, not a reprint of the raw data rows. The LAST bullet of the Skeptic desk must always end with "DYOR." as its own short closing line, since none of this is financial advice even though it's real data.
+CRITICAL - do not pad, do not restate emptiness three different ways: each desk should ONLY include bullets if it genuinely has something distinct to say about THIS data. If a desk has nothing worth adding beyond what another desk already covers (or the data is too thin for that desk's angle specifically - e.g. Risk Desk has nothing to flag, or Skeptic has nothing real to push back on), return an EMPTY bullets array for that desk instead of writing filler like "nothing here" or "wallet's quiet" in your own words - silence from a desk is fine and expected, three desks all separately announcing "nothing to report" is exactly what NOT to do. It is completely normal and correct for this to return 0, 1, or 2 desks with actual content, not always all 3.
+
+1-3 short bullets per desk that DOES have something to say, each under 30 words, casual trading-desk tone (contractions fine, a little dry humor fine) but grounded ONLY in the real data above - do not invent anything. Round numbers when you use them (e.g. "~$1,200," "a few thousand dollars," "roughly a dozen NFTs") rather than restating exact decimal amounts or dollar-and-cents figures line-by-line - this should read as analysis and commentary, not a reprint of the raw data rows. If the Skeptic desk has any bullets at all, its LAST bullet must end with "DYOR." as its own short closing line, since none of this is financial advice even though it's real data.
 `.trim();
 }
 
 export async function generateAlphaBotResearch(
   tokenId: string,
-  address: string,
+  tbaAddress: string,
+  holderAddress: string | null,
 ): Promise<AlphaBotEntry> {
   const veniceApiKey = process.env.VENICE_API_KEY;
   if (!veniceApiKey) throw new Error("VENICE_API_KEY is not configured.");
 
-  const [balances, labels] = await Promise.all([
-    fetchAddressBalances(address).catch(() => []),
-    fetchLabelsCached(address),
-  ]);
+  const shouldResearchHolder =
+    !!holderAddress && holderAddress.toLowerCase() !== tbaAddress.toLowerCase();
 
-  const totalValueUsd = balances.reduce((sum, b) => sum + b.valueUsd, 0);
-  const topHoldings = [...balances]
-    .sort((a, b) => b.valueUsd - a.valueUsd)
-    .slice(0, MAX_HOLDINGS_IN_PROMPT);
+  const wallets = (
+    await Promise.all([
+      researchWallet(`Anon #${tokenId}'s own token-bound wallet`, tbaAddress),
+      shouldResearchHolder
+        ? researchWallet(
+            "The actual holder's main wallet (owns this anon)",
+            holderAddress!,
+          )
+        : null,
+    ])
+  ).filter((w): w is WalletResearch => w !== null);
 
-  const dataBlock = formatDataBlock(
+  const totalValueUsd = wallets.reduce(
+    (sum, w) => sum + w.balances.reduce((s, b) => s + b.valueUsd, 0),
+    0,
+  );
+  const labels = [...new Set(wallets.flatMap((w) => w.labels))];
+
+  const baseEntry = {
     tokenId,
-    address,
-    topHoldings,
+    address: tbaAddress,
+    holderAddress: shouldResearchHolder ? holderAddress : null,
+    generatedAt: new Date().toISOString(),
     totalValueUsd,
     labels,
-  );
-  const raw = await callVenice(buildDeskPrompt(dataBlock), veniceApiKey);
+  };
+
+  // Deterministic gate, not an LLM judgment call: if NEITHER wallet has
+  // any real balance/holdings/labels, there is nothing to research - skip
+  // the Venice call entirely (saves real spend on top of fixing the spam)
+  // and cache an empty-desks entry so this doesn't get re-attempted every
+  // trigger within the 24h cooldown. This is the fix for the reported bug:
+  // three desks each separately announcing "wallet's empty, nothing here"
+  // in a different voice is spam, not commentary - if there's genuinely
+  // nothing, post nothing.
+  if (!wallets.some(walletHasSignal)) {
+    const entry: AlphaBotEntry = { ...baseEntry, desks: [], bullets: [] };
+    await saveAlphaBotEntry(entry);
+    return entry;
+  }
+
+  const raw = await callVenice(buildDeskPrompt(tokenId, wallets), veniceApiKey);
   const parsed = JSON.parse(cleanJsonText(raw)) as { desks?: unknown };
 
   const desks: AlphaDesk[] = Array.isArray(parsed.desks)
@@ -187,13 +247,9 @@ export async function generateAlphaBotResearch(
     : [];
 
   const entry: AlphaBotEntry = {
-    tokenId,
-    address,
-    generatedAt: new Date().toISOString(),
+    ...baseEntry,
     desks,
     bullets: desks.flatMap((d) => d.bullets),
-    totalValueUsd,
-    labels,
   };
   await saveAlphaBotEntry(entry);
   return entry;
