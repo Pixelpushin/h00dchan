@@ -473,7 +473,20 @@ export default function CollectionPage() {
   const hasUnclaimedTokens = tokens.some((t) => !claimedTokens[t.tokenId]);
 
   useEffect(() => {
-    if (state !== "ready" || !hasUnclaimedTokens) return;
+    if (state !== "ready") return;
+    // One-directional bug, now fixed: this used to only ever OPEN the
+    // modal, never close it - a page load that starts from a stale cached
+    // claimedTokens (hasUnclaimedTokens true) opens the explainer, then the
+    // live /api/wallet-tokens fetch corrects the state moments later
+    // (hasUnclaimedTokens false) and the modal just stayed open regardless,
+    // still telling someone whose anons are all genuinely activated that
+    // they need to activate them. Reported live as the collection page's
+    // own top prompt "not knowing" even while every card below it already
+    // showed activated.
+    if (!hasUnclaimedTokens) {
+      queueMicrotask(() => setShowExplainer(false));
+      return;
+    }
     if (window.localStorage.getItem(EXPLAINER_SEEN_KEY) === "1") return;
     queueMicrotask(() => setShowExplainer(true));
   }, [state, hasUnclaimedTokens]);

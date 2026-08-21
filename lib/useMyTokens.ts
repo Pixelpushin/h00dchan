@@ -28,7 +28,24 @@ interface MyTokens {
   wallets: Record<string, TbaInfo>;
   levels: Record<string, number>;
   nestedCounts: Record<string, number>;
+  fetchedAt: number;
 }
+
+// This module-level cache has no browser-storage persistence (resets on a
+// real page reload), but a client-side navigation within the same tab
+// keeps it alive indefinitely - and the mount effect below used to only
+// ever fetch when NOTHING was cached yet, never when what's cached is
+// just stale. A cache entry populated once from a genuinely bad response
+// (e.g. an RPC hiccup that made /api/wallet-tokens come back with an
+// empty/partial claimedTokenIds - see the per-token-loop RPC fix this
+// same session) would sit there and keep the header stuck on "Activate
+// NFTs" for the rest of that tab's session, even after the real
+// underlying data was already fixed - reported live as the header
+// button "not knowing" the collection page's own grid was already
+// showing everything activated. STALE_MS bounds how long a bad snapshot
+// can persist before the next mount/reconnect self-heals it, without
+// re-fetching this expensive endpoint on every single re-render.
+const STALE_MS = 60_000;
 
 const listeners = new Set<() => void>();
 const cache = new Map<string, MyTokens>();
@@ -81,6 +98,11 @@ async function doFetch(address: string): Promise<MyTokens> {
     wallets: body.wallets ?? {},
     levels: body.levels ?? {},
     nestedCounts: body.nestedCounts ?? {},
+    // Overwritten with the real fetch-completion time in refreshMyTokens's
+    // .then() below (after the claimedTokenIds union is computed) - this
+    // placeholder only exists so doFetch's return type is a complete
+    // MyTokens.
+    fetchedAt: Date.now(),
   };
 }
 
@@ -117,7 +139,11 @@ export async function refreshMyTokens(address: string): Promise<void> {
       previouslyClaimed.forEach((id) => {
         if (ownedSet.has(id)) claimedSet.add(id);
       });
-      cache.set(address, { ...result, claimedTokenIds: [...claimedSet] });
+      cache.set(address, {
+        ...result,
+        claimedTokenIds: [...claimedSet],
+        fetchedAt: Date.now(),
+      });
       notify();
     })
     .catch((err) => {
@@ -150,6 +176,11 @@ export function markTokensClaimed(address: string, tokenIds: string[]): void {
     wallets: current?.wallets ?? {},
     levels: current?.levels ?? {},
     nestedCounts: current?.nestedCounts ?? {},
+    // Deliberately NOT Date.now() here - this is an optimistic local patch,
+    // not a real fetch, so it shouldn't reset the staleness clock that
+    // decides when the next real fetch is due. Falls back to "now" only
+    // when there's no prior real fetch to inherit a timestamp from.
+    fetchedAt: current?.fetchedAt ?? Date.now(),
   });
   notify();
 }
@@ -163,7 +194,28 @@ export function useMyTokens(address: string | null) {
 
   useEffect(() => {
     if (!address) return;
-    if (!cache.has(address)) refreshMyTokens(address);
+    const cached = cache.get(address);
+    if (!cached || Date.now() - cached.fetchedAt > STALE_MS) {
+      refreshMyTokens(address);
+    }
+  }, [address]);
+
+  // WalletHeaderWidget (this hook's main consumer) lives in the root
+  // layout and never unmounts across client-side navigation - the mount
+  // effect above only re-fires if `address` itself changes, so a long
+  // session with a stable connected wallet would otherwise never re-check
+  // staleness no matter how much time passes. This interval is what
+  // actually makes STALE_MS mean anything for that common case, not just
+  // for a fresh page load.
+  useEffect(() => {
+    if (!address) return;
+    const id = setInterval(() => {
+      const cached = cache.get(address);
+      if (!cached || Date.now() - cached.fetchedAt > STALE_MS) {
+        refreshMyTokens(address);
+      }
+    }, STALE_MS);
+    return () => clearInterval(id);
   }, [address]);
 
   const refresh = useCallback(() => {
