@@ -739,10 +739,10 @@ export interface ClaimStats {
 export async function getClaimStats(): Promise<ClaimStats> {
   const [everClaimed, total] = await Promise.all([
     redisCommand("SCARD", EVER_CLAIMED_SET_KEY) as Promise<number>,
-    // Live circulating supply, not a hardcoded 1200 - verified live that
-    // this contract decrements totalSupply() on burn (currently 1198 after
-    // 2 confirmed burns), so a hardcoded total would overcount denominator
-    // forever as more burns happen.
+    // Live circulating supply, not a hardcoded 1200 - readTotalSupply()
+    // already nets out both real burns (totalSupply() decrementing) and
+    // dEaD-address sends (see lib/chain.ts), so a hardcoded total would
+    // overcount the denominator forever as more of either happen.
     readTotalSupply(),
   ]);
   return { everClaimed: everClaimed ?? 0, total };
