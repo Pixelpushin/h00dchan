@@ -19,6 +19,24 @@
 export const RPC_URL = "https://rpc.mainnet.chain.robinhood.com";
 export const CONTRACT = "0x774Db2207D26570F5638028839c816702A40aBC2";
 export const CHAIN_ID_HEX = "0x1237"; // 4663
+
+// The plain public RPC above is documented in multiple places across this
+// codebase (lib/holderAuth.ts, lib/auth-server.ts) as unreliable under real
+// load - confirmed live and reproducible: a real 148-token wallet's
+// /api/wallet-tokens response came back with EVERY SINGLE token failing to
+// resolve (0/148, even in isolation, even after waiting), because that
+// route's whole per-token loop (readOwnerOf, readBalanceOf, and - via
+// lib/tba.ts - computeTbaAddress/isTbaActivated) had never actually been
+// routed through Alchemy anywhere, unlike lib/alphaBotEngagement.ts's own
+// separate TBA-resolution path, which already was. DEFAULT_RPC_URL is the
+// fix at the root instead of at each call site: every function below that
+// takes an rpcUrl override now defaults to Alchemy (when configured) rather
+// than the plain RPC, so a future call site that forgets to pass one
+// explicitly still gets the reliable path instead of silently regressing
+// to the one that's already been proven to fail under real load.
+export const DEFAULT_RPC_URL = process.env.ALCHEMY_API_KEY
+  ? `https://robinhood-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`
+  : RPC_URL;
 // Plain string, deliberately not re-exported from lib/appkit.ts's
 // robinhoodChain object - that module is "use client" (Reown/AppKit touches
 // window), so importing it into a Server Component doesn't carry the real
@@ -46,7 +64,7 @@ const FETCH_TIMEOUT_MS = 8_000;
 async function ethCall(
   selector: string,
   tokenId: number | string | bigint,
-  rpcUrl: string = RPC_URL,
+  rpcUrl: string = DEFAULT_RPC_URL,
 ): Promise<string> {
   const data = `0x${selector}${encodeUint256(tokenId)}`;
   const res = await fetch(rpcUrl, {
@@ -87,20 +105,13 @@ function decodeString(hex: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-// rpcUrl defaults to the plain public RPC but, unlike before, can now be
-// pointed at Alchemy - see lib/auth-server.ts's verifyPersonaClaim/
-// verifyBatchPersonaClaim, the actual gate behind every claim/post/reply
-// on the site, which used to hit this hardcoded to the public RPC with
-// zero (single-claim) or one (batch-claim) retry. That RPC is already
-// documented elsewhere in this codebase (lib/holderAuth.ts) as flaky
-// under load - here it meant a real, repeatedly-owned token could
-// spuriously fail its ownership check on every single retry, not just
-// once, since the same burst of concurrent eth_calls tends to fail the
-// same way again. Reported live as "Activate All" never fully clearing
-// for a large wallet no matter how many times it was retried.
+// Defaults to DEFAULT_RPC_URL (Alchemy when configured) - see that
+// constant's own comment above for the full story. Still overridable per
+// call (e.g. a caller with its own retry wrapper can pass a different
+// URL), but the default itself is now the reliable one.
 export async function readOwnerOf(
   tokenId: number | string | bigint,
-  rpcUrl: string = RPC_URL,
+  rpcUrl: string = DEFAULT_RPC_URL,
 ): Promise<string> {
   const result = await ethCall(SELECTOR_OWNER_OF, tokenId, rpcUrl);
   return decodeAddress(result);
@@ -117,7 +128,7 @@ const SELECTOR_BALANCE_OF = "70a08231"; // balanceOf(address) - identical ABI sh
 export async function readBalanceOf(
   contractAddress: string,
   ownerAddress: string,
-  rpcUrl: string = RPC_URL,
+  rpcUrl: string = DEFAULT_RPC_URL,
 ): Promise<bigint> {
   const data = `0x${SELECTOR_BALANCE_OF}${"0".repeat(24)}${ownerAddress.replace(/^0x/, "").toLowerCase()}`;
   const res = await fetch(rpcUrl, {
@@ -152,7 +163,7 @@ const SELECTOR_TOTAL_SUPPLY = "18160ddd"; // totalSupply()
 // right now", not the static mint count of 1200.
 export async function readTotalSupply(): Promise<number> {
   const data = `0x${SELECTOR_TOTAL_SUPPLY}`;
-  const res = await fetch(RPC_URL, {
+  const res = await fetch(DEFAULT_RPC_URL, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -234,7 +245,7 @@ export async function rpcCall<T>(
   method: string,
   params: unknown[],
 ): Promise<T> {
-  const res = await fetch(RPC_URL, {
+  const res = await fetch(DEFAULT_RPC_URL, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),

@@ -755,7 +755,20 @@ export async function getClaimStats(): Promise<ClaimStats> {
 // claimed (AI posting resumes for the new, not-yet-claimed owner), even
 // though the stale record is left on disk.
 export async function isTokenClaimed(tokenId: string): Promise<boolean> {
-  const raw = await redisCommand("GET", `claimed:${tokenId}`);
+  // Redis itself failing to answer (not "no record found," an actual
+  // thrown error) gets the SAME fail-toward-claimed treatment as a chain
+  // error below, for the same reason - and this one specifically closes a
+  // real bug: the only real caller (app/api/wallet-tokens/route.ts) wraps
+  // this whole function in .catch(() => false), so an uncaught throw here
+  // used to silently report a genuinely-claimed token as unclaimed. A
+  // clean "no record exists" result (raw is null/non-string, nothing
+  // thrown) is NOT an error and still correctly means not claimed.
+  let raw: unknown;
+  try {
+    raw = await redisCommand("GET", `claimed:${tokenId}`);
+  } catch {
+    return true;
+  }
   if (typeof raw !== "string") return false;
 
   let record: ClaimRecord;

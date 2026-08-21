@@ -10,7 +10,7 @@
 // contract address so the rest of this app can keep calling
 // `computeTbaAddress(tokenId)` with the same single-argument shape it
 // already used.
-import { CONTRACT, CHAIN_ID_HEX } from "@/lib/chain";
+import { CONTRACT, CHAIN_ID_HEX, DEFAULT_RPC_URL } from "@/lib/chain";
 import * as tbaKit from "@pixelpushin/tba-kit";
 import { Interface } from "ethers";
 
@@ -49,6 +49,14 @@ const OPERATION_CALL = 0;
 export const REGISTRY_ADDRESS = tbaKit.REGISTRY_ADDRESS;
 export const IMPLEMENTATION_ADDRESS = tbaKit.IMPLEMENTATION_ADDRESS;
 
+// Both of these used to have NO Alchemy routing at all - confirmed live as
+// the real root cause of a "not registering in app" report: a real
+// 148-token wallet's /api/wallet-tokens response came back with every
+// single token failing to resolve, reproducibly, even in isolation,
+// because this file's whole per-token TBA/activation lookup ran entirely
+// on the plain public RPC (see lib/chain.ts's DEFAULT_RPC_URL for the full
+// story - lib/alphaBotEngagement.ts's own separate TBA-resolution path
+// already used Alchemy, this one never did).
 export async function computeTbaAddress(
   tokenId: number | string | bigint,
 ): Promise<string> {
@@ -56,11 +64,12 @@ export async function computeTbaAddress(
     tokenContract: CONTRACT,
     tokenId,
     chainIdHex: CHAIN_ID_HEX,
+    rpcUrl: DEFAULT_RPC_URL,
   });
 }
 
 export async function isTbaActivated(tbaAddress: string): Promise<boolean> {
-  return tbaKit.isTbaActivated(tbaAddress);
+  return tbaKit.isTbaActivated(tbaAddress, DEFAULT_RPC_URL);
 }
 
 // {to, data} for the registry's createAccount(...) - the connected wallet

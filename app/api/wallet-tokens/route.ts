@@ -149,7 +149,13 @@ export async function GET(request: NextRequest) {
                 trustedBalances,
               ] = await Promise.all([
                 isTbaActivated(tbaAddress),
-                isTokenClaimed(tokenId).catch(() => false),
+                // Fail toward true (claimed), not false, on the rare case
+                // isTokenClaimed itself throws unexpectedly - matches that
+                // function's own internal fail-direction (lib/store.ts) so
+                // this wrapper doesn't quietly flip it the wrong way. A
+                // real claimed anon silently showing as "needs activation"
+                // is a worse failure mode here than the reverse.
+                isTokenClaimed(tokenId).catch(() => true),
                 countHumanPostsByToken(tokenId).catch(() => 0),
                 countHumanThreadsByToken(tokenId).catch(() => 0),
                 getBioVerification(tokenId).catch(() => null),
