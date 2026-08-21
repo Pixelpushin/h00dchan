@@ -156,12 +156,20 @@ export async function readTokenURI(
 
 const SELECTOR_TOTAL_SUPPLY = "18160ddd"; // totalSupply()
 
-// Live circulating supply - decrements on burn (verified live: this
-// contract minted 1200 but totalSupply() currently reads 1198 after two
-// confirmed burns, tokens #5 and #6, found via Transfer-to-zero-address
-// logs below). This is the correct denominator for "how many anons exist
-// right now", not the static mint count of 1200.
-export async function readTotalSupply(): Promise<number> {
+// The conventional unspendable "burn" address - holders here have used it
+// as a burn destination instead of an actual burn()/transfer-to-0x0 call
+// (verified live: 9 tokens sitting here vs only 3 real Transfer-to-0x0
+// burns in the contract's whole history - see fetchBurnedTokenIds below).
+// The contract's own totalSupply() counter only decrements on the latter,
+// so it currently reads 1197 (1200 - 3) while OpenSea's collection stats
+// show 1188 (1200 - 3 - 9) - OpenSea treats dEaD-held tokens as gone,
+// which matches reality (nobody holds the burn address's key), the
+// contract just doesn't. Reported live as our own site's total looking
+// wrong/stale next to OpenSea's, when it was actually accurately reading
+// a counter that doesn't track this convention.
+const DEAD_ADDRESS = "0x000000000000000000000000000000000000dEaD";
+
+async function readRawTotalSupply(): Promise<number> {
   const data = `0x${SELECTOR_TOTAL_SUPPLY}`;
   const res = await fetch(DEFAULT_RPC_URL, {
     method: "POST",
@@ -177,6 +185,18 @@ export async function readTotalSupply(): Promise<number> {
   const body = await res.json();
   if (body.error) throw new Error(body.error.message ?? "eth_call failed");
   return Number(BigInt(body.result as string));
+}
+
+// Live circulating supply - the contract's totalSupply() minus whatever's
+// stuck at the dEaD address (see comment above). This is the correct
+// denominator for "how many anons exist right now", matching what OpenSea
+// and every other indexer shows, not the raw on-chain counter alone.
+export async function readTotalSupply(): Promise<number> {
+  const [rawSupply, deadBalance] = await Promise.all([
+    readRawTotalSupply(),
+    readBalanceOf(CONTRACT, DEAD_ADDRESS),
+  ]);
+  return rawSupply - Number(deadBalance);
 }
 
 const ZERO_ADDRESS_TOPIC = `0x${"0".repeat(64)}`;
