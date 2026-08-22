@@ -89,9 +89,22 @@ contract BreedingController is Ownable, ReentrancyGuard {
     /// owner/approved operator - "price 0" must never silently mean
     /// "available for free by default", it must be explicitly listed at
     /// price 0.
+    ///
+    /// `lister` records WHO opted this token in, and `breed()` requires it
+    /// to still equal the token's live `ownerOf`. Without that, a listing
+    /// SURVIVES a transfer of the sire: the buyer of a token that its
+    /// previous owner had listed (e.g. free, at price 0) would find their
+    /// brand-new token publicly siring-available on terms they never
+    /// agreed to, letting anyone permanently escalate its cooldown ladder
+    /// for nothing. The design spec is explicit that a token is not
+    /// available by default and that "its owner must explicitly list it" -
+    /// a NEW owner has explicitly listed nothing, so the listing must go
+    /// stale on transfer. Comparing against live `ownerOf` achieves that
+    /// with no transfer hook on collections we do not control (HOODCHAN).
     struct SiringListing {
         uint128 price;
         bool listed;
+        address lister;
     }
 
     // ---------------------------------------------------------------
@@ -220,6 +233,8 @@ contract BreedingController is Ownable, ReentrancyGuard {
     error SireOnCooldown();
     error GenesNotSet();
     error SameToken();
+    error SiringFeeTooHigh();
+    error InvalidMultiplier();
 
     // ---------------------------------------------------------------
     // Modifiers
@@ -245,6 +260,11 @@ contract BreedingController is Ownable, ReentrancyGuard {
             hoodchanAddress_ == address(0) || babiesAddress == address(0) || chanTokenAddress == address(0)
                 || treasury_ == address(0) || burnAddress_ == address(0) || multisig_ == address(0)
         ) revert ZeroAddress();
+        // A multiplier below 1 would make the same-sex tier CHEAPER than
+        // the normal tier - and a multiplier of 0 would make same-sex
+        // breeding entirely free, contradicting the design spec's "flat
+        // birth fee - charged on EVERY breed, no exceptions".
+        if (sameSexFeeMultiplier_ < 1) revert InvalidMultiplier();
 
         hoodchanAddress = hoodchanAddress_;
         babies = HoodchanBabies(babiesAddress);
@@ -293,7 +313,9 @@ contract BreedingController is Ownable, ReentrancyGuard {
         emit BirthFeeSet(birthFee_);
     }
 
+    /// @dev Same `>= 1` floor as the constructor - see there for why.
     function setSameSexFeeMultiplier(uint256 multiplier) external onlyOwner {
+        if (multiplier < 1) revert InvalidMultiplier();
         sameSexFeeMultiplier = multiplier;
         emit SameSexFeeMultiplierSet(multiplier);
     }
@@ -342,7 +364,7 @@ contract BreedingController is Ownable, ReentrancyGuard {
     function listSiring(address collection, uint256 tokenId, uint128 price) external {
         if (!isBreedableCollection[collection]) revert CollectionNotAllowlisted();
         if (IERC721(collection).ownerOf(tokenId) != msg.sender) revert NotTokenOwner();
-        siringListings[collection][tokenId] = SiringListing({price: price, listed: true});
+        siringListings[collection][tokenId] = SiringListing({price: price, listed: true, lister: msg.sender});
         emit SiringListed(collection, tokenId, price);
     }
 
@@ -377,11 +399,31 @@ contract BreedingController is Ownable, ReentrancyGuard {
     ///   3. INTERACTIONS: collect the birth fee (always) and siring fee (if
     ///      borrowing), read both parents' live gene values, compute the
     ///      seed/genome/baby-sex, mint the baby, emit `Bred`.
-    function breed(address matronCollection, uint256 matronId, address sireCollection, uint256 sireId)
-        external
-        nonReentrant
-        returns (uint256 babyTokenId)
-    {
+    ///
+    /// @param maxSiringFee The most CHAN the caller is willing to pay the
+    /// SIRE'S OWNER for this breed (the 8% protocol fee is charged on top
+    /// of the accepted price, as always - see `_collectSiringFee`). Pass 0
+    /// when self-siring or when only accepting a free listing. This is
+    /// SLIPPAGE PROTECTION and it is load-bearing, not ceremony: the sire's
+    /// owner is an UNTRUSTED counterparty who can call `listSiring` again
+    /// at any moment, including in the block that front-runs this call. A
+    /// breeder who reads a 1 CHAN listing off-chain, signs, and has granted
+    /// the usual unlimited CHAN allowance would otherwise pay whatever
+    /// price the sire's owner re-listed at in the meantime - up to their
+    /// entire balance, with 100% of it going to the attacker. Bounding the
+    /// accepted price at the caller's own quote is the only thing that
+    /// makes a listed price an offer rather than a blank cheque. (The
+    /// design spec's `breed(matronCollection, matronId, sireCollection,
+    /// sireId)` line describes the mechanic - one atomic call, no
+    /// commit/reveal - not a frozen ABI; the spec separately requires that
+    /// the fee flows be safe.)
+    function breed(
+        address matronCollection,
+        uint256 matronId,
+        address sireCollection,
+        uint256 sireId,
+        uint256 maxSiringFee
+    ) external nonReentrant returns (uint256 babyTokenId) {
         // --- 1. Checks ---
         if (!isBreedableCollection[matronCollection] || !isBreedableCollection[sireCollection]) {
             revert CollectionNotAllowlisted();
@@ -398,7 +440,13 @@ contract BreedingController is Ownable, ReentrancyGuard {
         SiringListing memory listing;
         if (!sireCallerOwned) {
             listing = siringListings[sireCollection][sireId];
-            if (!listing.listed) revert SireNotAvailable();
+            // `lister != sireOwner` means the token changed hands since it
+            // was listed - the CURRENT owner never opted in, so the stale
+            // listing confers nothing (see `SiringListing`).
+            if (!listing.listed || listing.lister != sireOwner) revert SireNotAvailable();
+            // Slippage bound against a re-listing front-run (see the
+            // `maxSiringFee` param docs above).
+            if (listing.price > maxSiringFee) revert SiringFeeTooHigh();
         }
 
         TokenBreedState storage matronState = breedState[matronCollection][matronId];

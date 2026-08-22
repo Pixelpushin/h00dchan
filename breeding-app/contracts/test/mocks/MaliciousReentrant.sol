@@ -4,9 +4,13 @@ pragma solidity ^0.8.20;
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
 interface IBreedLike {
-    function breed(address matronCollection, uint256 matronId, address sireCollection, uint256 sireId)
-        external
-        returns (uint256);
+    function breed(
+        address matronCollection,
+        uint256 matronId,
+        address sireCollection,
+        uint256 sireId,
+        uint256 maxSiringFee
+    ) external returns (uint256);
 }
 
 /// @dev Test-only hostile contract exercising BreedingController's
@@ -106,7 +110,7 @@ contract MaliciousReentrant is IERC721Receiver {
     /// `breed()` attempt below), which is the actual thing under test.
     function ownerOf(uint256 tokenId) external returns (address) {
         if (reenterOnOwnerOf) {
-            IBreedLike(controller).breed(reMatronCollection, reMatronId, reSireCollection, reSireId);
+            IBreedLike(controller).breed(reMatronCollection, reMatronId, reSireCollection, reSireId, type(uint256).max);
         }
         return _owners[tokenId];
     }
@@ -124,7 +128,7 @@ contract MaliciousReentrant is IERC721Receiver {
     /// there, so that call site still emits a STATICCALL regardless.
     function genesOf(uint256 tokenId) external returns (uint8[5] memory) {
         if (reenterOnGenesOf) {
-            IBreedLike(controller).breed(reMatronCollection, reMatronId, reSireCollection, reSireId);
+            IBreedLike(controller).breed(reMatronCollection, reMatronId, reSireCollection, reSireId, type(uint256).max);
         }
         return _genes[tokenId];
     }
@@ -137,7 +141,7 @@ contract MaliciousReentrant is IERC721Receiver {
 
     function onERC721Received(address, address, uint256, bytes calldata) external returns (bytes4) {
         if (reenterOnReceive) {
-            IBreedLike(controller).breed(reMatronCollection, reMatronId, reSireCollection, reSireId);
+            IBreedLike(controller).breed(reMatronCollection, reMatronId, reSireCollection, reSireId, type(uint256).max);
         }
         return this.onERC721Received.selector;
     }
