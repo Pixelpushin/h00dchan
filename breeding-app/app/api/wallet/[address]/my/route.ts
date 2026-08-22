@@ -1,18 +1,25 @@
 import { NextResponse } from "next/server";
-import { getContractStatus, HOODCHAN_CONTRACT } from "@/lib/config";
-import { fetchWalletTokensOnChain } from "@/lib/chain";
+import { getContractStatus } from "@/lib/config";
+import { fetchOwnedBreedableTokens } from "@/lib/collections";
 import { fetchGirlfriendsWithNestedBabies } from "@/lib/girlfriends";
-import { fetchHoodchanMetadata } from "@/lib/hoodchan";
 import { readSiringListing } from "@/lib/breedingController";
 
-// Everything app/my/page.tsx needs in one call: the wallet's own Girlfriends
-// (each with her nested-offspring state via her TBA - purely informational
-// now, see lib/girlfriends.ts's header: nesting is a voluntary post-breed
-// action, not a breeding-flow gate, so there's no cap to show/grey-out
-// anymore), plus the wallet's own HOODCHANs (each with current
+// Everything app/my/page.tsx needs in one call: the wallet's own tokens
+// across ALL THREE allowlisted collections (each with current
 // siring-listing state, for the set/edit/delist UI - owner-only in the UI,
 // and the contract itself enforces it again on-chain regardless, checked
-// live against `ownerOf` per BreedingController.listSiring/unlistSiring).
+// live against `ownerOf` per BreedingController.listSiring/unlistSiring),
+// plus the wallet's own Girlfriends' nested-offspring state (purely
+// informational, see lib/girlfriends.ts's header: nesting is a voluntary
+// post-breed action, not a breeding-flow gate, so there's no cap to
+// show/grey-out anymore).
+//
+// v2: siring listings are CHAN-only (the v1 dual-currency ETH price field
+// is dropped entirely) and generalized to any of the three collections, not
+// just HOODCHAN - see the design spec's "Fees" and "Collections and the
+// breedable allowlist" sections. `listed` is an explicit boolean, never
+// inferred from `price === 0` (price 0 while listed = free but listed, per
+// the design spec's siring-listing note).
 export const dynamic = "force-dynamic";
 
 export async function GET(
@@ -23,24 +30,15 @@ export async function GET(
   const status = getContractStatus();
 
   try {
-    // HOODCHAN itself is always deployed - this half of the page always
-    // works even while the breeding contracts are still pending.
-    const hoodchanIds = await fetchWalletTokensOnChain(
-      HOODCHAN_CONTRACT,
-      address,
-    );
-    const hoodchans = await Promise.all(
-      hoodchanIds.map(async (tokenId) => {
-        const metadata = await fetchHoodchanMetadata(tokenId).catch(() => null);
+    const ownedTokens = await fetchOwnedBreedableTokens(address);
+
+    const tokens = await Promise.all(
+      ownedTokens.map(async (t) => {
         const listing = status.breedingController
-          ? await readSiringListing(HOODCHAN_CONTRACT, tokenId).catch(
-              () => null,
-            )
+          ? await readSiringListing(t.collection, t.tokenId).catch(() => null)
           : null;
         return {
-          tokenId,
-          name: metadata?.name ?? `Anon #${tokenId}`,
-          image: metadata?.image ?? "",
+          ...t,
           listed: listing?.listed ?? false,
           price: listing?.price?.toString() ?? "0",
         };
@@ -52,7 +50,7 @@ export async function GET(
       : [];
 
     return NextResponse.json({
-      hoodchans,
+      tokens,
       girlfriends,
       girlfriendsPending: !status.girlfriends,
       breedingControllerPending: !status.breedingController,

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getContractStatus, BREEDING_CONTROLLER_CONTRACT } from "@/lib/config";
 import { rpcCall } from "@/lib/chain";
 import { parseBredEventFromLogs, type RawLog } from "@/lib/breedingController";
@@ -12,8 +12,10 @@ import {
   saveBreedingRecord,
   type BreedingRecord,
 } from "@/lib/breedingStore";
+import { checkExpensiveScanRateLimit } from "@/lib/rateLimit";
 
-// Polled by app/breed/[hoodchanId]/page.tsx after the single breed() tx is
+// Polled by app/breed/[collection]/[tokenId]/page.tsx after the single
+// breed() tx is
 // sent (v2: no commit/reveal two-step anymore - see the design spec's
 // "Breeding flow" section). Generates + persists the offspring art
 // (idempotent: an already-finished baby is just read back from the store
@@ -47,9 +49,28 @@ function verifyReceiptTargetsController(
 }
 
 export async function GET(
-  _req: Request,
+  req: NextRequest,
   { params }: { params: Promise<{ txHash: string }> },
 ) {
+  // Hygiene requirement (design spec's "Hygiene requirements" section, plus
+  // the task's own rate-limiting requirement): this route does a full
+  // receipt fetch + Bred-event decode on every poll, and on a cache miss
+  // additionally triggers a real OpenAI image generation + Blob write -
+  // reachable with nothing more than a syntactically-shaped txHash in the
+  // URL, so it needs a budget in front of it regardless of the fee-based
+  // throttle on breeding itself. See lib/rateLimit.ts's header for why this
+  // is a local fork rather than an import from the parent app.
+  const rateLimit = checkExpensiveScanRateLimit(req.headers);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests - slow down and try again shortly." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rateLimit.retryAfterSeconds) },
+      },
+    );
+  }
+
   const { txHash } = await params;
   const status = getContractStatus();
   if (!status.breedingController || !status.babies) {

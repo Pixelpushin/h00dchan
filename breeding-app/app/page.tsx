@@ -3,13 +3,16 @@
 // Browse-all-sires page - reads BreedingController listings via
 // /api/listings (which does the raw JSON-RPC reads + SiringListed log
 // enumeration server-side - see that route's own header for the
-// enumeration tradeoff).
+// enumeration tradeoff). Generalized to ALL three allowlisted collections
+// (HOODCHAN, Girlfriends, Babies) - any listed sire from any of them links
+// to the collection-symmetric /breed/[collection]/[tokenId] route now, not
+// just HOODCHAN.
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatUnits } from "ethers";
 import { ConfigPendingNotice } from "@/app/components/ConfigPendingNotice";
 import type { ListingResponse } from "@/app/api/listings/route";
-import { HOODCHAN_CONTRACT } from "@/lib/config";
+import { collectionLabel } from "@/lib/collections";
 
 type LoadState = "loading" | "ready" | "pending" | "error";
 
@@ -59,8 +62,8 @@ export default function HomePage() {
       <div>
         <h1 className="hc-title text-2xl">Sire-listed anons</h1>
         <p className="text-sm mt-1" style={{ color: "var(--hc-muted)" }}>
-          Every HOODCHAN currently listed for siring. Pick a stud, pair him with
-          one of your Girlfriends, and see what comes out.
+          Every HOODCHAN, Girlfriend, or Baby currently listed for siring. Pick
+          one, pair it with one of your own, and see what comes out.
         </p>
       </div>
 
@@ -86,56 +89,44 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* UI-WAVE TODO: /breed/[hoodchanId] (this page's link target) only
-          handles a HOODCHAN sire today - see that page's own header TODO
-          for the full matron/sire-picker-across-all-three-collections
-          work. Filtering to HOODCHAN listings here keeps every rendered
-          card clickable to a working page rather than a 400 in
-          api/sire/[hoodchanId] for a non-HOODCHAN collection. */}
-      {state === "ready" &&
-        listings.filter(
-          (l) => l.collection.toLowerCase() === HOODCHAN_CONTRACT.toLowerCase(),
-        ).length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-            {listings
-              .filter(
-                (l) =>
-                  l.collection.toLowerCase() ===
-                  HOODCHAN_CONTRACT.toLowerCase(),
-              )
-              .map((listing) => (
-                <Link
-                  key={`${listing.collection}-${listing.tokenId}`}
-                  href={`/breed/${listing.tokenId}`}
-                  className="hc-card"
-                >
-                  {listing.image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={listing.image}
-                      alt={listing.name}
-                      className="w-full aspect-square object-cover"
-                    />
-                  ) : (
-                    <div
-                      className="w-full aspect-square"
-                      style={{ background: "var(--hc-box-alt)" }}
-                    />
-                  )}
-                  <div className="hc-card-body">
-                    <span className="font-bold text-sm truncate">
-                      {listing.name}
-                    </span>
-                    <div className="flex flex-wrap gap-1">
-                      <span className="hc-badge hc-badge-chan">
-                        {formatUnits(listing.price, 18)} CHAN
-                      </span>
-                    </div>
-                  </div>
-                </Link>
-              ))}
-          </div>
-        )}
+      {state === "ready" && listings.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+          {listings.map((listing) => (
+            <Link
+              key={`${listing.collection}-${listing.tokenId}`}
+              href={`/breed/${listing.collection}/${listing.tokenId}`}
+              className="hc-card"
+            >
+              {listing.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={listing.image}
+                  alt={listing.name}
+                  className="w-full aspect-square object-cover"
+                />
+              ) : (
+                <div
+                  className="w-full aspect-square"
+                  style={{ background: "var(--hc-box-alt)" }}
+                />
+              )}
+              <div className="hc-card-body">
+                <span className="font-bold text-sm truncate">
+                  {listing.name}
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  <span className="hc-badge">
+                    {collectionLabel(listing.collection)}
+                  </span>
+                  <span className="hc-badge hc-badge-chan">
+                    {formatUnits(listing.price, 18)} CHAN
+                  </span>
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
     </main>
   );
 }

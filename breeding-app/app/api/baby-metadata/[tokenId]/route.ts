@@ -26,7 +26,12 @@ export async function GET(
   return NextResponse.json({
     name: `HOODCHAN Offspring #${record.babyId}`,
     description:
-      "A HOODCHAN x Girlfriend offspring - genome inherited from both parents, five gene slots each real, mutated, or legendary.",
+      "A HOODCHAN-ecosystem offspring, bred from any two of the HOODCHAN, " +
+      "Girlfriends, and Babies collections - genome inherited from both " +
+      "parents, five gene slots each real, mutated, or legendary." +
+      (record.isTestTubeBaby
+        ? " A Test Tube Baby - sired via a same-sex pairing."
+        : ""),
     image: record.imageUrl,
     attributes: [
       ...record.slots.map((s) => ({

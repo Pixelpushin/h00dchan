@@ -1,13 +1,9 @@
 import { NextResponse } from "next/server";
 import { Interface } from "ethers";
-import {
-  getContractStatus,
-  BREEDING_CONTROLLER_CONTRACT,
-  HOODCHAN_CONTRACT,
-} from "@/lib/config";
+import { getContractStatus, BREEDING_CONTROLLER_CONTRACT } from "@/lib/config";
 import { BreedingControllerAbi } from "@/lib/abi/BreedingController";
 import { readSiringListing } from "@/lib/breedingController";
-import { fetchHoodchanMetadata } from "@/lib/hoodchan";
+import { collectionKindOf, fetchTokenDisplay } from "@/lib/collections";
 import { rpcCall } from "@/lib/chain";
 
 // Reads live chain state on every request - siring listings and prices can
@@ -25,6 +21,7 @@ const SIRING_LISTED_TOPIC0 = siringListedFragment.topicHash;
 export interface ListingResponse {
   collection: string;
   tokenId: string;
+  kind: string;
   price: string;
   name: string;
   image: string;
@@ -81,19 +78,6 @@ async function discoverCandidateListings(
   return out;
 }
 
-// UI-WAVE TODO: this only resolves display name/image for HOODCHAN
-// candidates today - Girlfriends/Babies metadata resolution (their own
-// name/image sources, not HOODCHAN's tokenURI) is out of scope for this
-// mechanical fixup and belongs to the app/ UI rewrite wave.
-async function resolveDisplay(
-  collection: string,
-): Promise<{ name: string; image: string } | null> {
-  if (collection.toLowerCase() !== HOODCHAN_CONTRACT.toLowerCase()) {
-    return null;
-  }
-  return null; // filled in per-candidate below via fetchHoodchanMetadata
-}
-
 export async function GET() {
   const status = getContractStatus();
   if (!status.breedingController) {
@@ -111,23 +95,18 @@ export async function GET() {
             const listing = await readSiringListing(collection, tokenId);
             if (!listing.listed) return null;
 
-            let name = `${collection.slice(0, 6)}…#${tokenId}`;
-            let image = "";
-            if (collection.toLowerCase() === HOODCHAN_CONTRACT.toLowerCase()) {
-              const metadata = await fetchHoodchanMetadata(tokenId).catch(
-                () => null,
-              );
-              if (metadata) {
-                name = metadata.name;
-                image = metadata.image;
-              }
-            } else {
-              await resolveDisplay(collection); // no-op placeholder, see TODO above
-            }
+            const kind = collectionKindOf(collection);
+            if (!kind) return null; // no longer allowlisted - stale candidate
+
+            const { name, image } = await fetchTokenDisplay(
+              collection,
+              tokenId,
+            );
 
             return {
               collection,
               tokenId,
+              kind,
               price: listing.price.toString(),
               name,
               image,

@@ -1,5 +1,14 @@
 "use client";
 
+// "My tokens" page - list/unlist ANY of your tokens, across all three
+// allowlisted collections, as a public sire with a CHAN price (v2:
+// generalized from the superseded v1 HOODCHAN-only siring UI, which also
+// had a now-dropped ETH price field - CHAN is the only fee currency, see
+// the design spec's "Fees" section). `listed` is always an explicit
+// boolean, shown separately from price - a price of 0 while listed means
+// "free but listed", never "unlisted" (see BreedingController's own
+// SiringListing doc comment on why "price 0" must never silently mean
+// "available by default").
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { formatUnits, parseUnits } from "ethers";
@@ -13,12 +22,16 @@ import {
   buildListSiringTx,
   buildUnlistSiringTx,
 } from "@/lib/breedingController";
-import { BREEDING_CONTROLLER_CONTRACT, HOODCHAN_CONTRACT } from "@/lib/config";
+import { BREEDING_CONTROLLER_CONTRACT } from "@/lib/config";
+import { collectionLabel, type CooldownStatus } from "@/lib/collections";
 
-interface HoodchanRow {
+interface TokenRow {
+  collection: string;
+  kind: string;
   tokenId: string;
   name: string;
   image: string;
+  cooldown: CooldownStatus;
   listed: boolean;
   price: string;
 }
@@ -30,21 +43,30 @@ interface GirlfriendRow {
 }
 
 interface MyData {
-  hoodchans: HoodchanRow[];
+  tokens: TokenRow[];
   girlfriends: GirlfriendRow[];
   girlfriendsPending: boolean;
   breedingControllerPending: boolean;
   error?: string;
 }
 
+function cooldownLabel(cooldown: CooldownStatus): string {
+  if (!cooldown.onCooldown) return "Ready to breed";
+  const mins = Math.ceil(cooldown.secondsRemaining / 60);
+  if (mins < 60) return `Cooldown: ${mins}m left`;
+  const hours = Math.ceil(mins / 60);
+  if (hours < 48) return `Cooldown: ${hours}h left`;
+  return `Cooldown: ${Math.ceil(hours / 24)}d left`;
+}
+
 function ListingEditor({
-  hoodchan,
+  token,
   onSaved,
 }: {
-  hoodchan: HoodchanRow;
+  token: TokenRow;
   onSaved: () => void;
 }) {
-  const [price, setPrice] = useState(formatUnits(hoodchan.price, 18));
+  const [price, setPrice] = useState(formatUnits(token.price, 18));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -56,11 +78,12 @@ function ListingEditor({
       const address = await connectWallet();
       // listSiring(collection, tokenId, price: uint128) - the real
       // on-chain signature (contracts/src/BreedingController.sol). CHAN is
-      // the only fee currency (see lib/config.ts's CHAN_TOKEN_ADDRESS
-      // comment - the v1 dual-currency ETH path is cut from scope).
+      // the only fee currency (the v1 dual-currency ETH path is cut from
+      // scope) and this now works for a token from ANY of the three
+      // allowlisted collections, not just HOODCHAN.
       const tx = buildListSiringTx(
-        HOODCHAN_CONTRACT,
-        hoodchan.tokenId,
+        token.collection,
+        token.tokenId,
         parseUnits(price || "0", 18),
       );
       await sendTransaction(address, tx);
@@ -80,7 +103,7 @@ function ListingEditor({
       const address = await connectWallet();
       await sendTransaction(
         address,
-        buildUnlistSiringTx(HOODCHAN_CONTRACT, hoodchan.tokenId),
+        buildUnlistSiringTx(token.collection, token.tokenId),
       );
       onSaved();
     } catch (e) {
@@ -106,9 +129,9 @@ function ListingEditor({
           disabled={busy}
           onClick={save}
         >
-          {hoodchan.listed ? "Update" : "List"}
+          {token.listed ? "Update" : "List"}
         </button>
-        {hoodchan.listed && (
+        {token.listed && (
           <button
             className="hc-button hc-button-ghost text-xs"
             disabled={busy}
@@ -163,12 +186,63 @@ export default function MyPage() {
   return (
     <main className="mx-auto max-w-4xl w-full px-4 py-6 flex flex-col gap-6">
       <section>
-        <h1 className="hc-title text-2xl mb-2">Your Girlfriends</h1>
+        <h1 className="hc-title text-2xl mb-2">Your tokens (siring)</h1>
+        {data?.breedingControllerPending && (
+          <ConfigPendingNotice what="The BreedingController contract" />
+        )}
         {!data && (
           <p className="text-sm" style={{ color: "var(--hc-muted)" }}>
             Loading...
           </p>
         )}
+        {data && data.tokens.length === 0 && (
+          <div
+            className="hc-box p-4 text-sm"
+            style={{ color: "var(--hc-muted)" }}
+          >
+            You don&apos;t own any breedable tokens (HOODCHAN, Girlfriend, or
+            Baby) yet.
+          </div>
+        )}
+        {data && data.tokens.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {data.tokens.map((t) => (
+              <div key={`${t.collection}-${t.tokenId}`} className="hc-card">
+                {t.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={t.image}
+                    alt={t.name}
+                    className="w-full aspect-square object-cover"
+                  />
+                ) : (
+                  <div
+                    className="w-full aspect-square"
+                    style={{ background: "var(--hc-box-alt)" }}
+                  />
+                )}
+                <div className="hc-card-body">
+                  <span className="font-bold text-sm truncate">{t.name}</span>
+                  <div className="flex flex-wrap gap-1">
+                    <span className="hc-badge">
+                      {collectionLabel(t.collection)}
+                    </span>
+                    <span className="hc-badge">
+                      {cooldownLabel(t.cooldown)}
+                    </span>
+                  </div>
+                  {!data.breedingControllerPending && (
+                    <ListingEditor token={t} onSaved={load} />
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h1 className="hc-title text-2xl mb-2">Your Girlfriends (nested)</h1>
         {data?.girlfriendsPending && (
           <ConfigPendingNotice what="The HOODCHAN_GIRLFRIENDS contract" />
         )}
@@ -208,48 +282,6 @@ export default function MyPage() {
                         ))}
                       </div>
                     </>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section>
-        <h1 className="hc-title text-2xl mb-2">Your HOODCHANs (siring)</h1>
-        {data?.breedingControllerPending && (
-          <ConfigPendingNotice what="The BreedingController contract" />
-        )}
-        {data && data.hoodchans.length === 0 && (
-          <div
-            className="hc-box p-4 text-sm"
-            style={{ color: "var(--hc-muted)" }}
-          >
-            You don&apos;t own any HOODCHANs.
-          </div>
-        )}
-        {data && data.hoodchans.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {data.hoodchans.map((h) => (
-              <div key={h.tokenId} className="hc-card">
-                {h.image ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={h.image}
-                    alt={h.name}
-                    className="w-full aspect-square object-cover"
-                  />
-                ) : (
-                  <div
-                    className="w-full aspect-square"
-                    style={{ background: "var(--hc-box-alt)" }}
-                  />
-                )}
-                <div className="hc-card-body">
-                  <span className="font-bold text-sm truncate">{h.name}</span>
-                  {!data.breedingControllerPending && (
-                    <ListingEditor hoodchan={h} onSaved={load} />
                   )}
                 </div>
               </div>
