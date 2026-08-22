@@ -65,11 +65,11 @@ export async function GET(
     // block the action and show a clear "listing is stale" state instead of
     // letting the caller spend approval gas on a listing that will always
     // revert SireNotAvailable inside breed().
-    // TODO(integration): once the permissionless
-    // clearStaleListing(collection, tokenId) lands on-chain (see the
-    // parallel breed()/contracts workstream), a stale result here is also a
-    // good trigger point for cleanup - not wired yet, no ABI for it exists
-    // in this codebase yet.
+    // clearStaleListing(collection, tokenId) is now live on-chain and
+    // wired into the app (lib/breedingController.ts's
+    // buildClearStaleListingTx) - a `stale: true` result here drives the
+    // breed page's "Clear this stale listing" button, sent from the
+    // connected wallet, not fired server-side from this (read-only) route.
     const stale =
       listing.listed && owner.toLowerCase() !== listing.lister.toLowerCase();
 

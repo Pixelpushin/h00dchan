@@ -302,6 +302,26 @@ export function buildUnlistSiringTx(
   };
 }
 
+// Permissionless cleanup for a listing whose lister no longer owns the
+// token (see BreedingController.sol's `clearStaleListing` doc comment) -
+// there's no transfer hook to clear this automatically, so any caller
+// (not just the lister/owner) may invoke it once `ownerOf` has diverged
+// from `listing.lister`. Reverts `ListingNotStale`/`ListingDoesNotExist`
+// otherwise, so callers should only build/send this after `stale: true`
+// has been surfaced by /api/sire or /api/listings.
+export function buildClearStaleListingTx(
+  collection: string,
+  tokenId: string,
+): { to: string; data: string } {
+  return {
+    to: requireController(),
+    data: controllerInterface.encodeFunctionData("clearStaleListing", [
+      collection,
+      tokenId,
+    ]),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Write: breed() - the single atomic entry point. Every field of the two
 // parents is now a (collection, id) PAIR, not a bare tokenId, since any of
@@ -319,12 +339,23 @@ export function buildUnlistSiringTx(
 // found in the superseded v1 attempt.
 // ---------------------------------------------------------------------------
 
+// `maxTotalFee` is the combined-fee slippage cap added alongside
+// `breed()`'s BUG-4 fix (see BreedingController.sol's `TotalFeeTooHigh`
+// doc comment): it bounds `birthFeeOwed + siringFeeOwed` together, closing
+// the birth-fee front-run that `maxSiringFee` alone never covered (that
+// param only ever bounded the siring PRICE leg). Callers should pass the
+// SAME `totalCallerDebit` that `previewBreedFee` below computed from a
+// live fee/price read - the contract's ceiling check is inclusive
+// (`> maxTotalFee` reverts, `== maxTotalFee` succeeds), so passing the
+// exact previewed total (not a padded estimate) is the correct, tightest
+// bound.
 export function buildBreedTx(
   matronCollection: string,
   matronId: string,
   sireCollection: string,
   sireId: string,
   maxSiringFee: bigint,
+  maxTotalFee: bigint,
 ): { to: string; data: string } {
   return {
     to: requireController(),
@@ -334,6 +365,7 @@ export function buildBreedTx(
       sireCollection,
       sireId,
       maxSiringFee,
+      maxTotalFee,
     ]),
   };
 }

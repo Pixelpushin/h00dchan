@@ -26,7 +26,11 @@ import {
   sendTransaction,
 } from "@/lib/wallet";
 import { buildApproveChanTx } from "@/lib/chanToken";
-import { buildBreedTx, previewBreedFee } from "@/lib/breedingController";
+import {
+  buildBreedTx,
+  buildClearStaleListingTx,
+  previewBreedFee,
+} from "@/lib/breedingController";
 import {
   BREEDING_CONTROLLER_CONTRACT,
   DEFAULT_BIRTH_FEE,
@@ -119,6 +123,13 @@ export default function BreedPage({
   const [stage, setStage] = useState<Stage>("idle");
   const [error, setError] = useState<string | null>(null);
   const [baby, setBaby] = useState<BreedingRecord | null>(null);
+  // clearStaleListing is permissionless (see lib/breedingController.ts's
+  // buildClearStaleListingTx doc comment) - any connected wallet can send
+  // it, not just the sire's current owner. Independent of `stage`/`error`
+  // above since it's a side action off the stale-listing notice, not part
+  // of the approve+breed flow.
+  const [clearingStale, setClearingStale] = useState(false);
+  const [clearStaleError, setClearStaleError] = useState<string | null>(null);
 
   // Live BreedingController fee config (birthFee/sameSexFeeMultiplier) - both
   // owner-configurable post-deploy, so lib/config.ts's DEFAULT_BIRTH_FEE /
@@ -341,6 +352,14 @@ export default function BreedPage({
       // when the sire was selected, which could be stale by now if the tab
       // sat open) - if the sire isn't self-owned, re-pull live sire info and
       // bail before spending any approval gas if it's since gone stale.
+      //
+      // `effectiveSireInfo` (not the outer `sireLiveInfo` closure) is what
+      // the fee math below is derived from: `setSireLiveInfo(fresh)` only
+      // takes effect on the NEXT render, so re-reading the outer
+      // `sireLiveInfo`/`feePreview` here would silently use pre-recheck
+      // (possibly stale) price/sex data for the CHAN approval and
+      // `maxTotalFee` even though a fresher read was just fetched.
+      let effectiveSireInfo = sireLiveInfo;
       if (!isSireOwnedByCaller) {
         const fresh: SireLiveInfo = await fetch(
           `/api/sire/${sireLiveInfo.collection}/${sireLiveInfo.tokenId}`,
@@ -359,12 +378,25 @@ export default function BreedPage({
             "This sire is no longer listed for siring. Pick a different sire.",
           );
         }
+        effectiveSireInfo = fresh;
       }
 
       const maxSiringFee = isSireOwnedByCaller
         ? BigInt(0)
-        : BigInt(sireLiveInfo.price || "0");
-      const totalDebit = feePreview?.totalCallerDebit ?? BigInt(0);
+        : BigInt(effectiveSireInfo.price || "0");
+      // Recomputed from `effectiveSireInfo` (not the render-time
+      // `feePreview` memo) for the same reason as `maxSiringFee` above -
+      // this is what both the CHAN approval and `maxTotalFee` are derived
+      // from, so it must reflect the just-fetched live price/sex, not a
+      // possibly-stale render.
+      const totalDebit = previewBreedFee({
+        birthFee: feeConfig.birthFee,
+        sameSexFeeMultiplier: feeConfig.sameSexFeeMultiplier,
+        matronSex: matron.isMale,
+        sireSex: effectiveSireInfo.isMale,
+        sireCallerOwned: isSireOwnedByCaller,
+        listedPrice: BigInt(effectiveSireInfo.price || "0"),
+      }).totalCallerDebit;
 
       if (totalDebit > BigInt(0)) {
         setStage("approving");
@@ -383,12 +415,21 @@ export default function BreedPage({
       }
 
       setStage("breeding");
+      // `maxTotalFee` bounds birthFeeOwed + siringFeeOwed together (the
+      // BUG-4 fix - see lib/breedingController.ts's buildBreedTx doc
+      // comment). Pass the exact previewed total, not a padded estimate:
+      // the contract's ceiling check is inclusive (`== maxTotalFee`
+      // succeeds), and previewBreedFee mirrors the contract's fee math
+      // bit-for-bit off the same live birthFee/sameSexFeeMultiplier/price
+      // reads that `totalDebit` (the CHAN approval amount above) already
+      // used, so the two stay in lockstep.
       const tx = buildBreedTx(
         matron.collection,
         matron.tokenId,
-        sireLiveInfo.collection,
-        sireLiveInfo.tokenId,
+        effectiveSireInfo.collection,
+        effectiveSireInfo.tokenId,
         maxSiringFee,
+        totalDebit,
       );
       const txHash = await sendTransaction(address, tx);
 
@@ -400,6 +441,37 @@ export default function BreedPage({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Breeding failed.");
       setStage("error");
+    }
+  }
+
+  // Sends the permissionless clearStaleListing(collection, tokenId) tx
+  // (see lib/breedingController.ts's buildClearStaleListingTx) for the
+  // currently-selected sire, then re-pulls /api/sire so the UI reflects
+  // the now-cleared listing. Anyone can call this - clearing a stale
+  // listing costs the caller gas but benefits every future browser of
+  // /api/listings, not just this caller.
+  async function handleClearStaleListing() {
+    if (!address || !sireLiveInfo) return;
+    setClearStaleError(null);
+    setClearingStale(true);
+    try {
+      const tx = buildClearStaleListingTx(
+        sireLiveInfo.collection,
+        sireLiveInfo.tokenId,
+      );
+      await sendTransaction(address, tx);
+      const fresh: SireLiveInfo = await fetch(
+        `/api/sire/${sireLiveInfo.collection}/${sireLiveInfo.tokenId}`,
+      ).then((res) => res.json());
+      setSireLiveInfo(fresh);
+    } catch (err) {
+      setClearStaleError(
+        err instanceof Error
+          ? err.message
+          : "Failed to clear the stale listing.",
+      );
+    } finally {
+      setClearingStale(false);
     }
   }
 
@@ -745,10 +817,29 @@ export default function BreedPage({
           )}
 
           {isStaleListing && (
-            <div className="hc-error-box">
-              This listing is stale - the owner has changed since it was listed
-              for siring. Pick a different sire, or ask the new owner to
-              re-list.
+            <div className="hc-error-box flex flex-col gap-2 items-start">
+              <p>
+                This listing is stale - the owner has changed since it was
+                listed for siring. Pick a different sire, or ask the new owner
+                to re-list.
+              </p>
+              {address && (
+                <button
+                  type="button"
+                  className="hc-button hc-button-ghost text-sm"
+                  disabled={clearingStale}
+                  onClick={handleClearStaleListing}
+                >
+                  {clearingStale
+                    ? "Clearing listing..."
+                    : "Clear this stale listing (anyone can do this)"}
+                </button>
+              )}
+              {clearStaleError && (
+                <p className="text-sm" style={{ color: "var(--hc-danger)" }}>
+                  {clearStaleError}
+                </p>
+              )}
             </div>
           )}
 

@@ -109,6 +109,11 @@ export const BreedingControllerAbi = [
         "name": "maxSiringFee",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "maxTotalFee",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -187,6 +192,24 @@ export const BreedingControllerAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "clearStaleListing",
+    "inputs": [
+      {
+        "name": "collection",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -837,6 +860,37 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "event",
+    "name": "StaleListingCleared",
+    "inputs": [
+      {
+        "name": "collection",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "lister",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "currentOwner",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "TreasurySet",
     "inputs": [
       {
@@ -860,7 +914,22 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "error",
+    "name": "InvalidBirthFee",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidMultiplier",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ListingDoesNotExist",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ListingNotStale",
     "inputs": []
   },
   {
@@ -939,6 +1008,11 @@ export const BreedingControllerAbi = [
   {
     "type": "error",
     "name": "SiringFeeTooHigh",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TotalFeeTooHigh",
     "inputs": []
   },
   {

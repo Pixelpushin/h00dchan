@@ -108,12 +108,16 @@ export async function GET() {
             // flagged - this route only ever powers "browsable live
             // listings" (app/page.tsx, the breed page's "Listed" tab), so a
             // stale listing has no legitimate reason to appear in it.
-            // TODO(integration): once the permissionless
-            // clearStaleListing(collection, tokenId) lands on-chain (see the
-            // parallel breed()/contracts workstream), this is also a good
-            // place to fire-and-forget trigger cleanup for any stale
-            // listing found here - not wired yet, no ABI for it exists in
-            // this codebase yet.
+            // clearStaleListing(collection, tokenId) is now live on-chain
+            // and wired into the app (lib/breedingController.ts's
+            // buildClearStaleListingTx, surfaced as a "Clear this stale
+            // listing" button on the breed page next to /api/sire's
+            // per-token `stale` flag) - a real connected wallet sends that
+            // tx, not this server. Deliberately NOT fire-and-forget-cleared
+            // from this route: doing so server-side would require a
+            // funded relayer wallet and this route to broadcast
+            // transactions, which is out of scope here (this route is
+            // read-only against the chain).
             const owner = await readOwnerOf(collection, tokenId);
             if (owner.toLowerCase() !== listing.lister.toLowerCase()) {
               return null;
