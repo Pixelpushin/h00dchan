@@ -85,7 +85,7 @@ export default function HomePage() {
           style={{ color: "var(--hc-muted)" }}
         >
           No anons are listed for siring right now. Owners set a price from the
-          &quot;my girls&quot; page.
+          &quot;my tokens&quot; page.
         </div>
       )}
 

@@ -24,7 +24,7 @@ export function SiteHeader() {
         </div>
         <nav className="hc-nav flex flex-wrap items-center gap-2 sm:gap-4 pb-1">
           <Link href="/">browse sires</Link>
-          <Link href="/my">my girls</Link>
+          <Link href="/my">my tokens</Link>
           <a
             href="https://h00dchan.xyz/"
             target="_blank"
