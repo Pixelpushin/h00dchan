@@ -16,42 +16,36 @@ pragma solidity ^0.8.20;
 //   1. A funded Pixelpushin deployer key on Robinhood Chain (id 4663),
 //      imported via `cast wallet import` into a Foundry keystore - NOT an
 //      env var private key (see .claude/rules/credentials.md's "NEVER
-//      store secrets in plaintext files" / ".env" rules and this repo's
-//      own note in AQUAPRIME_RPG/foundry that contract deployment uses
-//      Foundry keystore, not env vars).
+//      store secrets in plaintext files" / ".env" rules).
 //   2. DEPLOYER_ADDRESS env var set to that key's address (used as
 //      initialOwner for all three contracts below - can be re-owned to a
 //      multisig later via each contract's Ownable.transferOwnership).
-//   3. Real HOODCHAN_GIRLFRIENDS_ADDRESS decided: this script defaults to
+//   3. TREASURY_ADDRESS / BURN_ADDRESS / MULTISIG_ADDRESS env vars - see
+//      the config-value defaults below; these are NOT load-bearing to the
+//      design spec (docs/superpowers/specs/2026-08-21-hoodchan-breeding-
+//      design.md's "Open questions" section explicitly defers exact fee
+//      amounts/recipients pending holder-balance data), but must be real
+//      addresses before any real deploy - the placeholder constants below
+//      are deliberately the deployer's own address so a dry run never
+//      reverts on ZeroAddress, not a claim that they're correct for a real
+//      deploy.
+//   4. Real HOODCHAN_GIRLFRIENDS_ADDRESS decided: this script defaults to
 //      deploying the dummy HoodchanGirlfriends from this same package
 //      (per the design spec: "clearly throwaway - swapped for the real
 //      contract address once the official team deploys"). Swapping to a
-//      real collection later means passing its address into
-//      BreedingController's constructor instead of a freshly deployed
-//      HoodchanGirlfriends - no code change needed here, just a different
-//      constructor arg.
-//   4. After deploy: run the off-chain HOODCHAN metadata-sync script
-//      (not yet written - out of scope for this contracts package) to
-//      call BreedingController.setHoodchanGenes/setHoodchanGenesBatch for
-//      every live HOODCHAN token, and
-//      setUpgradedAllowlist/setUpgradedAllowlistBatch for the
-//      STATUS:"Upgraded" tokens (confirmed live: #531, #777, #1067, per
-//      the design spec - there may be more, this list isn't exhaustive).
-//      commitBreed reverts for any father whose genes were never synced
-//      (GenesNotSet) - the collection is unusable for siring until this
-//      step runs.
-//   5. Breeding itself is a two-step commitBreed/revealBreed flow (see
-//      BreedingController's SEED-FAIRNESS MITIGATION note and this
-//      package's README) - no constructor/deploy-time wiring change from
-//      that, it's purely a runtime call-flow change on the already-
-//      deployed BreedingController.
-//   6. Minting into a mother's TBA works immediately after deploy even
-//      though the ERC-6551 implementation (TBA_IMPLEMENTATION below) is
-//      not yet deployed on Robinhood Chain as of this writing - see
-//      HoodchanBabies.mint's doc comment and the README's "Why _mint, not
-//      _safeMint" section. TBA execute() FROM a baby/mother's TBA will not
-//      work until that implementation is separately deployed; nothing in
-//      this deploy script needs it to.
+//      real collection later means calling
+//      `controller.setBreedableCollection(realAddress, true,
+//      CollectionSex.Female)` instead of allowlisting the dummy deploy -
+//      no code change needed here.
+//   5. After deploy: run the off-chain HOODCHAN gene-sync script (not yet
+//      written - out of scope for this contracts package) to call
+//      `controller.setHoodchanGenes`/`setHoodchanGenesBatch` for every
+//      live HOODCHAN token. `breed()` reverts for any HOODCHAN parent
+//      whose genes were never synced (GenesNotSet) - HOODCHAN is unusable
+//      as a matron/sire until this step runs.
+//   6. `breed()` is now a SINGLE atomic transaction (no commit/reveal) -
+//      see BreedingController's header comment for why a predictable seed
+//      is an accepted tradeoff, not a bug, for this design.
 // ============================================================
 
 import {Script} from "forge-std/Script.sol";
@@ -70,33 +64,57 @@ contract DeployScript is Script {
 
     // CHAN token - already wired into this app as the access-gating token
     // (lib/holderAuth.ts). Per the design spec: breeding fees reinforce
-    // CHAN, not compete with it.
+    // CHAN, not compete with it. Bytecode-verified as a plain
+    // non-proxied OZ ERC20+Ownable (no fee-on-transfer, no hooks) - see
+    // BreedingController's SafeERC20 usage, kept as a defensive default
+    // anyway.
     address internal constant CHAN_TOKEN = 0xB36fD5d3392C78E70c3E08f46b46F242e7EF654F;
 
-    // Same ERC-6551 registry + implementation @pixelpushin/tba-kit uses on
-    // Robinhood Chain (node_modules/@pixelpushin/tba-kit/dist/index.js) -
-    // load-bearing, not guessed (see that file's own header comment for
-    // the independent eth_getCode verification history).
-    address internal constant TBA_REGISTRY = 0x000000006551c19487814612e58FE06813775758;
-    address internal constant TBA_IMPLEMENTATION = 0x41C8f39463A868d3A88af00cd0fe7102F30E44eC;
+    // Config defaults, NOT load-bearing to the design spec (see this
+    // file's header comment, prerequisite #3) - concrete starting points,
+    // adjustable post-deploy via BreedingController's owner-only setters
+    // (setBirthFee / setSameSexFeeMultiplier / setTreasury / etc.).
+    uint256 internal constant DEFAULT_BIRTH_FEE = 100 ether; // 100 CHAN, 18 decimals
+    uint256 internal constant DEFAULT_SAME_SEX_FEE_MULTIPLIER = 2; // 2x birth fee for "test tube baby" pairings
 
     function run() external {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
+        // Fee-recipient addresses are real config, not spec values (see
+        // header comment #3) - default to the deployer so a dry run never
+        // reverts on ZeroAddress; override via env vars for any real
+        // deploy.
+        address treasury = vm.envOr("TREASURY_ADDRESS", deployer);
+        address burnAddr = vm.envOr("BURN_ADDRESS", deployer);
+        address multisigAddr = vm.envOr("MULTISIG_ADDRESS", deployer);
 
         vm.startBroadcast(deployer);
 
         // Deploy order matters: Girlfriends and Babies must exist before
-        // BreedingController (its constructor takes both addresses);
+        // BreedingController (its constructor takes Babies' address);
         // Babies must exist before it can be told its controller.
         HoodchanGirlfriends girlfriends = new HoodchanGirlfriends(deployer);
         HoodchanBabies babies = new HoodchanBabies(deployer);
 
         BreedingController controller = new BreedingController(
-            deployer, HOODCHAN, address(girlfriends), address(babies), CHAN_TOKEN, TBA_REGISTRY, TBA_IMPLEMENTATION
+            deployer,
+            HOODCHAN,
+            address(babies),
+            CHAN_TOKEN,
+            treasury,
+            burnAddr,
+            multisigAddr,
+            DEFAULT_BIRTH_FEE,
+            DEFAULT_SAME_SEX_FEE_MULTIPLIER
         );
 
         // Wiring: Babies only accepts mint() calls from this address.
         babies.setBreedingController(address(controller));
+
+        // Allowlist all three collections, each with its fixed/PerToken
+        // sex config (see BreedingController.CollectionSex).
+        controller.setBreedableCollection(HOODCHAN, true, BreedingController.CollectionSex.Male);
+        controller.setBreedableCollection(address(girlfriends), true, BreedingController.CollectionSex.Female);
+        controller.setBreedableCollection(address(babies), true, BreedingController.CollectionSex.PerToken);
 
         vm.stopBroadcast();
 
@@ -104,6 +122,6 @@ contract DeployScript is Script {
         console2.log("HoodchanBabies:", address(babies));
         console2.log("BreedingController:", address(controller));
         console2.log("-- Next step: mint ~12 HoodchanGirlfriends tokens, then run the");
-        console2.log("-- off-chain HOODCHAN gene/allowlist sync script before any commitBreed() call.");
+        console2.log("-- off-chain HOODCHAN gene-sync script before any breed() call.");
     }
 }

@@ -9,7 +9,10 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 /// contract name) and its "HCBABY" symbol are the one allowed exception to
 /// the no-child-coded-wording rule per the design spec - every other
 /// on-chain string (metadata, events) must stay in the "freshly spawned
-/// young" / breeding-age-at-mint register instead.
+/// young" / breeding-age-at-mint register instead. Babies are immediately
+/// breedable themselves (matron OR sire, day one) - see `genesOf` below,
+/// which is what makes that possible with no special-casing in
+/// BreedingController.
 contract HoodchanBabies is ERC721, Ownable {
     uint256 public nextTokenId = 1;
 
@@ -38,19 +41,35 @@ contract HoodchanBabies is ERC721, Ownable {
     mapping(uint256 => uint40) private _packedGenome;
 
     /// @dev The exact breeding seed used for this baby - re-derivable from
-    /// (fatherTokenId, motherTokenId, breedNonce) via
+    /// (matronCollection, matronId, sireCollection, sireId, breedNonce) via
     /// GeneticsLib.breedingSeed, but stored directly so on-chain/off-chain
     /// genome verification never has to trust an event log staying
     /// available.
     mapping(uint256 => uint256) public breedingSeedOf;
+
+    /// @dev Sex tag, coin-flipped once at mint (GeneticsLib.resolveBabyIsMale)
+    /// and fixed forever after - read live by BreedingController via
+    /// `sexOf` (IPerTokenSex) whenever this baby later participates as a
+    /// parent in its own right. true = Male, false = Female.
+    mapping(uint256 => bool) private _isMale;
+
+    /// @dev Cosmetic flex trait only - `matronSex == sireSex` at THIS
+    /// baby's own mint time, i.e. whether it was produced from a same-sex
+    /// ("test tube baby") pairing. Does not affect this baby's own
+    /// coin-flip inheritance odds when it later breeds; purely a UI badge.
+    mapping(uint256 => bool) public isTestTubeBaby;
 
     event Minted(
         uint256 indexed tokenId,
         address indexed to,
         uint8[5] genome,
         uint256 seed,
-        uint256 fatherTokenId,
-        uint256 motherTokenId,
+        bool isMale,
+        bool isTestTubeBaby,
+        address matronCollection,
+        uint256 matronId,
+        address sireCollection,
+        uint256 sireId,
         uint256 breedNonce
     );
     event BreedingControllerUpdated(address indexed controller);
@@ -72,42 +91,66 @@ contract HoodchanBabies is ERC721, Ownable {
     }
 
     /// @notice Mint a new baby directly to `to` (BreedingController always
-    /// passes the mother's computed TBA address here, never an EOA - see
-    /// BreedingController.breed()). Callable only by the wired-up
-    /// BreedingController; there is no public mint path.
-    /// @dev Uses `_mint`, not `_safeMint`, deliberately (BreedingController's
-    /// BUG 6 fix). `to` is always the mother's computed ERC-6551 TBA
-    /// address, which has NO CODE until the tba-kit implementation
-    /// (0x41C8f39463A868d3A88af00cd0fe7102F30E44eC) is actually deployed
-    /// on Robinhood Chain - not yet true as of this writing (see
-    /// BreedingController's constructor doc / script/Deploy.s.sol).
-    /// `_safeMint` would behave identically to `_mint` today (its
-    /// `onERC721Received` check is skipped for codeless recipients), but
-    /// switching to `_mint` removes that behavior's dependency on the TBA
-    /// implementation staying free of a hostile/reentrant `onERC721Received`
-    /// forever - once that implementation IS deployed, `_safeMint` would
-    /// start invoking it mid-mint, handing control away during
-    /// BreedingController.revealBreed at exactly the moment its genome is
-    /// being finalized. `_mint` never does this, closing that window
-    /// permanently regardless of what the TBA implementation ends up doing.
+    /// passes the MATRON'S OWNER wallet here - a normal wallet, possibly a
+    /// contract wallet, never a TBA - see BreedingController.breed()).
+    /// Callable only by the wired-up BreedingController; there is no public
+    /// mint path.
+    /// @dev Uses `_safeMint`, not `_mint` - explicit decision (design spec's
+    /// Hygiene section demands one, not an assumption). `to` is now an
+    /// arbitrary caller-side wallet that could be a contract (e.g. a Safe),
+    /// unlike the prior TBA-only design where `to` was always a
+    /// known-codeless counterfactual address and `_mint` was chosen
+    /// specifically to skip that check. That justification is void now:
+    /// using `_mint` here would silently break every real contract-wallet
+    /// holder that correctly implements `onERC721Received` (the mint would
+    /// still succeed, but wallets/marketplaces that assume ERC-721
+    /// safe-transfer semantics were followed could mishandle the token).
+    /// `_safeMint`'s reentrancy surface is bounded by BreedingController's
+    /// `nonReentrant` guard on `breed()`, which is already held for the
+    /// entire call that reaches this mint - a reentrant call back into
+    /// `breed()` (or any other `nonReentrant` controller function) from a
+    /// hostile `onERC721Received` reverts immediately on the guard, and
+    /// nothing in `breed()` runs AFTER this mint except emitting the `Bred`
+    /// event, so there is no post-mint state for a reentrant call to
+    /// corrupt even if it reached some non-guarded path.
     function mint(
         address to,
         uint8[5] calldata genome,
         uint256 seed,
-        uint256 fatherTokenId,
-        uint256 motherTokenId,
+        bool isMale_,
+        bool isTestTubeBaby_,
+        address matronCollection,
+        uint256 matronId,
+        address sireCollection,
+        uint256 sireId,
         uint256 breedNonce
     ) external onlyBreedingController returns (uint256 tokenId) {
         tokenId = nextTokenId++;
         _packedGenome[tokenId] = _pack(genome);
         breedingSeedOf[tokenId] = seed;
-        _mint(to, tokenId);
-        emit Minted(tokenId, to, genome, seed, fatherTokenId, motherTokenId, breedNonce);
+        _isMale[tokenId] = isMale_;
+        isTestTubeBaby[tokenId] = isTestTubeBaby_;
+        _safeMint(to, tokenId);
+        emit Minted(
+            tokenId, to, genome, seed, isMale_, isTestTubeBaby_, matronCollection, matronId, sireCollection, sireId, breedNonce
+        );
     }
 
-    function genomeOf(uint256 tokenId) external view returns (uint8[5] memory) {
+    /// @notice Renamed from this contract's old single-word getter name -
+    /// `genesOf` is the shared interface name every allowlisted collection
+    /// speaks (see IBreedable), so a Baby needs zero special-casing to be
+    /// used as a matron or sire in a later breed.
+    function genesOf(uint256 tokenId) external view returns (uint8[5] memory) {
         _requireOwned(tokenId);
         return _unpack(_packedGenome[tokenId]);
+    }
+
+    /// @notice IPerTokenSex - BreedingController reads this live whenever a
+    /// Baby participates as a parent, since (unlike HOODCHAN/Girlfriends)
+    /// a Baby's sex isn't fixed per-collection.
+    function sexOf(uint256 tokenId) external view returns (bool isMale) {
+        _requireOwned(tokenId);
+        return _isMale[tokenId];
     }
 
     function _pack(uint8[5] calldata g) private pure returns (uint40 packed) {
