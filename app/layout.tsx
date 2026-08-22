@@ -5,6 +5,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import { SiteHeader } from "@/app/components/SiteHeader";
 import { ClankerProgress } from "@/app/components/ClankerProgress";
 import { WhatIsHoodchan } from "@/app/components/WhatIsHoodchan";
+import { Trollbox } from "@/app/components/Trollbox";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -42,6 +43,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <ClankerProgress />
         <WhatIsHoodchan />
         {children}
+        <Trollbox />
         <Analytics />
         <SpeedInsights />
       </body>
