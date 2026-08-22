@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Self-contained Next.js app (own package.json/tsconfig/eslint config,
+    // future separate Vercel project) - root `npm run lint` lints the CWD
+    // recursively and would otherwise sweep this directory too.
+    "breeding-app/**",
   ]),
 ]);
 

@@ -10,7 +10,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "generate:girlfriends": "tsx scripts/generate-girlfriends.ts"
+    "generate:girlfriends": "tsx scripts/generate-girlfriends.ts",
+    "copy-abis": "tsx scripts/copy-abis.ts"
   },
   "dependencies": {
     "@pixelpushin/tba-kit": "github:Pixelpushin/tba-kit",

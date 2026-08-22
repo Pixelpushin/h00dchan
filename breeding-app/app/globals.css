@@ -1,0 +1,301 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ---------------------------------------------------------------------- *
+ * Same "cream page / warm-orange header band / maroon accents" imageboard
+ * skin as the parent h00dchan app (app/globals.css) - a subset of its
+ * design tokens/classes, copy-adapted into this standalone project rather
+ * than imported, since this ships as its own separate Vercel project.
+ * ---------------------------------------------------------------------- */
+
+:root {
+  --hc-bg: #fffde7;
+  --hc-header-from: #f3a259;
+  --hc-header-to: #c1571f;
+  --hc-maroon: #7d1f1f;
+  --hc-maroon-dark: #5c1414;
+  --hc-box: #f5ecdc;
+  --hc-box-border: #d8c4a0;
+  --hc-box-alt: #eee0c8;
+  --hc-greentext: #4a7a2e;
+  --hc-text: #1f1a12;
+  --hc-muted: #7a6a52;
+  --hc-urgent: #ff3b1f;
+  --hc-urgent-dark: #c72c14;
+  --hc-danger: #a12b2b;
+  --hc-legendary: #c9a227;
+  --hc-legendary-bg: #fdf6e0;
+}
+
+.hc-page {
+  background: var(--hc-bg);
+  color: var(--hc-text);
+  min-height: 100%;
+}
+
+.hc-header-band {
+  background: linear-gradient(180deg, var(--hc-header-from) 0%, var(--hc-header-to) 100%);
+  border-bottom: 4px solid var(--hc-maroon);
+  padding: 0.75rem 1.25rem;
+}
+
+.hc-wordmark {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  font-size: 1.75rem;
+  color: #fff7e6;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.25);
+  letter-spacing: -0.02em;
+}
+
+.hc-tagline {
+  color: #fff0d8;
+  font-size: 0.75rem;
+  opacity: 0.9;
+}
+
+.hc-nav a,
+.hc-nav button {
+  display: inline-flex;
+  align-items: center;
+  color: #fff7e6;
+  font-weight: 700;
+  font-size: 0.75rem;
+  text-decoration: none;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 247, 230, 0.55);
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.hc-nav a:hover,
+.hc-nav button:hover {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.hc-wallet-connect-btn {
+  color: #fff7e6;
+  font-weight: 700;
+  font-size: 0.8rem;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 247, 230, 0.55);
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.hc-wallet-connect-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.hc-wallet-connect-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.hc-link {
+  color: var(--hc-maroon);
+  text-decoration: underline;
+}
+
+.hc-link:hover {
+  color: var(--hc-maroon-dark);
+}
+
+.hc-title {
+  font-family: Georgia, "Times New Roman", serif;
+  color: var(--hc-maroon);
+  font-weight: 700;
+}
+
+.hc-box {
+  background: var(--hc-box);
+  border: 1px solid var(--hc-box-border);
+  border-radius: 3px;
+}
+
+.hc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--hc-box-border);
+  color: var(--hc-muted);
+  white-space: nowrap;
+}
+
+.hc-badge-chan {
+  color: var(--hc-maroon-dark);
+  border-color: var(--hc-maroon-dark);
+  background: #fff7e6;
+}
+
+.hc-badge-eth {
+  color: #1868b7;
+  border-color: #2081e2;
+  background: #eaf4fd;
+}
+
+.hc-badge-legendary {
+  color: #8a6d1f;
+  border-color: var(--hc-legendary);
+  background: var(--hc-legendary-bg);
+}
+
+.hc-badge-mutation {
+  color: #7a4a1f;
+  border-color: #c98a27;
+  background: #fdeadf;
+}
+
+.hc-badge-father {
+  color: var(--hc-maroon-dark);
+  border-color: var(--hc-maroon-dark);
+}
+
+.hc-badge-mother {
+  color: #a1276f;
+  border-color: #e086bb;
+  background: #fdeaf4;
+}
+
+.hc-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  background: var(--hc-header-to);
+  color: #fff7e6;
+  border: 1px solid var(--hc-maroon);
+  border-radius: 3px;
+  font-weight: 700;
+  padding: 0.55rem 1.1rem;
+  cursor: pointer;
+}
+
+.hc-button:hover:not(:disabled) {
+  background: var(--hc-maroon);
+}
+
+.hc-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.hc-button-ghost {
+  background: transparent;
+  color: var(--hc-maroon);
+  border: 1px solid var(--hc-maroon);
+}
+
+.hc-button-ghost:hover:not(:disabled) {
+  background: var(--hc-box-alt);
+}
+
+.hc-button-urgent {
+  background: var(--hc-urgent);
+  border-color: var(--hc-urgent-dark);
+  color: #fff;
+}
+
+.hc-button-urgent:hover:not(:disabled) {
+  background: var(--hc-urgent-dark);
+}
+
+.hc-form-input {
+  background: #fffef8;
+  border: 1px solid var(--hc-box-border);
+  border-radius: 3px;
+  color: var(--hc-text);
+  padding: 0.5rem 0.6rem;
+}
+
+.hc-form-input:focus {
+  outline: 2px solid var(--hc-header-to);
+  outline-offset: 1px;
+}
+
+.hc-card {
+  background: var(--hc-box);
+  border: 1px solid var(--hc-box-border);
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.hc-card:hover {
+  border-color: var(--hc-header-to);
+}
+
+.hc-card-body {
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.hc-error-box {
+  background: #fdeaea;
+  border: 1px solid var(--hc-danger);
+  color: var(--hc-danger);
+  border-radius: 4px;
+  padding: 0.75rem 1rem;
+  font-size: 0.85rem;
+}
+
+.hc-pending-box {
+  background: #fdf6e0;
+  border: 1px solid var(--hc-legendary);
+  color: #6b5417;
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.hc-gene-slot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  background: #fffef8;
+  border: 1px solid var(--hc-box-border);
+  border-radius: 4px;
+}
+
+.hc-gene-slot-legendary {
+  border-color: var(--hc-legendary);
+  background: var(--hc-legendary-bg);
+}
