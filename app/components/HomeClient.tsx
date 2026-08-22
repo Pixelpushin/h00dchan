@@ -30,10 +30,17 @@ export default function HomeClient({
   return (
     <div className="flex flex-col flex-1 items-center">
       <main className="flex flex-1 w-full max-w-5xl flex-col items-center px-6 py-10">
-        <div className="flex w-full justify-end mb-2">
-          <RentAdSpaceButton />
+        <div className="relative w-full">
+          <AdBanner paidAds={paidAds} randomTokenPool={randomTokenPool} />
+          {/* Overlaid instead of its own full-width row above the banner -
+              reported live as wasted vertical space for a button that
+              doesn't need one. Sibling of the banner's own <a>, not nested
+              inside it - a <button> inside an <a> is invalid HTML and
+              would also fire the banner's own click-through on every open. */}
+          <div className="absolute top-2 right-2 z-10">
+            <RentAdSpaceButton />
+          </div>
         </div>
-        <AdBanner paidAds={paidAds} randomTokenPool={randomTokenPool} />
         <div className="w-full">{popularThreads}</div>
         <OnlyChansPreview />
       </main>

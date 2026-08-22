@@ -201,7 +201,11 @@ export function RentAdSpaceButton() {
     <>
       <button
         onClick={handleOpen}
-        className="hc-button-ghost hc-button text-xs"
+        // Solid (not -ghost) since this now sits overlaid on the ad
+        // banner's own image (HomeClient.tsx) - the transparent ghost
+        // style read fine on the page's cream background but would be
+        // illegible against a busy, unpredictable banner photo.
+        className="hc-button text-xs shadow-md"
       >
         Rent this ad space
       </button>
