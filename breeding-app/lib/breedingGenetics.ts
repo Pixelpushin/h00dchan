@@ -107,8 +107,6 @@ export const LEGENDARY_BAND_SIZE = 5n;
 export const MUTATION_START = 248n;
 export const MUTATION_BAND_SIZE = 3n;
 
-const MASK_8 = 0xffn;
-
 // ---------------------------------------------------------------------------
 // Input coercion / validation helpers
 // ---------------------------------------------------------------------------
