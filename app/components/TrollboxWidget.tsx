@@ -155,7 +155,9 @@ export function TrollboxWidget({
         )}
         {messages.map((m) => (
           <div key={m.id} className="text-xs leading-snug">
-            <span className="hc-post-tokenid">Anon #{m.tokenId}</span>{" "}
+            <span className="hc-post-tokenid">
+              {m.source === "x-bridge" ? "X Chat" : `Anon #${m.tokenId}`}
+            </span>{" "}
             <span className="hc-post-time">{formatTime(m.createdAt)}</span>{" "}
             <PostBody text={m.body} />
           </div>
