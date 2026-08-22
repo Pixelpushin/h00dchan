@@ -14,6 +14,7 @@
 // message) after a click.
 import { useState } from "react";
 import { useActivePersona } from "@/lib/usePersona";
+import { postJsonAsPersona } from "@/lib/postAsPersona";
 import type { AlphaBotEntry } from "@/lib/alphaBotStore";
 import {
   ALPHA_BOT_ATTRIBUTION,
@@ -44,7 +45,7 @@ export function AlphaResearchPanel({
   tokenId: string;
   initialEntry: AlphaBotEntry | null;
 }) {
-  const { persona } = useActivePersona();
+  const { persona, reauthorize } = useActivePersona();
   const [entry, setEntry] = useState(initialEntry);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,28 +64,13 @@ export function AlphaResearchPanel({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/alpha/research", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          tokenId: persona.tokenId,
-          address: persona.address,
-          signature: persona.signature,
-          issuedAt: persona.issuedAt,
-          ...(persona.batchTokenIds
-            ? { batchTokenIds: persona.batchTokenIds }
-            : {}),
-        }),
-      });
-      const body = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(
-          typeof body?.error === "string"
-            ? body.error
-            : `Research failed (${res.status}).`,
-        );
-      }
-      setEntry(body.entry);
+      const result = await postJsonAsPersona<{ entry: AlphaBotEntry }>(
+        "/api/alpha/research",
+        {},
+        persona,
+        reauthorize,
+      );
+      setEntry(result.entry);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Research failed.");
     } finally {
