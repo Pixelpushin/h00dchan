@@ -58,6 +58,21 @@ export async function GET(
           ? readHoodchanGenesSet(tokenId)
           : Promise.resolve(true),
       ]);
+    // ITEM 8(b): `listing.lister` was previously read and discarded - a
+    // listing surviving a transfer of the token (nothing clears it
+    // automatically) means `listing.listed` alone is not authoritative.
+    // Serialize the cross-check as `stale` so callers (the breed page) can
+    // block the action and show a clear "listing is stale" state instead of
+    // letting the caller spend approval gas on a listing that will always
+    // revert SireNotAvailable inside breed().
+    // TODO(integration): once the permissionless
+    // clearStaleListing(collection, tokenId) lands on-chain (see the
+    // parallel breed()/contracts workstream), a stale result here is also a
+    // good trigger point for cleanup - not wired yet, no ABI for it exists
+    // in this codebase yet.
+    const stale =
+      listing.listed && owner.toLowerCase() !== listing.lister.toLowerCase();
+
     return NextResponse.json({
       pending: false,
       collection,
@@ -68,6 +83,7 @@ export async function GET(
       genesSet,
       price: listing.price.toString(),
       listed: listing.listed,
+      stale,
       cooldown: computeCooldownStatus(breedState),
       name: display.name,
       image: display.image,

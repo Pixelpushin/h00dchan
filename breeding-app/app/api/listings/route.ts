@@ -4,7 +4,7 @@ import { getContractStatus, BREEDING_CONTROLLER_CONTRACT } from "@/lib/config";
 import { BreedingControllerAbi } from "@/lib/abi/BreedingController";
 import { readSiringListing } from "@/lib/breedingController";
 import { collectionKindOf, fetchTokenDisplay } from "@/lib/collections";
-import { rpcCall } from "@/lib/chain";
+import { rpcCall, readOwnerOf } from "@/lib/chain";
 
 // Reads live chain state on every request - siring listings and prices can
 // change at any moment, and this is the browse-all-sires page's only data
@@ -97,6 +97,27 @@ export async function GET() {
 
             const kind = collectionKindOf(collection);
             if (!kind) return null; // no longer allowlisted - stale candidate
+
+            // ITEM 8(a): `listing.listed` alone isn't authoritative - a
+            // listing survives a transfer of the underlying token (nothing
+            // clears it automatically), so it must also be confirmed
+            // against the token's CURRENT ownerOf before being surfaced as
+            // a live, breedable candidate. Without this, a caller can spend
+            // approval gas against a listing that will always revert
+            // SireNotAvailable inside breed(). Dropped here rather than
+            // flagged - this route only ever powers "browsable live
+            // listings" (app/page.tsx, the breed page's "Listed" tab), so a
+            // stale listing has no legitimate reason to appear in it.
+            // TODO(integration): once the permissionless
+            // clearStaleListing(collection, tokenId) lands on-chain (see the
+            // parallel breed()/contracts workstream), this is also a good
+            // place to fire-and-forget trigger cleanup for any stale
+            // listing found here - not wired yet, no ABI for it exists in
+            // this codebase yet.
+            const owner = await readOwnerOf(collection, tokenId);
+            if (owner.toLowerCase() !== listing.lister.toLowerCase()) {
+              return null;
+            }
 
             const { name, image } = await fetchTokenDisplay(
               collection,
