@@ -11,10 +11,13 @@
 //
 // Used by any route that does a live, non-trivial amount of RPC/upstream
 // work reachable with nothing more than a syntactically valid param in the
-// URL - currently app/api/breed/[txHash]/route.ts (receipt fetch + full
+// URL - `checkExpensiveScanRateLimit`'s bucket is shared by any
+// family-tree/lineage route that does a full eth_getLogs scan of every Bred
+// event ever emitted; app/api/breed/[txHash]/route.ts (receipt fetch + full
 // Bred-event decode + an OpenAI image generation + a Blob write on a cache
-// miss) and any family-tree/lineage route that does a full eth_getLogs scan
-// of every Bred event ever emitted.
+// miss) has its OWN dedicated `checkBreedPollRateLimit` bucket below (see
+// that function's own comment for why sharing the scan bucket was a
+// self-DoS bug).
 
 interface RateEntry {
   count: number;
@@ -94,6 +97,34 @@ export function checkExpensiveScanRateLimit(
     expensiveScanIpLimit,
     getClientIp(headers),
     EXPENSIVE_SCAN_IP_MAX,
+    now,
+  );
+  return { ...result, scope: "ip" };
+}
+
+// ITEM 9 fix: app/api/breed/[txHash]/route.ts's own poll loop
+// (app/breed/[collection]/[tokenId]/page.tsx's pollForResult - up to 60
+// attempts, 3s apart, i.e. sized 1:1 against exactly ONE poll run) was
+// sharing `expensiveScanIpLimit` with the family-tree/scan routes above.
+// Since that bucket's max (60) is sized for exactly one poll run with zero
+// headroom, a single breed polling to completion could fully exhaust the
+// shared budget for the rest of that 5-minute window - starving every other
+// expensive-scan route (and any concurrent second breed) on the same IP.
+// Dedicated bucket, same Map<string, RateEntry> + prune()/consume() pattern
+// as above, sized for at least 2 concurrent poll runs (2 * 60 = 120) plus
+// slack for the occasional extra poll/retry a slow network causes.
+const breedPollIpLimit = new Map<string, RateEntry>();
+const BREED_POLL_IP_MAX = 150;
+
+export function checkBreedPollRateLimit(
+  headers: HeaderSource,
+): RateLimitResult {
+  const now = Date.now();
+  prune(breedPollIpLimit, now);
+  const result = consume(
+    breedPollIpLimit,
+    getClientIp(headers),
+    BREED_POLL_IP_MAX,
     now,
   );
   return { ...result, scope: "ip" };

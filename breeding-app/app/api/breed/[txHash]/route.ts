@@ -12,7 +12,7 @@ import {
   saveBreedingRecord,
   type BreedingRecord,
 } from "@/lib/breedingStore";
-import { checkExpensiveScanRateLimit } from "@/lib/rateLimit";
+import { checkBreedPollRateLimit } from "@/lib/rateLimit";
 
 // Polled by app/breed/[collection]/[tokenId]/page.tsx after the single
 // breed() tx is
@@ -59,8 +59,13 @@ export async function GET(
   // reachable with nothing more than a syntactically-shaped txHash in the
   // URL, so it needs a budget in front of it regardless of the fee-based
   // throttle on breeding itself. See lib/rateLimit.ts's header for why this
-  // is a local fork rather than an import from the parent app.
-  const rateLimit = checkExpensiveScanRateLimit(req.headers);
+  // is a local fork rather than an import from the parent app. Uses its OWN
+  // dedicated bucket (checkBreedPollRateLimit), not the shared
+  // expensive-scan bucket - see that function's comment in lib/rateLimit.ts
+  // for the self-DoS this fixes (one breed's poll loop starving the
+  // family-tree/scan routes, and any concurrent second breed, on the same
+  // IP).
+  const rateLimit = checkBreedPollRateLimit(req.headers);
   if (!rateLimit.allowed) {
     return NextResponse.json(
       { error: "Too many requests - slow down and try again shortly." },
