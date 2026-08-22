@@ -153,17 +153,32 @@ For flavor and a second, orthogonal fee lever (Brady's call, in conversation):
 ## Fees (paid by the breed caller, both components in CHAN)
 
 1. **Optional siring fee** — applies ONLY when the sire is NOT owned by the
-   caller (borrowing someone else's listed sire). Set by the sire's owner,
-   paid to that owner. A token is NOT publicly available as a sire by
-   default: its owner must explicitly list it via an explicit boolean opt-in
-   (the current `SiringListing.listed` flag pattern is correct — "price 0"
-   must never mean "available/free by default").
+   caller (borrowing someone else's listed sire). Set by the sire's owner —
+   the owner receives 100% of their listed fee, always, no cut taken out of
+   it. A token is NOT publicly available as a sire by default: its owner
+   must explicitly list it via an explicit boolean opt-in (the current
+   `SiringListing.listed` flag pattern is correct — "price 0" must never
+   mean "available/free by default").
+
+   On top of the listed siring fee (added, not carved out of it), the buyer
+   additionally pays an **8% protocol fee**, split:
+   - **5% burned** (sent to a burn address).
+   - **3% to the project multisig**, held as CHAN (any conversion to ETH,
+     if ever wanted, happens manually/off-chain later — no in-contract DEX
+     swap; see Hygiene requirements for why an inline swap is out of
+     scope).
+
+   This protocol fee applies ONLY to the siring-fee portion (i.e. only when
+   borrowing someone else's sire). Self-siring (breeder owns both matron and
+   sire) has no siring fee and therefore no protocol fee either — only the
+   birth fee below applies.
 2. **Flat birth fee** — charged on EVERY breed, no exceptions, including
    breeding two of your own tokens. Small, fixed, owner-configurable (exact
    amount TBD, not load-bearing). Goes to the treasury/fee recipient and
    funds the per-baby OpenAI art-generation cost. Direct CryptoKitties
    precedent (their "autobirth fee"). Multiplied up for same-sex pairings
-   per the section above. This is what makes "free and unlimited" not
+   per the section above. Not split/burned — the 5%/3% split applies only to
+   the siring fee (above). This is what makes "free and unlimited" not
    actually free — there is always a real cost to producing a baby.
 
 ## Breeding flow (single atomic transaction)
