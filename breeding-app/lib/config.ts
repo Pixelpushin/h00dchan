@@ -71,12 +71,13 @@ export const MULTISIG_ADDRESS = process.env.NEXT_PUBLIC_MULTISIG_ADDRESS;
 // --- Fee amounts - mirror contracts/script/Deploy.s.sol's
 // DEFAULT_BIRTH_FEE / DEFAULT_SAME_SEX_FEE_MULTIPLIER constants exactly.
 // Both are owner-configurable post-deploy (setBirthFee/
-// setSameSexFeeMultiplier) and NOT load-bearing to the design spec (see
-// its "Open questions" section) - these are pre-deploy-preview defaults
-// only: if the real deployed value ever diverges (a live
-// `birthFee()`/`sameSexFeeMultiplier()` read is the actual source of
-// truth once BreedingController exists), this must be updated to match
-// or replaced with a live read. ---
+// setSameSexFeeMultiplier), so these constants are display-only fallbacks
+// now: app/api/fees/route.ts's live `birthFee()`/`sameSexFeeMultiplier()`
+// read (via lib/breedingController.ts's readBirthFee/
+// readSameSexFeeMultiplier) is the actual source of truth for both the fee
+// preview and the CHAN approval amount on the breed page - these values are
+// used ONLY as a loading-state display fallback before that live read
+// resolves, never as the approved/debited amount. ---
 export const DEFAULT_BIRTH_FEE = 100_000_000_000_000_000_000n; // 100 CHAN, 18 decimals
 export const DEFAULT_SAME_SEX_FEE_MULTIPLIER = 2n; // "test tube baby" pays 2x birth fee
 

@@ -47,6 +47,11 @@ interface SireLiveInfo {
   genesSet: boolean;
   price: string;
   listed: boolean;
+  // True when `listing.listed` is true but `listing.lister !== ownerOf` -
+  // i.e. the sire was transferred away after being listed and the listing
+  // was never cleaned up. See app/api/sire/[collection]/[tokenId]/route.ts's
+  // stale-cross-check.
+  stale?: boolean;
   cooldown: CooldownStatus;
   name: string;
   image: string;
@@ -114,6 +119,59 @@ export default function BreedPage({
   const [stage, setStage] = useState<Stage>("idle");
   const [error, setError] = useState<string | null>(null);
   const [baby, setBaby] = useState<BreedingRecord | null>(null);
+
+  // Live BreedingController fee config (birthFee/sameSexFeeMultiplier) - both
+  // owner-configurable post-deploy, so lib/config.ts's DEFAULT_BIRTH_FEE /
+  // DEFAULT_SAME_SEX_FEE_MULTIPLIER can drift from the real deployed values.
+  // `feeConfig` stays null until the live read resolves; the DEFAULT_* import
+  // below is used ONLY to render an approximate preview while loading -
+  // `canBreed` requires `feeConfig` to be non-null, so the actual CHAN
+  // approval amount (handleBreed's `totalDebit`, derived from `feePreview`)
+  // can never be built from the pre-deploy constants.
+  const [feeConfig, setFeeConfig] = useState<{
+    birthFee: bigint;
+    sameSexFeeMultiplier: bigint;
+  } | null>(null);
+  const [feeConfigLoading, setFeeConfigLoading] = useState(true);
+  const [feeConfigError, setFeeConfigError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Same react-hooks/set-state-in-effect note as the owned-tokens effect
+    // below.
+    Promise.resolve()
+      .then(() => setFeeConfigLoading(true))
+      .then(() => fetch("/api/fees"))
+      .then((res) => res.json())
+      .then(
+        (data: {
+          pending?: boolean;
+          birthFee?: string;
+          sameSexFeeMultiplier?: string;
+          error?: string;
+        }) => {
+          if (
+            data.pending ||
+            data.error ||
+            !data.birthFee ||
+            !data.sameSexFeeMultiplier
+          ) {
+            setFeeConfigError(
+              data.error ??
+                "BreedingController fee config is not available yet.",
+            );
+            return;
+          }
+          setFeeConfig({
+            birthFee: BigInt(data.birthFee),
+            sameSexFeeMultiplier: BigInt(data.sameSexFeeMultiplier),
+          });
+        },
+      )
+      .catch((err) =>
+        setFeeConfigError(err instanceof Error ? err.message : String(err)),
+      )
+      .finally(() => setFeeConfigLoading(false));
+  }, []);
 
   // Route-param token's live info - pre-selects it into the sire picker.
   useEffect(() => {
@@ -201,11 +259,17 @@ export default function BreedPage({
     sireLiveInfo.owner?.toLowerCase() === address.toLowerCase(),
   );
 
+  // `feeConfig` (from the live `/api/fees` read) is the source of truth once
+  // loaded; DEFAULT_BIRTH_FEE/DEFAULT_SAME_SEX_FEE_MULTIPLIER are used ONLY
+  // as a display fallback while it's still loading (or failed to load) -
+  // `canBreed` below requires `feeConfig` to be non-null, so this fallback
+  // path can never be what the user actually approves/pays.
   const feePreview =
     sireLiveInfo && !sireLiveInfo.pending && !sireLiveInfo.error && matron
       ? previewBreedFee({
-          birthFee: DEFAULT_BIRTH_FEE,
-          sameSexFeeMultiplier: DEFAULT_SAME_SEX_FEE_MULTIPLIER,
+          birthFee: feeConfig?.birthFee ?? DEFAULT_BIRTH_FEE,
+          sameSexFeeMultiplier:
+            feeConfig?.sameSexFeeMultiplier ?? DEFAULT_SAME_SEX_FEE_MULTIPLIER,
           matronSex: matron.isMale,
           sireSex: sireLiveInfo.isMale,
           sireCallerOwned: isSireOwnedByCaller,
@@ -219,6 +283,14 @@ export default function BreedPage({
     sireLiveInfo.collection.toLowerCase() === matron.collection.toLowerCase() &&
     sireLiveInfo.tokenId === matron.tokenId;
 
+  // A listing surfaced by /api/listings or /api/sire can be stale (the sire
+  // was transferred away after being listed, and `listed` was never
+  // cleared) - self-siring (isSireOwnedByCaller) is unaffected since it
+  // doesn't depend on the listing at all.
+  const isStaleListing = Boolean(
+    sireLiveInfo && !isSireOwnedByCaller && sireLiveInfo.stale,
+  );
+
   const canBreed = Boolean(
     address &&
     matron &&
@@ -231,7 +303,11 @@ export default function BreedPage({
     (isSireOwnedByCaller || sireLiveInfo.listed) &&
     (isSireOwnedByCaller || confirmed) &&
     sireLiveInfo.genesSet &&
-    matron.genesReady,
+    matron.genesReady &&
+    !isStaleListing &&
+    // The live birthFee/sameSexFeeMultiplier read must have resolved before
+    // breeding is allowed - see the `feeConfig` state comment above.
+    feeConfig !== null,
   );
 
   const pollForResult = useCallback(
@@ -249,11 +325,42 @@ export default function BreedPage({
   );
 
   async function handleBreed() {
-    if (!address || !matron || !sireLiveInfo || !BREEDING_CONTROLLER_CONTRACT) {
+    if (
+      !address ||
+      !matron ||
+      !sireLiveInfo ||
+      !BREEDING_CONTROLLER_CONTRACT ||
+      !feeConfig
+    ) {
       return;
     }
     setError(null);
     try {
+      // Fresh ownerOf-vs-lister re-check at the moment breeding is actually
+      // initiated (not just re-trusting whatever sireLiveInfo was fetched
+      // when the sire was selected, which could be stale by now if the tab
+      // sat open) - if the sire isn't self-owned, re-pull live sire info and
+      // bail before spending any approval gas if it's since gone stale.
+      if (!isSireOwnedByCaller) {
+        const fresh: SireLiveInfo = await fetch(
+          `/api/sire/${sireLiveInfo.collection}/${sireLiveInfo.tokenId}`,
+        ).then((res) => res.json());
+        setSireLiveInfo(fresh);
+        if (fresh.error) {
+          throw new Error(fresh.error);
+        }
+        if (fresh.stale) {
+          throw new Error(
+            "This listing is stale - the owner has changed. Pick a different sire.",
+          );
+        }
+        if (!fresh.listed) {
+          throw new Error(
+            "This sire is no longer listed for siring. Pick a different sire.",
+          );
+        }
+      }
+
       const maxSiringFee = isSireOwnedByCaller
         ? BigInt(0)
         : BigInt(sireLiveInfo.price || "0");
@@ -537,9 +644,11 @@ export default function BreedPage({
                   {collectionLabel(sireLiveInfo.collection)}) -{" "}
                   {isSireOwnedByCaller
                     ? "you own this one, free to sire"
-                    : sireLiveInfo.listed
-                      ? `${formatUnits(sireLiveInfo.price, 18)} CHAN`
-                      : "not listed for siring"}
+                    : isStaleListing
+                      ? "stale listing - owner changed"
+                      : sireLiveInfo.listed
+                        ? `${formatUnits(sireLiveInfo.price, 18)} CHAN`
+                        : "not listed for siring"}
                 </p>
                 <p
                   className="text-xs mt-1"
@@ -635,6 +744,14 @@ export default function BreedPage({
             </div>
           )}
 
+          {isStaleListing && (
+            <div className="hc-error-box">
+              This listing is stale - the owner has changed since it was listed
+              for siring. Pick a different sire, or ask the new owner to
+              re-list.
+            </div>
+          )}
+
           {feePreview && matron && sireLiveInfo && !sameCollectionSameToken && (
             <div
               className="hc-box p-3 flex flex-col gap-2"
@@ -659,11 +776,25 @@ export default function BreedPage({
                 ). If the sire&apos;s owner raises the price before your tx
                 lands, the transaction reverts instead of charging you more.
               </p>
+              {feeConfigLoading && !feeConfig && (
+                <p className="text-xs" style={{ color: "var(--hc-muted)" }}>
+                  Confirming live birth fee from chain - the amount above is an
+                  estimate until this resolves, and breeding is disabled until
+                  it does.
+                </p>
+              )}
+              {!feeConfigLoading && feeConfigError && (
+                <p className="text-xs" style={{ color: "var(--hc-danger)" }}>
+                  Failed to load the live birth fee ({feeConfigError}) -
+                  breeding is disabled until this succeeds.
+                </p>
+              )}
               {!isSireOwnedByCaller && (
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
                     checked={confirmed}
+                    disabled={!feeConfig}
                     onChange={(e) => setConfirmed(e.target.checked)}
                   />
                   I confirm this price
