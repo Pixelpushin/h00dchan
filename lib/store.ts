@@ -158,6 +158,14 @@ function memoryCommand(cmd: string, args: string[]): unknown {
     }
     case "LLEN":
       return (memLists.get(args[0]) ?? []).length;
+    case "LTRIM": {
+      const list = memLists.get(args[0]) ?? [];
+      const start = Number(args[1]);
+      const stop = Number(args[2]);
+      const end = stop === -1 ? list.length : stop + 1;
+      memLists.set(args[0], list.slice(start, end));
+      return "OK";
+    }
     case "LREM": {
       // Only the "count 0" form (remove every match) is used anywhere in
       // this codebase - args[1] is accepted but ignored rather than
