@@ -1,0 +1,43 @@
+{
+  "name": "hoodchan-breeding-app",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "generate:girlfriends": "tsx scripts/generate-girlfriends.ts",
+    "copy-abis": "tsx scripts/copy-abis.ts",
+    "build-trait-registry": "tsx scripts/build-trait-registry.ts",
+    "emit-girlfriend-genes": "tsx scripts/emit-girlfriend-genes.ts",
+    "sync-genes": "tsx scripts/sync-genes.ts"
+  },
+  "dependencies": {
+    "@pixelpushin/tba-kit": "github:Pixelpushin/tba-kit",
+    "@reown/appkit": "^1.8.23",
+    "@reown/appkit-adapter-ethers": "^1.8.23",
+    "@vercel/analytics": "^2.0.1",
+    "@vercel/blob": "^2.8.0",
+    "@vercel/speed-insights": "^2.0.0",
+    "ethers": "^6.17.0",
+    "next": "16.3.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.1",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.12",
+    "typescript": "^5",
+    "vitest": "^4.1.11"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "Girlfriend #7",
+  "description": "A HOODCHAN Girlfriend - dummy placeholder collection standing in for the real Girlfriends contract until the official team ships it (see docs/superpowers/specs/2026-08-21-hoodchan-breeding-design.md). Mother role in the breeding system.",
+  "image": "https://secjn5r70xasqgxb.public.blob.vercel-storage.com/girlfriends/1787365353570-V0PLve61wfyRaralvIvqRVMG5kDmKC.png",
+  "attributes": [
+    {
+      "trait_type": "Backgrounds",
+      "value": "Arcade Cabinet Glow"
+    },
+    {
+      "trait_type": "Bodies",
+      "value": "Denim-on-Denim"
+    },
+    {
+      "trait_type": "Faces",
+      "value": "Freckles + Septum Ring"
+    },
+    {
+      "trait_type": "Grills",
+      "value": "Silver Top Row"
+    },
+    {
+      "trait_type": "Hats",
+      "value": "Trucker Cap"
+    },
+    {
+      "trait_type": "Girl Stuff",
+      "value": "Pigtails + Chunky Hoops"
+    }
+  ]
+}

@@ -1,0 +1,414 @@
+{
+  "generatedAt": "2026-08-22T06:32:57.979Z",
+  "totalTokensFetched": 1195,
+  "totalSupply": 1200,
+  "perSlot": {
+    "hat": [
+      {
+        "value": "BILLION DOLLAR MINION",
+        "count": 120
+      },
+      {
+        "value": "ROBINHAT",
+        "count": 120
+      },
+      {
+        "value": "HANDLEG",
+        "count": 111
+      },
+      {
+        "value": "REGULAR HAIR",
+        "count": 103
+      },
+      {
+        "value": "JEWISH",
+        "count": 99
+      },
+      {
+        "value": "FLAT EART BELIEVER",
+        "count": 96
+      },
+      {
+        "value": "ROBINBOMB",
+        "count": 95
+      },
+      {
+        "value": "SEXY DOG",
+        "count": 90
+      },
+      {
+        "value": "COWBOY",
+        "count": 87
+      },
+      {
+        "value": "DOGGY RELAXED ^ ^",
+        "count": 66
+      },
+      {
+        "value": "CARPET",
+        "count": 48
+      },
+      {
+        "value": "HORSE",
+        "count": 26
+      },
+      {
+        "value": "SCARY FLEX",
+        "count": 14
+      }
+    ],
+    "face": [
+      {
+        "value": "ME GUSTA",
+        "count": 149
+      },
+      {
+        "value": "MUMU",
+        "count": 147
+      },
+      {
+        "value": "BOBO THE BEAR",
+        "count": 132
+      },
+      {
+        "value": "DODO",
+        "count": 129
+      },
+      {
+        "value": "APU",
+        "count": 112
+      },
+      {
+        "value": "TROLOLO",
+        "count": 99
+      },
+      {
+        "value": "TROLL",
+        "count": 96
+      },
+      {
+        "value": "APEJAK",
+        "count": 73
+      },
+      {
+        "value": "DEV FACE",
+        "count": 56
+      },
+      {
+        "value": "SOY",
+        "count": 30
+      },
+      {
+        "value": "MEH",
+        "count": 28
+      },
+      {
+        "value": "GIGA CHAD JAK",
+        "count": 26
+      },
+      {
+        "value": "OHYEAA",
+        "count": 19
+      },
+      {
+        "value": "OLD COMPUTER GUY",
+        "count": 18
+      },
+      {
+        "value": "LOL",
+        "count": 17
+      },
+      {
+        "value": "HASBULLA",
+        "count": 14
+      },
+      {
+        "value": "MUHEHEHE",
+        "count": 14
+      },
+      {
+        "value": "O O",
+        "count": 13
+      },
+      {
+        "value": "RIZZLER",
+        "count": 8
+      },
+      {
+        "value": "CUSTOM",
+        "count": 7
+      },
+      {
+        "value": "SNIBBU",
+        "count": 5
+      }
+    ],
+    "body": [
+      {
+        "value": "PHAT",
+        "count": 153
+      },
+      {
+        "value": "BANE",
+        "count": 148
+      },
+      {
+        "value": "BEAR",
+        "count": 85
+      },
+      {
+        "value": "LATEX",
+        "count": 84
+      },
+      {
+        "value": "REGULAR",
+        "count": 84
+      },
+      {
+        "value": "BEER GORO",
+        "count": 78
+      },
+      {
+        "value": "SEXY",
+        "count": 70
+      },
+      {
+        "value": "WOLF STREET",
+        "count": 69
+      },
+      {
+        "value": "TURNED",
+        "count": 65
+      },
+      {
+        "value": "MONSTER LEGS",
+        "count": 62
+      },
+      {
+        "value": "WAITING...",
+        "count": 50
+      },
+      {
+        "value": "STANDING",
+        "count": 41
+      },
+      {
+        "value": "FUCK YEA",
+        "count": 35
+      },
+      {
+        "value": "MONEY FLEX",
+        "count": 35
+      },
+      {
+        "value": "PERFECT TAN",
+        "count": 35
+      },
+      {
+        "value": "SHOOTER",
+        "count": 30
+      },
+      {
+        "value": "BACK IN TOWN",
+        "count": 28
+      },
+      {
+        "value": "GOLD LOVER",
+        "count": 27
+      },
+      {
+        "value": "MANTRA",
+        "count": 13
+      }
+    ],
+    "background": [
+      {
+        "value": "MONEY STACK",
+        "count": 114
+      },
+      {
+        "value": "ANTI STONKS",
+        "count": 104
+      },
+      {
+        "value": "REGULAR MOON",
+        "count": 97
+      },
+      {
+        "value": "4CHAN",
+        "count": 96
+      },
+      {
+        "value": "UNBOTHERED",
+        "count": 94
+      },
+      {
+        "value": "FAKE SKIES",
+        "count": 92
+      },
+      {
+        "value": "MATRIX",
+        "count": 86
+      },
+      {
+        "value": "TOTAL TOE",
+        "count": 85
+      },
+      {
+        "value": "UNICORNS ^ ^",
+        "count": 73
+      },
+      {
+        "value": "FLAMING CATS",
+        "count": 63
+      },
+      {
+        "value": "VIBEY",
+        "count": 60
+      },
+      {
+        "value": "QUAKE",
+        "count": 59
+      },
+      {
+        "value": "WISE MONK",
+        "count": 56
+      },
+      {
+        "value": "SPONGE RAYS",
+        "count": 44
+      },
+      {
+        "value": "BEACH",
+        "count": 40
+      },
+      {
+        "value": "TRUMP SUNSET",
+        "count": 19
+      },
+      {
+        "value": "POLAND",
+        "count": 10
+      }
+    ],
+    "accessory": [
+      {
+        "value": "BIG BALLS RAT",
+        "count": 78
+      },
+      {
+        "value": "SAINT RAT",
+        "count": 59
+      },
+      {
+        "value": "PUNK DOG",
+        "count": 56
+      },
+      {
+        "value": "CROCS DOG",
+        "count": 54
+      },
+      {
+        "value": "CHILLING",
+        "count": 49
+      },
+      {
+        "value": "LLAMA?",
+        "count": 45
+      },
+      {
+        "value": "FLYING BURGERS",
+        "count": 42
+      },
+      {
+        "value": "DOGGO",
+        "count": 40
+      },
+      {
+        "value": "SUPER NINJA TURTLE",
+        "count": 40
+      },
+      {
+        "value": "FISHY",
+        "count": 37
+      },
+      {
+        "value": "THROWING UP CAT",
+        "count": 37
+      },
+      {
+        "value": "LMAO DOG",
+        "count": 36
+      },
+      {
+        "value": "MONSTER",
+        "count": 33
+      },
+      {
+        "value": "MAC",
+        "count": 27
+      },
+      {
+        "value": "SEA LION",
+        "count": 27
+      },
+      {
+        "value": "BIG NOSE THING",
+        "count": 25
+      },
+      {
+        "value": "FACE SWAPPERS",
+        "count": 21
+      },
+      {
+        "value": "HORSE",
+        "count": 18
+      },
+      {
+        "value": "FLOWER",
+        "count": 5
+      }
+    ]
+  },
+  "legendaryOneOfOnes": [
+    {
+      "tokenId": "114",
+      "attributes": [
+        {
+          "trait_type": "Rarity",
+          "value": "LEGENDARY"
+        },
+        {
+          "trait_type": "Legendary 1/1",
+          "value": "BREAD MAKER"
+        }
+      ]
+    },
+    {
+      "tokenId": "217",
+      "attributes": [
+        {
+          "trait_type": "Rarity",
+          "value": "LEGENDARY"
+        },
+        {
+          "trait_type": "Legendary 1/1",
+          "value": "ROBINHOOD LOVER"
+        }
+      ]
+    },
+    {
+      "tokenId": "724",
+      "attributes": [
+        {
+          "trait_type": "Rarity",
+          "value": "LEGENDARY"
+        },
+        {
+          "trait_type": "Legendary 1/1",
+          "value": "ROBINHOOD SHIT LOWER"
+        }
+      ]
+    }
+  ]
+}

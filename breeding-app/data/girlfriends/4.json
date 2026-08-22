@@ -1,0 +1,31 @@
+{
+  "name": "Girlfriend #4",
+  "description": "A HOODCHAN Girlfriend - dummy placeholder collection standing in for the real Girlfriends contract until the official team ships it (see docs/superpowers/specs/2026-08-21-hoodchan-breeding-design.md). Mother role in the breeding system.",
+  "image": "https://secjn5r70xasqgxb.public.blob.vercel-storage.com/girlfriends/1787365320373-Un083VMvLlpburK9FSMMIbn0DXvEws.png",
+  "attributes": [
+    {
+      "trait_type": "Backgrounds",
+      "value": "Cracked Basketball Court"
+    },
+    {
+      "trait_type": "Bodies",
+      "value": "Varsity Jacket"
+    },
+    {
+      "trait_type": "Faces",
+      "value": "Gap Tooth Grin"
+    },
+    {
+      "trait_type": "Grills",
+      "value": "Rose Gold Fangs"
+    },
+    {
+      "trait_type": "Hats",
+      "value": "Beanie"
+    },
+    {
+      "trait_type": "Girl Stuff",
+      "value": "Box Braids + Chunky Chain"
+    }
+  ]
+}

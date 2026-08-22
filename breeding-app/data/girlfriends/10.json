@@ -1,0 +1,31 @@
+{
+  "name": "Girlfriend #10",
+  "description": "A HOODCHAN Girlfriend - dummy placeholder collection standing in for the real Girlfriends contract until the official team ships it (see docs/superpowers/specs/2026-08-21-hoodchan-breeding-design.md). Mother role in the breeding system.",
+  "image": "https://secjn5r70xasqgxb.public.blob.vercel-storage.com/girlfriends/1787365390820-ZOHrg0luv3w6KbXNKRaFJppowZQ1kM.png",
+  "attributes": [
+    {
+      "trait_type": "Backgrounds",
+      "value": "Block Party Streamers"
+    },
+    {
+      "trait_type": "Bodies",
+      "value": "Halter Top + Track Pants"
+    },
+    {
+      "trait_type": "Faces",
+      "value": "Glitter Eyeshadow"
+    },
+    {
+      "trait_type": "Grills",
+      "value": "Rose Gold Top Row"
+    },
+    {
+      "trait_type": "Hats",
+      "value": "Visor"
+    },
+    {
+      "trait_type": "Girl Stuff",
+      "value": "Curly Afro Puff + Statement Earrings"
+    }
+  ]
+}
