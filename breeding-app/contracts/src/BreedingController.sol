@@ -47,14 +47,21 @@ import {IPerTokenSex} from "./interfaces/IPerTokenSex.sol";
 /// ACCEPTED TRADEOFF: predictable seed, single atomic transaction
 /// ============================================================
 /// `GeneticsLib.breedingSeed` is a pure function of public inputs only
-/// (both parents' collection+id and a per-breed nonce) - a sophisticated
-/// caller can simulate the outcome before sending the breed tx and choose
-/// whether to send it ("breed-sniping"). This is EXPLICITLY ACCEPTED per
-/// the design spec, not mitigated: "you get what you get." Do not
-/// reintroduce blockhash anchoring, a two-step escrow-then-later-finalize
-/// seed-hiding scheme, or VRF here - the escalating per-token cooldown
-/// plus the unconditional birth fee are the spec's chosen mitigation
-/// instead (re-rolling costs real CHAN and burns real cooldown time).
+/// (both parents' collection+id and a per-breed nonce), so it is fully
+/// computable off-chain BEFORE sending anything - a sophisticated caller
+/// can simulate every candidate outcome for FREE and only ever submit the
+/// `breed()` tx for a roll they like ("breed-sniping"). A rejected
+/// simulation costs nothing at all (no CHAN, no cooldown, no tx), so
+/// neither the escalating per-token cooldown nor the unconditional birth
+/// fee actually rate-limits this - both only tax an ACCEPTED breed, never
+/// a rejected simulation. This is EXPLICITLY ACCEPTED per the design spec
+/// anyway, not mitigated: "you get what you get." The tradeoff buys an
+/// open, independently-verifiable genetics algorithm instead of a closed
+/// oracle (CryptoKitties' equivalent), which is the actual justification -
+/// not that re-rolling has some cost it doesn't. Do not reintroduce
+/// blockhash anchoring, a two-step escrow-then-later-finalize seed-hiding
+/// scheme, or VRF here to "fix" this - it is a known, accepted property of
+/// v1, not a bug to patch.
 contract BreedingController is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -101,6 +108,22 @@ contract BreedingController is Ownable, ReentrancyGuard {
     /// a NEW owner has explicitly listed nothing, so the listing must go
     /// stale on transfer. Comparing against live `ownerOf` achieves that
     /// with no transfer hook on collections we do not control (HOODCHAN).
+    ///
+    /// HONEST RESIDUAL WINDOW: because staleness is checked at `breed()`
+    /// time by comparing `lister` against the CURRENT `ownerOf` rather than
+    /// being cleared AT the transfer (impossible without a transfer hook on
+    /// a collection this contract does not control), a listing whose token
+    /// round-trips back to the SAME `lister` address (sold away, then
+    /// re-acquired by the original lister, by any means) silently REVIVES -
+    /// `lister == ownerOf` is true again, indistinguishable from a listing
+    /// that was simply never disturbed. `clearStaleListing` below is the
+    /// mitigation: it lets ANYONE permanently delete a listing the moment
+    /// the token leaves the lister's wallet, closing the window if called
+    /// before the token comes back. If nobody calls it in time, the
+    /// listing revives - a real, accepted gap, not a hidden one. The app's
+    /// own off-chain `ownerOf` checks (see the frontend integration) are
+    /// the other half of the mitigation, surfacing stale listings for
+    /// clearing before they'd ever matter to a real breed.
     struct SiringListing {
         uint128 price;
         bool listed;
@@ -206,6 +229,9 @@ contract BreedingController is Ownable, ReentrancyGuard {
     event HoodchanGenesSet(uint256 indexed tokenId, uint8[5] genes);
     event SiringListed(address indexed collection, uint256 indexed tokenId, uint128 price);
     event SiringUnlisted(address indexed collection, uint256 indexed tokenId);
+    event StaleListingCleared(
+        address indexed collection, uint256 indexed tokenId, address indexed lister, address currentOwner
+    );
     event Bred(
         uint256 indexed babyTokenId,
         address matronCollection,
@@ -234,7 +260,11 @@ contract BreedingController is Ownable, ReentrancyGuard {
     error GenesNotSet();
     error SameToken();
     error SiringFeeTooHigh();
+    error TotalFeeTooHigh();
     error InvalidMultiplier();
+    error InvalidBirthFee();
+    error ListingDoesNotExist();
+    error ListingNotStale();
 
     // ---------------------------------------------------------------
     // Modifiers
@@ -265,6 +295,12 @@ contract BreedingController is Ownable, ReentrancyGuard {
         // breeding entirely free, contradicting the design spec's "flat
         // birth fee - charged on EVERY breed, no exceptions".
         if (sameSexFeeMultiplier_ < 1) revert InvalidMultiplier();
+        // Same reasoning, applied to the birth fee itself: 0 would make
+        // EVERY breed free (not just same-sex ones), directly contradicting
+        // "charged on every breed, no exceptions" and starving the treasury
+        // of the per-baby art-gen funding the fee exists to cover. Mirrors
+        // `setBirthFee`'s own floor below.
+        if (birthFee_ == 0) revert InvalidBirthFee();
 
         hoodchanAddress = hoodchanAddress_;
         babies = HoodchanBabies(babiesAddress);
@@ -308,7 +344,13 @@ contract BreedingController is Ownable, ReentrancyGuard {
         emit MultisigSet(multisig_);
     }
 
+    /// @dev Same `> 0` floor as the constructor - see there for why. A
+    /// birth fee of 0 would make breeding entirely free (not just same-sex
+    /// pairings), contradicting the design spec's "flat birth fee - charged
+    /// on EVERY breed, no exceptions" and defunding the per-baby art-gen
+    /// cost it exists to cover.
     function setBirthFee(uint256 birthFee_) external onlyOwner {
+        if (birthFee_ == 0) revert InvalidBirthFee();
         birthFee = birthFee_;
         emit BirthFeeSet(birthFee_);
     }
@@ -377,6 +419,30 @@ contract BreedingController is Ownable, ReentrancyGuard {
         emit SiringUnlisted(collection, tokenId);
     }
 
+    /// @notice PERMISSIONLESS: deletes a listing whose `lister` no longer
+    /// owns the token - the mitigation for the HONEST RESIDUAL WINDOW
+    /// documented on `SiringListing` above. HOODCHAN (and any other
+    /// external collection this contract does not control) exposes no
+    /// transfer hook this contract can subscribe to, so "clear the listing
+    /// the instant the token moves" is on-chain impossible to do
+    /// automatically; this is the next best thing - ANYONE (the app, a
+    /// keeper bot, a rival breeder, the buyer who almost got burned) can
+    /// call this the moment they observe `lister != ownerOf` and
+    /// permanently kill the stale listing before the token has any chance
+    /// to round-trip back to `lister` and silently revive it. Reverts if
+    /// there is nothing to clear (`ListingDoesNotExist`) or if the listing
+    /// is not actually stale (`ListingNotStale`) - this is a targeted
+    /// cleanup tool, not a general-purpose "unlist anyone's token" griefing
+    /// vector.
+    function clearStaleListing(address collection, uint256 tokenId) external {
+        SiringListing memory listing = siringListings[collection][tokenId];
+        if (!listing.listed) revert ListingDoesNotExist();
+        address currentOwner = IERC721(collection).ownerOf(tokenId);
+        if (listing.lister == currentOwner) revert ListingNotStale();
+        delete siringListings[collection][tokenId];
+        emit StaleListingCleared(collection, tokenId, listing.lister, currentOwner);
+    }
+
     // ---------------------------------------------------------------
     // Breeding: single atomic transaction
     // ---------------------------------------------------------------
@@ -417,12 +483,27 @@ contract BreedingController is Ownable, ReentrancyGuard {
     /// sireId)` line describes the mechanic - one atomic call, no
     /// commit/reveal - not a frozen ABI; the spec separately requires that
     /// the fee flows be safe.)
+    /// @param maxTotalFee The most CHAN the caller is willing to pay in
+    /// TOTAL for this breed - birth fee (`_collectBirthFee`) PLUS the
+    /// siring leg `maxSiringFee` above already bounds (price + its 8%
+    /// protocol cut), summed. `maxSiringFee` alone protects only the siring
+    /// PRICE component; it does nothing against `owner()` front-running the
+    /// caller with `setBirthFee`/`setSameSexFeeMultiplier` between the
+    /// moment the caller reads the current birth fee off-chain and the
+    /// moment their `breed()` tx lands - with the usual unlimited CHAN
+    /// allowance a frontend grants, that front-run would silently overcharge
+    /// the birth-fee leg with no recourse, the same class of bug
+    /// `maxSiringFee` exists to close on the siring leg. `maxTotalFee`
+    /// closes it the identical way: bound the ACTUAL combined charge at the
+    /// caller's own quote, revert (`TotalFeeTooHigh`) otherwise, checked
+    /// before any CHAN transfer so a rejected call never partially debits.
     function breed(
         address matronCollection,
         uint256 matronId,
         address sireCollection,
         uint256 sireId,
-        uint256 maxSiringFee
+        uint256 maxSiringFee,
+        uint256 maxTotalFee
     ) external nonReentrant returns (uint256 babyTokenId) {
         // --- 1. Checks ---
         if (!isBreedableCollection[matronCollection] || !isBreedableCollection[sireCollection]) {
@@ -481,7 +562,22 @@ contract BreedingController is Ownable, ReentrancyGuard {
         bool sireIsMale = _sexOf(sireCollection, sireId);
         bool sameSex = matronIsMale == sireIsMale;
 
-        _collectBirthFee(sameSex);
+        // Compute both fee legs BEFORE collecting anything, so the combined
+        // slippage bound (see `maxTotalFee` param docs) can revert with zero
+        // CHAN ever transferred, not just zero net effect.
+        uint256 birthFeeOwed = sameSex ? birthFee * sameSexFeeMultiplier : birthFee;
+        uint256 siringFeeOwed = 0;
+        if (!sireCallerOwned) {
+            // Mirrors `_collectSiringFee`'s own independent-floor-division
+            // arithmetic exactly (see that function's doc comment on the
+            // rounding direction) - the caller's ACTUAL total debit for the
+            // siring leg, not a `price * 10800 / 10000` shortcut that could
+            // round differently.
+            siringFeeOwed = listing.price + (listing.price * 500) / 10000 + (listing.price * 300) / 10000;
+        }
+        if (birthFeeOwed + siringFeeOwed > maxTotalFee) revert TotalFeeTooHigh();
+
+        _collectBirthFee(birthFeeOwed);
         if (!sireCallerOwned) {
             _collectSiringFee(sireOwner, listing.price);
         }
@@ -573,12 +669,16 @@ contract BreedingController is Ownable, ReentrancyGuard {
     }
 
     /// @dev Flat birth fee, charged on EVERY breed including self-siring,
-    /// multiplied for same-sex ("test tube baby") pairings. Never split or
-    /// burned - goes entirely to `treasury` (funds the per-baby OpenAI
-    /// art-gen cost). Distinct from, and unaffected by, the siring
-    /// protocol fee below.
-    function _collectBirthFee(bool sameSex) internal {
-        uint256 fee = sameSex ? birthFee * sameSexFeeMultiplier : birthFee;
+    /// already multiplied by the caller for same-sex ("test tube baby")
+    /// pairings (see `breed()`'s `birthFeeOwed` local - computed once there
+    /// so it can also feed the `maxTotalFee` slippage check before any
+    /// transfer happens). Never split or burned - goes entirely to
+    /// `treasury` (funds the per-baby OpenAI art-gen cost). Distinct from,
+    /// and unaffected by, the siring protocol fee below. `fee` can only be
+    /// 0 here if `birthFee` itself were 0, which `setBirthFee`/the
+    /// constructor now both reject - kept as a defensive `if` anyway rather
+    /// than assuming that invariant holds forever.
+    function _collectBirthFee(uint256 fee) internal {
         if (fee > 0) {
             chanToken.safeTransferFrom(msg.sender, treasury, fee);
         }

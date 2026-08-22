@@ -4,6 +4,7 @@ import {
   COMBINED_VALUE_INDEX,
   NONE_INDEX,
   LEGENDARY_RESERVED_START,
+  LEGENDARY_ONLY_START,
   LEGENDARY_SENTINEL_GENES,
   valueToIndex,
   indexToValue,
@@ -69,10 +70,45 @@ describe("traitRegistry", () => {
     }
   });
 
-  it("byteToTraitName resolves the legendary sentinel band with an honest fallback label", () => {
+  it("byteToTraitName resolves the legendary-only sub-band (251-255) to curated names, not a synthesized fallback", () => {
     for (const slot of GENE_SLOTS) {
-      const name = byteToTraitName(slot, 255);
-      expect(name).toMatch(/^Legendary /);
+      for (let b = LEGENDARY_ONLY_START; b <= 255; b++) {
+        const name = byteToTraitName(slot, b);
+        expect(name).toMatch(/^Legendary /);
+        // Curated names don't end in the dynamic "#<byte>" placeholder
+        // form the pre-2026-08-22 fallback used.
+        expect(name).not.toMatch(/#\d+$/);
+      }
+    }
+  });
+
+  it("byteToTraitName resolves the mutation-only sub-band (248-250) to curated names, not a synthesized fallback", () => {
+    for (const slot of GENE_SLOTS) {
+      for (let b = LEGENDARY_RESERVED_START; b < LEGENDARY_ONLY_START; b++) {
+        const name = byteToTraitName(slot, b);
+        expect(name).toMatch(/^Mutant /);
+        expect(name).not.toMatch(/#\d+$/);
+      }
+    }
+  });
+
+  it("classifies every byte 0-255 into the pinned disjoint ranges matching GeneticsLib.sol exactly (251-255 legendary, 248-250 mutation)", () => {
+    for (const slot of GENE_SLOTS) {
+      for (let b = 0; b < 256; b++) {
+        const name = byteToTraitName(slot, b);
+        if (b >= LEGENDARY_ONLY_START) {
+          expect(name.startsWith("Legendary ")).toBe(true);
+        } else if (b >= LEGENDARY_RESERVED_START) {
+          expect(name.startsWith("Mutant ")).toBe(true);
+        } else {
+          // Below the reserved band: either a real registered value or
+          // the dynamic "Mutant <Slot> #<byte>" fallback for an
+          // unrecognized-but-not-reserved byte - never the curated
+          // "Legendary " prefix, which is reserved exclusively for
+          // 251-255.
+          expect(name.startsWith("Legendary ")).toBe(false);
+        }
+      }
     }
   });
 
@@ -88,6 +124,16 @@ describe("traitRegistry", () => {
     for (const slot of GENE_SLOTS) {
       for (let b = 0; b <= 255; b++) {
         expect(() => byteToTraitName(slot, b)).not.toThrow();
+      }
+    }
+  });
+
+  it("byteToTraitName never returns undefined/empty for any byte 0-255 in any slot", () => {
+    for (const slot of GENE_SLOTS) {
+      for (let b = 0; b <= 255; b++) {
+        const name = byteToTraitName(slot, b);
+        expect(name).toBeTruthy();
+        expect(typeof name).toBe("string");
       }
     }
   });

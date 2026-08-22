@@ -81,14 +81,31 @@ export const LEGENDARY_MUTATION_RATE = 50n;
 /** 5% - GeneticsLib.BASE_MUTATION_RATE. */
 export const BASE_MUTATION_RATE = 500n;
 
-/** Start of the reserved mutation/legendary index band - mirrors
- * `LEGENDARY_RESERVED_START = 248` in both GeneticsLib.sol and
- * lib/traitRegistry.ts exactly. Load-bearing, not a coincidence: neither
- * branch below may ever emit a value below this, which would collide with
- * a real trait index. */
+/** Start of the reserved mutation/legendary index band AS A WHOLE
+ * (248..255, 8 values total) - mirrors `LEGENDARY_RESERVED_START = 248` in
+ * both GeneticsLib.sol and lib/traitRegistry.ts exactly. Load-bearing, not
+ * a coincidence: neither branch below may ever emit a value below this,
+ * which would collide with a real trait index.
+ *
+ * FIX (2026-08-22): the legendary and mutation branches used to each
+ * independently compute `LEGENDARY_RESERVED_START + (x % 8)` over this
+ * FULL shared band - two disjoint 0.5%/5% probability events landing in
+ * the exact same 8-value range with no way to tell, after the fact, which
+ * branch produced a given byte. Fixed by PINNING two non-overlapping
+ * sub-ranges within this same band - see `LEGENDARY_START`/
+ * `LEGENDARY_BAND_SIZE` and `MUTATION_START`/`MUTATION_BAND_SIZE` below,
+ * mirrored byte-for-byte from GeneticsLib.sol's identical fix. */
 export const LEGENDARY_RESERVED_START = 248n;
-/** Size of the reserved band: 248..255 inclusive = 8 values. */
-export const LEGENDARY_BAND_SIZE = 8n;
+
+/** Legendary branch's PINNED sub-range: 251..255 inclusive (5 values),
+ * disjoint from the mutation branch's 248..250. */
+export const LEGENDARY_START = 251n;
+export const LEGENDARY_BAND_SIZE = 5n;
+
+/** Mutation branch's PINNED sub-range: 248..250 inclusive (3 values),
+ * disjoint from the legendary branch's 251..255. */
+export const MUTATION_START = 248n;
+export const MUTATION_BAND_SIZE = 3n;
 
 const MASK_8 = 0xffn;
 
@@ -230,17 +247,19 @@ export function resolveBabyIsMale(seed: bigint): boolean {
  * just an optimization detail:
  *
  *   - bits [0:16)  (`locusSeed % 10000`)         -> legendary check
- *   - bits [8:16)  (`(locusSeed >> 8) % 8`)       -> legendary's band offset
+ *   - bits [8:16)  (`(locusSeed >> 8) % 5`)       -> legendary's pinned-range offset (251..255)
  *   - bits [16:32) (`(locusSeed >> 16) % 10000`)  -> mutation check
- *   - bits [24:32) (`(locusSeed >> 24) % 8`)      -> mutation's band offset
+ *   - bits [24:32) (`(locusSeed >> 24) % 3`)      -> mutation's pinned-range offset (248..250)
  *   - bit  [32]    (`(locusSeed >> 32) % 2`)      -> matron/sire coin flip
  *
- * Both the legendary AND mutation branches are CLAMPED into the reserved
- * `LEGENDARY_RESERVED_START..255` band via modulo against
- * `LEGENDARY_BAND_SIZE` (8) - neither branch can ever collide with a real
- * trait index or overflow a slot's real range, unlike the superseded v1
- * port's unconstrained-byte legendary branch and range-arithmetic mutation
- * branch. The standard branch is a plain 50/50 coin flip between the
+ * The legendary and mutation branches are CLAMPED into their own PINNED,
+ * NON-OVERLAPPING sub-ranges within the shared 248..255 reserved band -
+ * legendary gets 251..255, mutation gets 248..250 - so neither branch can
+ * ever collide with a real trait index, overflow a slot's real range, OR
+ * be confused with each other's output (a real collision bug this file and
+ * GeneticsLib.sol both had until 2026-08-22, when both independently
+ * computed `LEGENDARY_RESERVED_START + (x % 8)` over the full shared
+ * band). The standard branch is a plain 50/50 coin flip between the
  * LITERAL matron and sire values - band-agnostic, no magnitude ordering
  * (the v2 design's core genetics fix over v1's "numerically higher index
  * wins 60%" dominance rule, which always favored whichever collection
@@ -258,18 +277,14 @@ export function inheritLocus(
 
   const locusSeed = locusSeedFor(seed, offset);
 
-  // --- Legendary: 0.5% ---
+  // --- Legendary: 0.5%, pinned 251..255 ---
   if (locusSeed % 10000n < LEGENDARY_MUTATION_RATE) {
-    return Number(
-      LEGENDARY_RESERVED_START + ((locusSeed >> 8n) % LEGENDARY_BAND_SIZE),
-    );
+    return Number(LEGENDARY_START + ((locusSeed >> 8n) % LEGENDARY_BAND_SIZE));
   }
 
-  // --- Base mutation: 5% ---
+  // --- Base mutation: 5%, pinned 248..250 ---
   if ((locusSeed >> 16n) % 10000n < BASE_MUTATION_RATE) {
-    return Number(
-      LEGENDARY_RESERVED_START + ((locusSeed >> 24n) % LEGENDARY_BAND_SIZE),
-    );
+    return Number(MUTATION_START + ((locusSeed >> 24n) % MUTATION_BAND_SIZE));
   }
 
   // --- Standard 50/50 coin flip: 94.5% ---

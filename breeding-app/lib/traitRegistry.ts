@@ -16,38 +16,50 @@
 // regenerated automatically once any index below has been synced on-chain.
 //
 // ============================================================================
-// WHY THE NUMBERING IS LOAD-BEARING (read this before touching an index)
+// WHY THE NUMBERING IS STILL LOAD-BEARING (read this before touching an
+// index) - CORRECTED, v2 (2026-08-22)
 // ============================================================================
-// contracts/src/GeneticsLib.sol's standard-inheritance branch (94.5% of
-// breeds, GeneticsLib.sol:106-108) is:
+// An earlier draft of this file claimed contracts/src/GeneticsLib.sol's
+// standard-inheritance branch picked the NUMERICALLY HIGHER of the two
+// parent values as "dominant" (v1's `uint8 dominant = p1 > p2 ? p1 : p2`
+// pseudocode), making this file "where genetic dominance actually gets
+// decided." That was true of v1 and is FALSE for v2: the current
+// GeneticsLib.inheritLocus (see breeding-app/lib/breedingGenetics.ts's
+// header, lines ~6-13, for the canonical description) is a band-agnostic
+// 50/50 COIN FLIP between the literal matron and sire values for 94.5% of
+// loci - byte ordering has NO effect on which parent's value wins. A low
+// index is not "recessive," a high index is not "dominant," full stop.
 //
-//   uint8 dominant = p1 > p2 ? p1 : p2;
-//   uint8 recessive = p1 <= p2 ? p1 : p2;
-//   return (draw < DOMINANT_INHERITANCE_RATE) ? dominant : recessive;
-//
-// "Dominant" means NUMERICALLY HIGHER, full stop. There is no separate
-// dominance table anywhere in the contract - the raw uint8 index IS the
-// dominance rank. That means THIS FILE, not any Solidity source, is where
-// "which HOODCHAN traits are genetically dominant" actually gets decided.
-// Reordering a value's index after BreedingController.setHoodchanGenesBatch
-// has been run against it silently rewrites that father's genetic
-// dominance for every future breed - already-synced tokens don't get
-// re-synced automatically, so a reorder desyncs old fathers from new ones
-// without any on-chain signal that it happened. Bump
-// TRAIT_REGISTRY_VERSION and re-run the FULL sync for the FULL collection
-// if this ever needs to change; never patch a handful of indices in place.
+// The numbering is still load-bearing, but for two DIFFERENT, real
+// reasons:
+//   1. HEADROOM: every real value's index must stay strictly below
+//      `LEGENDARY_RESERVED_START` (248) - see `buildCombinedIndex`'s guard
+//      below - so it can never collide with a mutation/legendary roll's
+//      output (GeneticsLib.sol's reserved 248..255 band, split into a
+//      251..255 legendary sub-range and a 248..250 mutation sub-range as
+//      of the 2026-08-22 collision fix).
+//   2. SYNC STABILITY: once a HOODCHAN father's genes are pushed on-chain
+//      via `BreedingController.setHoodchanGenesBatch`, that father's
+//      stored uint8[5] genome is whatever index this file assigned at
+//      sync time. Reordering a value's index afterwards silently changes
+//      what that ALREADY-SYNCED father's genes mean without re-syncing
+//      him - a real desync risk, just not a "dominance" one. Bump
+//      TRAIT_REGISTRY_VERSION and re-run the FULL sync for the FULL
+//      collection if this ever needs to change; never patch a handful of
+//      indices in place.
 //
 // ============================================================================
-// ORDERING RULE: ascending real-world rarity
+// ORDERING CONVENTION: ascending real-world rarity (human-readable, not
+// inheritance-load-bearing)
 // ============================================================================
-// Common trait value -> LOW index -> usually recessive.
-// Rare trait value -> HIGH index -> usually dominant.
-// This is a deliberate design choice (not incidental to how the data
-// happened to sort): breeding pushes the population towards rarer
-// combinations over time, the same direction AquaPrime's own genetics
-// system (which GeneticsLib.sol is a bit-for-bit port of) was designed to
-// reward. Frequencies come from scripts/build-trait-registry.ts, which
-// fetches every live HOODCHAN token's real metadata (same
+// Common trait value -> LOW index. Rare trait value -> HIGH index. In v2
+// this ordering has NO effect on breeding odds (see the coin-flip note
+// above) - it is kept purely as a human-readable convention (a rarer
+// value's index is recognizable "near the top" of a slot's real range)
+// and because it was already the established convention before the v1->v2
+// dominance-rule rewrite; there is no requirement to re-derive it by any
+// other ordering. Frequencies come from scripts/build-trait-registry.ts,
+// which fetches every live HOODCHAN token's real metadata (same
 // fetch-all-1200 + chunked-concurrency + exponential-backoff shape as the
 // parent h00dchan app's scripts/compute-rarity.ts) and counts real
 // trait-value occurrences - not guessed, not uniform, not tokenId order.
@@ -76,15 +88,17 @@
 //                              stable, reproducible index instead of
 //                              arbitrary tokenId-mint order.
 //   LEGENDARY_RESERVED_START (248) .. 255
-//                            -> reserved, deliberately UNPOPULATED at v1.
-//                              Headroom for any future confirmed 1-of-1
-//                              real trait value (see LEGENDARY TOKEN #114
-//                              note below) without renumbering anything
-//                              below it. Also where an out-of-range
-//                              mutation/legendary roll's DISPLAY fallback
-//                              (byteToTraitName below) lands conceptually,
-//                              even though the contract can technically
-//                              produce any byte 0-255 for those branches.
+//                            -> reserved, deliberately UNPOPULATED by
+//                              COMBINED_VALUE_INDEX (see buildCombinedIndex's
+//                              guard). This is exactly the range
+//                              GeneticsLib.sol's mutation/legendary
+//                              branches are PINNED to (251..255 legendary,
+//                              248..250 mutation, disjoint - see the
+//                              2026-08-22 collision fix), so every byte the
+//                              contract can actually emit for those two
+//                              branches lands here, resolved by
+//                              byteToTraitName's CURATED reserved-band
+//                              names below - not a synthesized fallback.
 //
 // ============================================================================
 // THE 6-CATEGORY -> 5-SLOT COLLAPSE (task item 2)
@@ -187,7 +201,20 @@ export const SLOT_LABEL: Record<GeneSlot, string> = {
 export const TRAIT_REGISTRY_VERSION = 1;
 
 export const NONE_INDEX = 0;
+// Start of the WHOLE reserved mutation/legendary band (248..255, 8 values)
+// - this is the boundary buildCombinedIndex guards real trait indices
+// against, kept as its own name since it means "start of the reserved
+// band," not "start of the legendary sub-range" (see LEGENDARY_ONLY_START
+// below for that). Mirrors GeneticsLib.sol's LEGENDARY_RESERVED_START
+// exactly.
 export const LEGENDARY_RESERVED_START = 248;
+// PINNED sub-ranges within that shared band, mirroring GeneticsLib.sol's
+// 2026-08-22 collision fix byte-for-byte: legendary rolls land in
+// 251..255, mutation rolls land in 248..250 - disjoint, never overlapping.
+// `byteToTraitName` below classifies every byte 0-255 using exactly these
+// boundaries so the curated names it returns match what the contract can
+// actually produce.
+export const LEGENDARY_ONLY_START = 251;
 export const LEGENDARY_SENTINEL_GENES: [
   number,
   number,
@@ -259,7 +286,7 @@ export const HOODCHAN_VALUE_INDEX: Record<GeneSlot, Record<string, number>> = {
     "DOGGY RELAXED ^ ^": 10, // count 66
     CARPET: 11, // count 48
     HORSE: 12, // count 26
-    "SCARY FLEX": 13, // count 14 - rarest hat, genetically dominant
+    "SCARY FLEX": 13, // count 14 - rarest hat (highest index; no inheritance advantage in v2's band-agnostic coin flip)
   },
   // 21 distinct live values.
   face: {
@@ -283,7 +310,7 @@ export const HOODCHAN_VALUE_INDEX: Record<GeneSlot, Record<string, number>> = {
     "O O": 18, // count 13
     RIZZLER: 19, // count 8
     CUSTOM: 20, // count 7
-    SNIBBU: 21, // count 5 - rarest face, genetically dominant
+    SNIBBU: 21, // count 5 - rarest face (highest index; no inheritance advantage in v2's band-agnostic coin flip)
   },
   // 19 distinct live values. Ties at count=35 (FUCK YEA/MONEY FLEX/PERFECT
   // TAN) broken alphabetically.
@@ -306,7 +333,7 @@ export const HOODCHAN_VALUE_INDEX: Record<GeneSlot, Record<string, number>> = {
     SHOOTER: 16, // count 30
     "BACK IN TOWN": 17, // count 28
     "GOLD LOVER": 18, // count 27
-    MANTRA: 19, // count 13 - rarest body, genetically dominant
+    MANTRA: 19, // count 13 - rarest body (highest index; no inheritance advantage in v2's band-agnostic coin flip)
   },
   // 17 distinct live values.
   background: {
@@ -326,7 +353,7 @@ export const HOODCHAN_VALUE_INDEX: Record<GeneSlot, Record<string, number>> = {
     "SPONGE RAYS": 14, // count 44
     BEACH: 15, // count 40
     "TRUMP SUNSET": 16, // count 19
-    POLAND: 17, // count 10 - rarest background, genetically dominant
+    POLAND: 17, // count 10 - rarest background (highest index; no inheritance advantage in v2's band-agnostic coin flip)
   },
   // 19 distinct live values, from HOODCHAN's own "Extra" trait_type (see
   // this file's VERIFICATION NOTE above - confirmed present on ordinary,
@@ -354,7 +381,7 @@ export const HOODCHAN_VALUE_INDEX: Record<GeneSlot, Record<string, number>> = {
     "BIG NOSE THING": 16, // count 25
     "FACE SWAPPERS": 17, // count 21
     HORSE: 18, // count 18
-    FLOWER: 19, // count 5 - rarest accessory, genetically dominant
+    FLOWER: 19, // count 5 - rarest accessory (highest index; no inheritance advantage in v2's band-agnostic coin flip)
   },
 };
 
@@ -526,23 +553,64 @@ export function valueToIndex(
 }
 
 // ----------------------------------------------------------------------------
+// CURATED reserved-band names (HOODCHAN "Whale Cabal" lore, satirical
+// imageboard/meme register) - one base name per byte value 248..255,
+// composed with each slot's SLOT_LABEL below so every (slot, byte) pair in
+// the reserved band resolves to a distinct, curated string instead of a
+// synthesized "#<byte>" placeholder. Matches GeneticsLib.sol's PINNED,
+// disjoint sub-ranges exactly: 251..255 = legendary (5 names), 248..250 =
+// mutation (3 names). Do not reorder these without also re-checking
+// GeneticsLib.sol's LEGENDARY_START/MUTATION_START pins - the byte VALUES
+// are what's load-bearing here, not the array order.
+// ----------------------------------------------------------------------------
+const RESERVED_BAND_BASE_NAME: Record<number, string> = {
+  // Mutation sub-range: 248..250 (3 values).
+  248: "Green Male Mutation",
+  249: "Off-Chain Anomaly",
+  250: "Radiation Glitch",
+  // Legendary sub-range: 251..255 (5 values).
+  251: "Whale Cabal Initiate",
+  252: "Ex-CEO Relic",
+  253: "Robinhood Chain Anomaly",
+  254: "Diamond Hands Ascendant",
+  255: "Founder's Cut",
+};
+
+/** Composes a curated reserved-band label for one (slot, byte) pair -
+ * `Legendary <SlotLabel> — <base name>` for 251..255, `Mutant <SlotLabel>
+ * — <base name>` for 248..250. Every byte 248..255 has an entry in
+ * `RESERVED_BAND_BASE_NAME` above, so this never falls through to
+ * `undefined` - callers should not need to guard against that. */
+function reservedBandTraitName(slot: GeneSlot, byte: number): string {
+  const base = RESERVED_BAND_BASE_NAME[byte];
+  const prefix = byte >= LEGENDARY_ONLY_START ? "Legendary" : "Mutant";
+  return `${prefix} ${SLOT_LABEL[slot]} — ${base}`;
+}
+
+// ----------------------------------------------------------------------------
 // Display layer: byte -> trait-name resolution for any already-resolved
 // on-chain genome (a father's synced hoodchanGenes, a mother's genesOf, or
 // a baby's genomeOf - all raw uint8[5] arrays, see
 // contracts/src/HoodchanBabies.sol's packed uint40 storage). This is the
-// inverse of valueToIndex, wrapped with an honest fallback for bytes that
-// don't resolve to any transcribed value - GeneticsLib.sol's mutation
-// branch can produce a value "near" the parents' range but outside the
-// known pool, and its legendary branch can produce genuinely ANY byte
-// 0-255, so a byte with no entry in COMBINED_VALUE_INDEX is an expected,
-// not exceptional, case - never silently rendered as blank.
+// inverse of valueToIndex.
+//
+// Bytes 248..255 (the whole reserved band) always resolve to a CURATED
+// name from `reservedBandTraitName` above - GeneticsLib.sol's mutation and
+// legendary branches are PINNED to 248..250 and 251..255 respectively (see
+// the 2026-08-22 collision fix), so every byte the contract can actually
+// emit for those branches has a real, curated entry, never a synthesized
+// placeholder. A byte below 248 with no entry in COMBINED_VALUE_INDEX is a
+// genuinely different, unexpected case (e.g. a value never assigned during
+// sync) - kept as an honest DYNAMIC fallback (`Mutant <Slot> #<byte>`)
+// rather than silently rendered as blank, but distinguishable from the
+// curated names above by its trailing "#<byte>" suffix.
 // ----------------------------------------------------------------------------
 export function byteToTraitName(slot: GeneSlot, byte: number): string {
   const known = indexToValue(slot, byte);
   if (known) return known;
   if (byte === NONE_INDEX) return "None";
   if (byte >= LEGENDARY_RESERVED_START) {
-    return `Legendary ${SLOT_LABEL[slot]} #${byte}`;
+    return reservedBandTraitName(slot, byte);
   }
   return `Mutant ${SLOT_LABEL[slot]} #${byte}`;
 }

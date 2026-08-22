@@ -20,15 +20,22 @@ pragma solidity ^0.8.20;
 //   2. DEPLOYER_ADDRESS env var set to that key's address (used as
 //      initialOwner for all three contracts below - can be re-owned to a
 //      multisig later via each contract's Ownable.transferOwnership).
-//   3. TREASURY_ADDRESS / BURN_ADDRESS / MULTISIG_ADDRESS env vars - see
-//      the config-value defaults below; these are NOT load-bearing to the
-//      design spec (docs/superpowers/specs/2026-08-21-hoodchan-breeding-
-//      design.md's "Open questions" section explicitly defers exact fee
-//      amounts/recipients pending holder-balance data), but must be real
-//      addresses before any real deploy - the placeholder constants below
-//      are deliberately the deployer's own address so a dry run never
-//      reverts on ZeroAddress, not a claim that they're correct for a real
-//      deploy.
+//   3. TREASURY_ADDRESS / BURN_ADDRESS / MULTISIG_ADDRESS env vars - these
+//      are REQUIRED (`vm.envAddress`, not `vm.envOr`): the run HARD-FAILS
+//      if any is unset, rather than silently falling back to the deployer
+//      address. This is deliberate, not a downgrade of dry-run
+//      convenience - a missing env var silently defaulting to the deployer
+//      is exactly the kind of mistake that's invisible in a dry run and
+//      catastrophic in a real deploy (treasury/burn/multisig permanently
+//      wired to a throwaway deployer key). These are NOT load-bearing to
+//      the design spec (docs/superpowers/specs/2026-08-21-hoodchan-
+//      breeding-design.md's "Open questions" section explicitly defers
+//      exact fee amounts/recipients pending holder-balance data), but must
+//      be real addresses before any real deploy. DRY RUNS must now export
+//      all three explicitly too (e.g. to the deployer's own address, on
+//      purpose) - `forge script` without `--broadcast` will otherwise
+//      revert immediately with a missing-env-var error instead of quietly
+//      simulating against the deployer.
 //   4. Real HOODCHAN_GIRLFRIENDS_ADDRESS decided: this script defaults to
 //      deploying the dummy HoodchanGirlfriends from this same package
 //      (per the design spec: "clearly throwaway - swapped for the real
@@ -80,12 +87,13 @@ contract DeployScript is Script {
     function run() external {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
         // Fee-recipient addresses are real config, not spec values (see
-        // header comment #3) - default to the deployer so a dry run never
-        // reverts on ZeroAddress; override via env vars for any real
-        // deploy.
-        address treasury = vm.envOr("TREASURY_ADDRESS", deployer);
-        address burnAddr = vm.envOr("BURN_ADDRESS", deployer);
-        address multisigAddr = vm.envOr("MULTISIG_ADDRESS", deployer);
+        // header comment #3) - REQUIRED via vm.envAddress (hard-fails if
+        // unset), not vm.envOr with a deployer fallback. A dry run must now
+        // export all three explicitly (to the deployer's own address if
+        // that's genuinely the intent) rather than silently defaulting.
+        address treasury = vm.envAddress("TREASURY_ADDRESS");
+        address burnAddr = vm.envAddress("BURN_ADDRESS");
+        address multisigAddr = vm.envAddress("MULTISIG_ADDRESS");
 
         vm.startBroadcast(deployer);
 

@@ -96,7 +96,7 @@ contract BreedingControllerTest is Test {
         returns (uint256 babyId)
     {
         vm.prank(caller);
-        babyId = controller.breed(matronC, matronId, sireC, sireId, type(uint256).max);
+        babyId = controller.breed(matronC, matronId, sireC, sireId, type(uint256).max, type(uint256).max);
     }
 
     // ---------------------------------------------------------------
@@ -181,7 +181,7 @@ contract BreedingControllerTest is Test {
 
         vm.prank(stranger);
         vm.expectRevert(BreedingController.NotTokenOwnerOrApproved.selector);
-        controller.breed(address(girlfriends), matronId, address(hoodchan), sireId, type(uint256).max);
+        controller.breed(address(girlfriends), matronId, address(hoodchan), sireId, type(uint256).max, type(uint256).max);
     }
 
     function test_Breed_ApprovedOperatorCanCallButBabyMintsToMatronOwner() public {
@@ -212,7 +212,7 @@ contract BreedingControllerTest is Test {
 
         vm.prank(matronOwner);
         vm.expectRevert(BreedingController.SireNotAvailable.selector);
-        controller.breed(address(girlfriends), matronId, address(hoodchan), sireId, type(uint256).max);
+        controller.breed(address(girlfriends), matronId, address(hoodchan), sireId, type(uint256).max, type(uint256).max);
     }
 
     function test_Breed_ListedAtPriceZeroForeignSireSucceedsFree() public {
@@ -238,7 +238,7 @@ contract BreedingControllerTest is Test {
         uint256 tokenId = _mintGirlfriend(matronOwner, gfGenesA);
         vm.prank(matronOwner);
         vm.expectRevert(BreedingController.SameToken.selector);
-        controller.breed(address(girlfriends), tokenId, address(girlfriends), tokenId, type(uint256).max);
+        controller.breed(address(girlfriends), tokenId, address(girlfriends), tokenId, type(uint256).max, type(uint256).max);
     }
 
     function test_Breed_RevertsIfEitherCollectionNotAllowlisted() public {
@@ -248,11 +248,11 @@ contract BreedingControllerTest is Test {
 
         vm.prank(matronOwner);
         vm.expectRevert(BreedingController.CollectionNotAllowlisted.selector);
-        controller.breed(rogue, matronId, address(girlfriends), sireId, type(uint256).max);
+        controller.breed(rogue, matronId, address(girlfriends), sireId, type(uint256).max, type(uint256).max);
 
         vm.prank(matronOwner);
         vm.expectRevert(BreedingController.CollectionNotAllowlisted.selector);
-        controller.breed(address(girlfriends), matronId, rogue, sireId, type(uint256).max);
+        controller.breed(address(girlfriends), matronId, rogue, sireId, type(uint256).max, type(uint256).max);
     }
 
     // ---------------------------------------------------------------
@@ -465,7 +465,7 @@ contract BreedingControllerTest is Test {
         uint256 sireId2 = _mintGirlfriend(matronOwner, gfGenesB);
         vm.prank(matronOwner);
         vm.expectRevert(BreedingController.MatronOnCooldown.selector);
-        controller.breed(address(girlfriends), matronId, address(girlfriends), sireId2, type(uint256).max);
+        controller.breed(address(girlfriends), matronId, address(girlfriends), sireId2, type(uint256).max, type(uint256).max);
     }
 
     function test_Cooldown_BreedingDuringSireCooldownReverts() public {
@@ -476,7 +476,7 @@ contract BreedingControllerTest is Test {
         uint256 matronId2 = _mintGirlfriend(matronOwner, gfGenesA);
         vm.prank(matronOwner);
         vm.expectRevert(BreedingController.SireOnCooldown.selector);
-        controller.breed(address(girlfriends), matronId2, address(girlfriends), sireId, type(uint256).max);
+        controller.breed(address(girlfriends), matronId2, address(girlfriends), sireId, type(uint256).max, type(uint256).max);
     }
 
     function test_Cooldown_FreshBabyStartsAtLadderBottom() public {
@@ -535,7 +535,7 @@ contract BreedingControllerTest is Test {
         uint256 stillOnCooldownSire = _mintGirlfriend(sireOwner, gfGenesB);
         vm.prank(sireOwner);
         vm.expectRevert(BreedingController.MatronOnCooldown.selector);
-        controller.breed(address(hoodchan), hcId, address(girlfriends), stillOnCooldownSire, type(uint256).max);
+        controller.breed(address(hoodchan), hcId, address(girlfriends), stillOnCooldownSire, type(uint256).max, type(uint256).max);
 
         uint256 freshSire = _mintGirlfriend(matronOwner, gfGenesB);
         _breed(matronOwner, address(babies), babyId, address(girlfriends), freshSire); // must NOT revert
@@ -563,7 +563,7 @@ contract BreedingControllerTest is Test {
         // read-only restriction or the nonReentrant guard rejects the
         // nested breed() call, and that revert must bubble all the way up.
         vm.expectRevert();
-        controller.breed(address(evil), 1, address(girlfriends), realSire, type(uint256).max);
+        controller.breed(address(evil), 1, address(girlfriends), realSire, type(uint256).max, type(uint256).max);
     }
 
     function test_Reentrancy_MaliciousGenesOfMustFailWholeBreed() public {
@@ -581,7 +581,7 @@ contract BreedingControllerTest is Test {
 
         vm.prank(matronOwner);
         vm.expectRevert();
-        controller.breed(address(girlfriends), realMatron, address(evil), 1, type(uint256).max);
+        controller.breed(address(girlfriends), realMatron, address(evil), 1, type(uint256).max, type(uint256).max);
     }
 
     function test_Reentrancy_MaliciousOnERC721ReceivedMustFailWholeBreed() public {
@@ -600,7 +600,7 @@ contract BreedingControllerTest is Test {
 
         vm.prank(address(evil));
         vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
-        controller.breed(address(girlfriends), matronId, address(hoodchan), sireId, type(uint256).max);
+        controller.breed(address(girlfriends), matronId, address(hoodchan), sireId, type(uint256).max, type(uint256).max);
     }
 
     // ---------------------------------------------------------------
@@ -613,7 +613,7 @@ contract BreedingControllerTest is Test {
 
         vm.prank(matronOwner);
         vm.expectRevert(BreedingController.GenesNotSet.selector);
-        controller.breed(address(hoodchan), hcId, address(girlfriends), sireId, type(uint256).max);
+        controller.breed(address(hoodchan), hcId, address(girlfriends), sireId, type(uint256).max, type(uint256).max);
     }
 
     // ---------------------------------------------------------------

@@ -173,51 +173,88 @@ contract GeneticsLibTest is Test {
         assertTrue(result == p1 || result == p2, "standard branch must return a literal parent value");
     }
 
-    /// @notice REQUIRED COVERAGE: "mutation AND legendary outcomes ALWAYS
-    /// in [248,255]" - both branches independently, over many seeds, with
-    /// parent values chosen INSIDE that same reserved band (0,1) so a
-    /// result landing in [248,255] can only have come from the
-    /// mutation/legendary clamp, never from coincidentally equaling a
-    /// parent value.
-    function test_InheritLocus_LegendaryAlwaysInReservedBand() public pure {
+    /// @notice REQUIRED COVERAGE: "legendary outcomes ALWAYS in its PINNED
+    /// sub-range [251,255]" (disjoint from mutation's [248,250] - see the
+    /// PINNED, NON-OVERLAPPING RANGES fix in GeneticsLib.sol's header),
+    /// over many seeds, with parent values chosen INSIDE the reserved band
+    /// (0,1) so a result landing in [251,255] can only have come from the
+    /// legendary clamp, never from coincidentally equaling a parent value.
+    function test_InheritLocus_LegendaryAlwaysInPinnedSubRange() public pure {
         uint256 found = 0;
         for (uint256 i = 0; i < 20000 && found < 200; i++) {
             uint256 seed = uint256(keccak256(abi.encodePacked("legendary-scan", i)));
             if (!_isLegendary(seed, 0)) continue;
             uint8 result = GeneticsLib.inheritLocus(1, 2, seed, 0);
-            assertGe(result, 248, "legendary roll must clamp into [248,255]");
-            assertLe(result, 255, "legendary roll must clamp into [248,255]");
+            assertGe(result, 251, "legendary roll must clamp into its pinned [251,255] sub-range");
+            assertLe(result, 255, "legendary roll must clamp into its pinned [251,255] sub-range");
             found++;
         }
         assertGt(found, 0, "scan must find at least one legendary seed to actually exercise the branch");
     }
 
-    function test_InheritLocus_MutationAlwaysInReservedBand() public pure {
+    /// @notice REQUIRED COVERAGE: "mutation outcomes ALWAYS in its PINNED
+    /// sub-range [248,250]" (disjoint from legendary's [251,255]) - same
+    /// shape as the legendary scan above.
+    function test_InheritLocus_MutationAlwaysInPinnedSubRange() public pure {
         uint256 found = 0;
         for (uint256 i = 0; i < 20000 && found < 200; i++) {
             uint256 seed = uint256(keccak256(abi.encodePacked("mutation-scan", i)));
             if (!_isMutation(seed, 0)) continue;
             uint8 result = GeneticsLib.inheritLocus(1, 2, seed, 0);
-            assertGe(result, 248, "mutation roll must clamp into [248,255]");
-            assertLe(result, 255, "mutation roll must clamp into [248,255]");
+            assertGe(result, 248, "mutation roll must clamp into its pinned [248,250] sub-range");
+            assertLe(result, 250, "mutation roll must clamp into its pinned [248,250] sub-range");
             found++;
         }
         assertGt(found, 0, "scan must find at least one mutation seed to actually exercise the branch");
     }
 
-    /// @dev Fuzz-wide version of the two scans above: across arbitrary
+    /// @notice REQUIRED COVERAGE: legendary and mutation outputs land in
+    /// DISTINCT, DISJOINT ranges - the actual collision-fix invariant.
+    /// Before the fix, both branches independently computed
+    /// `LEGENDARY_RESERVED_START + (x % 8)` over the SAME shared 248..255
+    /// band, so a legendary byte and a mutation byte could be identical
+    /// with no way to tell which branch produced it. Scans for BOTH branch
+    /// types over the same seed space and asserts each lands ONLY in its
+    /// own pinned sub-range, never the other's.
+    function test_InheritLocus_LegendaryAndMutationRangesAreDisjoint() public pure {
+        uint256 legendaryFound = 0;
+        uint256 mutationFound = 0;
+        for (uint256 i = 0; i < 40000 && (legendaryFound < 100 || mutationFound < 100); i++) {
+            uint256 seed = uint256(keccak256(abi.encodePacked("disjoint-scan", i)));
+            if (_isLegendary(seed, 0)) {
+                uint8 result = GeneticsLib.inheritLocus(1, 2, seed, 0);
+                assertGe(result, 251, "legendary must land in [251,255], never mutation's [248,250]");
+                assertLe(result, 255, "legendary must land in [251,255], never mutation's [248,250]");
+                legendaryFound++;
+            } else if (_isMutation(seed, 0)) {
+                uint8 result = GeneticsLib.inheritLocus(1, 2, seed, 0);
+                assertGe(result, 248, "mutation must land in [248,250], never legendary's [251,255]");
+                assertLe(result, 250, "mutation must land in [248,250], never legendary's [251,255]");
+                mutationFound++;
+            }
+        }
+        assertGt(legendaryFound, 0, "scan must find at least one legendary seed");
+        assertGt(mutationFound, 0, "scan must find at least one mutation seed");
+    }
+
+    /// @dev Fuzz-wide version of the scans above: across arbitrary
     /// seeds/offsets, EVERY mutation-or-legendary classified result must
-    /// land in [248,255], full stop - no parent-value assumption needed
-    /// here since the band check alone is sufficient.
-    function testFuzz_InheritLocus_MutationOrLegendaryAlwaysInReservedBand(uint256 seed, uint8 offsetRaw)
+    /// land in its OWN pinned sub-range - [251,255] for legendary,
+    /// [248,250] for mutation - never the other's, full stop.
+    function testFuzz_InheritLocus_MutationOrLegendaryAlwaysInPinnedDisjointSubRange(uint256 seed, uint8 offsetRaw)
         public
         pure
     {
         uint256 offset = offsetRaw % 5;
         vm.assume(_isLegendary(seed, offset) || _isMutation(seed, offset));
         uint8 result = GeneticsLib.inheritLocus(11, 222, seed, offset);
-        assertGe(result, 248, "mutation/legendary roll must clamp into [248,255]");
-        assertLe(result, 255, "mutation/legendary roll must clamp into [248,255]");
+        if (_isLegendary(seed, offset)) {
+            assertGe(result, 251, "legendary roll must clamp into its pinned [251,255] sub-range");
+            assertLe(result, 255, "legendary roll must clamp into its pinned [251,255] sub-range");
+        } else {
+            assertGe(result, 248, "mutation roll must clamp into its pinned [248,250] sub-range");
+            assertLe(result, 250, "mutation roll must clamp into its pinned [248,250] sub-range");
+        }
     }
 
     /// @notice REQUIRED COVERAGE: "statistical sanity of ~50/50 flips over
