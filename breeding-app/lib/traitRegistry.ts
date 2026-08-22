@@ -133,18 +133,24 @@
 // evidence rather than an assertion.
 //
 // ============================================================================
-// LEGENDARY TOKEN #114 (BREAD MAKER) - special case, not in these tables
+// LEGENDARY 1-OF-1 TOKENS - special case, not in these tables
 // ============================================================================
-// Token #114's metadata has NO Backgrounds/Bodies/Faces/Hats/Extra
-// attributes at all - only `Rarity: LEGENDARY` and `Legendary 1/1: BREAD
-// MAKER`. It cannot be mapped through HOODCHAN_VALUE_INDEX like an ordinary
-// father. scripts/sync-genes.ts detects this pattern (a `Rarity: LEGENDARY`
+// A full live fetch (2026-08-22, all 1200 IDs) found THREE Legendary 1/1
+// tokens: #114 "BREAD MAKER", #217 "ROBINHOOD LOVER", #724 "ROBINHOOD SHIT
+// LOWER" (not just the single one an earlier draft of this file assumed).
+// Each one's metadata has NO Backgrounds/Bodies/Faces/Hats/Extra attributes
+// at all - only `Rarity: LEGENDARY` and a `Legendary 1/1: <name>` pair.
+// None can be mapped through HOODCHAN_VALUE_INDEX like an ordinary father.
+// scripts/sync-genes.ts detects this pattern (a `Rarity: LEGENDARY`
 // attribute with no normal slot attributes) and assigns
 // LEGENDARY_SENTINEL_GENES (all 5 slots = 255, the top of each slot's
 // reserved band) rather than attempting a lookup that would silently
 // resolve to NONE_INDEX (0) - a legendary 1/1 token silently registering as
 // "no accessory, no everything" would be a correctness bug, not a good
-// default. Flagged in sync output for manual review either way.
+// default. Flagged in sync output for manual review either way - this is a
+// blunt placeholder, not a real per-1/1 genome; a human should eventually
+// decide bespoke top-of-band values for each of these three before they're
+// ever actually bred.
 //
 // ============================================================================
 // CURRENT STATE OF HOODCHAN_VALUE_INDEX (fill status)
@@ -221,18 +227,135 @@ export const GIRLFRIEND_COSMETIC_TRAIT_KEY = "Grills";
 
 // ----------------------------------------------------------------------------
 // HOODCHAN native value -> index tables, ascending by live frequency.
-// Source: scripts/build-trait-registry.ts run against live HOODCHAN
-// metadata on 2026-08-22, data/hoodchan-trait-frequency.json holds the raw
-// counts this was transcribed from (audit trail). Empty here means "no
-// real HOODCHAN father has been transcribed into this table yet" - genes
-// for such a father must not be synced until its slot values are added.
+// Source: scripts/build-trait-registry.ts, run live against all 1200
+// HOODCHAN token IDs on 2026-08-22 (1195/1200 succeeded - 5 IDs reverted or
+// timed out, consistent with lib/chain.ts's documented dEaD-burn/never-
+// resolved-token behavior, not a fetch bug). Raw counts preserved in
+// data/hoodchan-trait-frequency.json (audit trail); the numbers below are
+// that data's ascending-by-frequency transcription (index 1 = most common
+// real value seen on-chain for that slot, per this file's layout note).
+// Ties (equal live count) are broken alphabetically for a reproducible
+// order - see scripts/build-trait-registry.ts's sort comparator.
+//
+// Three Legendary 1/1 tokens were found in the same fetch (#114 "BREAD
+// MAKER", #217 "ROBINHOOD LOVER", #724 "ROBINHOOD SHIT LOWER") - none has
+// normal slot attributes, so none appears in these tables; all three are
+// handled by scripts/sync-genes.ts's LEGENDARY_SENTINEL_GENES special case
+// instead (see that constant's doc comment above).
 // ----------------------------------------------------------------------------
 export const HOODCHAN_VALUE_INDEX: Record<GeneSlot, Record<string, number>> = {
-  hat: {},
-  face: {},
-  body: {},
-  background: {},
-  accessory: {},
+  // 13 distinct live values. Ties at count=120 (BILLION DOLLAR
+  // MINION/ROBINHAT) broken alphabetically.
+  hat: {
+    "BILLION DOLLAR MINION": 1, // count 120
+    ROBINHAT: 2, // count 120
+    HANDLEG: 3, // count 111
+    "REGULAR HAIR": 4, // count 103
+    JEWISH: 5, // count 99
+    "FLAT EART BELIEVER": 6, // count 96
+    ROBINBOMB: 7, // count 95
+    "SEXY DOG": 8, // count 90
+    COWBOY: 9, // count 87
+    "DOGGY RELAXED ^ ^": 10, // count 66
+    CARPET: 11, // count 48
+    HORSE: 12, // count 26
+    "SCARY FLEX": 13, // count 14 - rarest hat, genetically dominant
+  },
+  // 21 distinct live values.
+  face: {
+    "ME GUSTA": 1, // count 149
+    MUMU: 2, // count 147
+    "BOBO THE BEAR": 3, // count 132
+    DODO: 4, // count 129
+    APU: 5, // count 112
+    TROLOLO: 6, // count 99
+    TROLL: 7, // count 96
+    APEJAK: 8, // count 73
+    "DEV FACE": 9, // count 56
+    SOY: 10, // count 30
+    MEH: 11, // count 28
+    "GIGA CHAD JAK": 12, // count 26
+    OHYEAA: 13, // count 19
+    "OLD COMPUTER GUY": 14, // count 18
+    LOL: 15, // count 17
+    HASBULLA: 16, // count 14
+    MUHEHEHE: 17, // count 14
+    "O O": 18, // count 13
+    RIZZLER: 19, // count 8
+    CUSTOM: 20, // count 7
+    SNIBBU: 21, // count 5 - rarest face, genetically dominant
+  },
+  // 19 distinct live values. Ties at count=35 (FUCK YEA/MONEY FLEX/PERFECT
+  // TAN) broken alphabetically.
+  body: {
+    PHAT: 1, // count 153
+    BANE: 2, // count 148
+    BEAR: 3, // count 85
+    LATEX: 4, // count 84
+    REGULAR: 5, // count 84
+    "BEER GORO": 6, // count 78
+    SEXY: 7, // count 70
+    "WOLF STREET": 8, // count 69
+    TURNED: 9, // count 65
+    "MONSTER LEGS": 10, // count 62
+    "WAITING...": 11, // count 50
+    STANDING: 12, // count 41
+    "FUCK YEA": 13, // count 35
+    "MONEY FLEX": 14, // count 35
+    "PERFECT TAN": 15, // count 35
+    SHOOTER: 16, // count 30
+    "BACK IN TOWN": 17, // count 28
+    "GOLD LOVER": 18, // count 27
+    MANTRA: 19, // count 13 - rarest body, genetically dominant
+  },
+  // 17 distinct live values.
+  background: {
+    "MONEY STACK": 1, // count 114
+    "ANTI STONKS": 2, // count 104
+    "REGULAR MOON": 3, // count 97
+    "4CHAN": 4, // count 96
+    UNBOTHERED: 5, // count 94
+    "FAKE SKIES": 6, // count 92
+    MATRIX: 7, // count 86
+    "TOTAL TOE": 8, // count 85
+    "UNICORNS ^ ^": 9, // count 73
+    "FLAMING CATS": 10, // count 63
+    VIBEY: 11, // count 60
+    QUAKE: 12, // count 59
+    "WISE MONK": 13, // count 56
+    "SPONGE RAYS": 14, // count 44
+    BEACH: 15, // count 40
+    "TRUMP SUNSET": 16, // count 19
+    POLAND: 17, // count 10 - rarest background, genetically dominant
+  },
+  // 19 distinct live values, from HOODCHAN's own "Extra" trait_type (see
+  // this file's VERIFICATION NOTE above - confirmed present on ordinary,
+  // non-Upgraded tokens, not Upgraded-exclusive). Ties at count=40
+  // (DOGGO/SUPER NINJA TURTLE) and count=37 (FISHY/THROWING UP CAT) and
+  // count=27 (MAC/SEA LION) broken alphabetically. Note "HORSE" here is a
+  // DIFFERENT value from hat's "HORSE" (index 12 there) - each slot has
+  // its own independent index space, no cross-slot collision.
+  accessory: {
+    "BIG BALLS RAT": 1, // count 78
+    "SAINT RAT": 2, // count 59
+    "PUNK DOG": 3, // count 56
+    "CROCS DOG": 4, // count 54
+    CHILLING: 5, // count 49
+    "LLAMA?": 6, // count 45
+    "FLYING BURGERS": 7, // count 42
+    DOGGO: 8, // count 40
+    "SUPER NINJA TURTLE": 9, // count 40
+    FISHY: 10, // count 37
+    "THROWING UP CAT": 11, // count 37
+    "LMAO DOG": 12, // count 36
+    MONSTER: 13, // count 33
+    MAC: 14, // count 27
+    "SEA LION": 15, // count 27
+    "BIG NOSE THING": 16, // count 25
+    "FACE SWAPPERS": 17, // count 21
+    HORSE: 18, // count 18
+    FLOWER: 19, // count 5 - rarest accessory, genetically dominant
+  },
 };
 
 // ----------------------------------------------------------------------------

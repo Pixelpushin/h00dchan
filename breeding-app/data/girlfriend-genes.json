@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-22T06:19:12.458Z",
+  "generatedAt": "2026-08-22T06:34:50.002Z",
   "registryVersion": 1,
   "count": 12,
   "girlfriends": [
@@ -7,11 +7,11 @@
       "tokenId": 1,
       "name": "Girlfriend #1",
       "genes": [
-        5,
-        10,
-        11,
-        8,
-        7
+        18,
+        31,
+        30,
+        25,
+        26
       ],
       "slotValues": {
         "hat": "Durag",
@@ -26,11 +26,11 @@
       "tokenId": 2,
       "name": "Girlfriend #2",
       "genes": [
-        3,
-        9,
-        8,
-        5,
-        8
+        16,
+        30,
+        27,
+        22,
+        27
       ],
       "slotValues": {
         "hat": "Bucket Hat",
@@ -45,11 +45,11 @@
       "tokenId": 3,
       "name": "Girlfriend #3",
       "genes": [
-        1,
-        12,
-        1,
-        9,
-        2
+        14,
+        33,
+        20,
+        26,
+        21
       ],
       "slotValues": {
         "hat": "Baseball Cap Backwards",
@@ -64,11 +64,11 @@
       "tokenId": 4,
       "name": "Girlfriend #4",
       "genes": [
-        2,
-        6,
-        12,
-        6,
-        3
+        15,
+        27,
+        31,
+        23,
+        22
       ],
       "slotValues": {
         "hat": "Beanie",
@@ -83,11 +83,11 @@
       "tokenId": 5,
       "name": "Girlfriend #5",
       "genes": [
-        9,
-        3,
-        2,
-        3,
-        1
+        22,
+        24,
+        21,
+        20,
+        20
       ],
       "slotValues": {
         "hat": "Silk Bonnet",
@@ -102,11 +102,11 @@
       "tokenId": 6,
       "name": "Girlfriend #6",
       "genes": [
-        10,
-        1,
-        6,
-        10,
-        6
+        23,
+        22,
+        25,
+        27,
+        25
       ],
       "slotValues": {
         "hat": "Snapback",
@@ -121,11 +121,11 @@
       "tokenId": 7,
       "name": "Girlfriend #7",
       "genes": [
-        11,
-        5,
-        4,
-        1,
-        9
+        24,
+        26,
+        23,
+        18,
+        28
       ],
       "slotValues": {
         "hat": "Trucker Cap",
@@ -140,11 +140,11 @@
       "tokenId": 8,
       "name": "Girlfriend #8",
       "genes": [
-        6,
-        11,
-        9,
-        7,
-        12
+        19,
+        32,
+        28,
+        24,
+        31
       ],
       "slotValues": {
         "hat": "Fitted Cap Sideways",
@@ -159,11 +159,11 @@
       "tokenId": 9,
       "name": "Girlfriend #9",
       "genes": [
-        4,
-        8,
-        10,
-        4,
-        5
+        17,
+        29,
+        29,
+        21,
+        24
       ],
       "slotValues": {
         "hat": "Do-Rag Under Cap",
@@ -178,11 +178,11 @@
       "tokenId": 10,
       "name": "Girlfriend #10",
       "genes": [
-        12,
-        7,
-        5,
-        2,
-        4
+        25,
+        28,
+        24,
+        19,
+        23
       ],
       "slotValues": {
         "hat": "Visor",
@@ -197,11 +197,11 @@
       "tokenId": 11,
       "name": "Girlfriend #11",
       "genes": [
-        8,
-        2,
-        3,
-        11,
-        10
+        21,
+        23,
+        22,
+        28,
+        29
       ],
       "slotValues": {
         "hat": "Knit Cap",
@@ -216,11 +216,11 @@
       "tokenId": 12,
       "name": "Girlfriend #12",
       "genes": [
-        7,
-        4,
-        7,
-        12,
-        11
+        20,
+        25,
+        26,
+        29,
+        30
       ],
       "slotValues": {
         "hat": "Flat Brim Cap",
