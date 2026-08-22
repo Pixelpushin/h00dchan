@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Self-contained Foundry project (own forge/solidity tooling, vendored
+    // lib/ includes openzeppelin-contracts' own JS/Hardhat test suite) -
+    // see contracts/README.md. Not part of this app's lint.
+    "contracts/**",
   ]),
 ]);
 

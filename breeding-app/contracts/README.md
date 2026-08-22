@@ -162,6 +162,13 @@ fixture the off-chain TS-parity implementation is checked against. It
 uses the final 4-arg `GeneticsLib.breedingSeed` (including the entropy
 input described above) and emits 500+ vectors.
 
+`test/GenerateFreshTestVectors.t.sol` / `test-vectors-fresh.json` is a
+second, independent fixture generator using a deliberately different
+token-ID range, gene formula, and entropy salt than the primary one - a
+staleness/overfitting guard so a TS port that was hardcoded against the
+primary fixture's specific numbers (rather than genuinely re-implementing
+`GeneticsLib`'s arithmetic) still gets caught.
+
 ## Deployment
 
 `script/Deploy.s.sol` is written and ready but has **never been run with

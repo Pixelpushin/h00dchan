@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Test, console2} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 import {BreedingController} from "../src/BreedingController.sol";
@@ -68,6 +68,11 @@ contract BreedingControllerTest is Test {
 
     function _tbaOf(uint256 gfTokenId) internal view returns (address) {
         return registry.account(implementation, bytes32(0), block.chainid, address(girlfriends), gfTokenId);
+    }
+
+    function _commitBlockOf(uint256 commitId) internal view returns (uint256) {
+        (,,,, uint64 commitBlock,,,,,) = controller.commits(commitId);
+        return uint256(commitBlock);
     }
 
     function _commit(
@@ -402,6 +407,7 @@ contract BreedingControllerTest is Test {
         }
 
         // Commit a 5th (cap check at commit time passes: balance is 4).
+        uint256 buyerBalBeforeEscrow = chan.balanceOf(motherOwner);
         vm.prank(fatherOwner);
         controller.setSiringPrice(fatherTokenId, 10 ether, 0);
         vm.prank(motherOwner);
@@ -409,27 +415,44 @@ contract BreedingControllerTest is Test {
         uint256 commitId =
             _commit(motherOwner, fatherTokenId, motherTokenId, 10 ether, 0, BreedingController.PayMethod.CHAN, 0);
 
-        uint256 buyerBalBeforeReveal = chan.balanceOf(motherOwner);
+        assertEq(chan.balanceOf(motherOwner), buyerBalBeforeEscrow - 10 ether, "commit must escrow the 10 CHAN");
 
-        // Before reveal, someone directly nests an unrelated baby into the
-        // mother's TBA, pushing live balance to 5 ahead of the pending
-        // commit's own mint.
+        // Before reveal, someone directly nests an UNRELATED baby into the
+        // mother's TBA (bred against a totally different, unlocked
+        // father/mother pair, then transferred in directly) - pushing live
+        // balance to 5 ahead of the pending commit's own mint, without
+        // touching the locked fatherTokenId/motherTokenId at all.
+        uint256 otherFatherId = hoodchan.mint(fatherOwner);
+        controller.setHoodchanGenes(otherFatherId, fatherGenes);
         vm.prank(fatherOwner);
-        controller.setSiringPrice(fatherTokenId, 0, 0);
-        uint256 extraBabyId = _breedChan(motherOwner, fatherTokenId, motherTokenId);
-        assertEq(babies.ownerOf(extraBabyId), _motherTba());
-        assertEq(babies.balanceOf(_motherTba()), 5);
+        controller.setSiringPrice(otherFatherId, 0, 0);
+        vm.prank(owner);
+        uint256 otherMotherId = girlfriends.mint(motherOwner, motherGenes);
+        uint256 extraBabyId = _breedChan(motherOwner, otherFatherId, otherMotherId);
+        address extraBabyTba = _tbaOf(otherMotherId);
+        assertEq(babies.ownerOf(extraBabyId), extraBabyTba);
+
+        // Precompute the destination BEFORE pranking - vm.prank's
+        // single-call form applies to the very next call, including any
+        // staticcall made while evaluating an argument expression (e.g.
+        // _motherTba()'s own external call to the registry), so that must
+        // not happen between vm.prank and the actual transferFrom.
+        address targetTba = _motherTba();
+        vm.prank(extraBabyTba);
+        babies.transferFrom(extraBabyTba, targetTba, extraBabyId);
+        assertEq(babies.balanceOf(targetTba), 5);
 
         vm.roll(block.number + 1);
         uint256 babyId = controller.revealBreed(commitId);
 
         assertEq(babyId, 0, "reveal must not mint when the cap is exceeded");
         assertEq(babies.balanceOf(_motherTba()), 5, "balance must not exceed the cap");
-        assertEq(chan.balanceOf(motherOwner), buyerBalBeforeReveal, "escrow not yet refunded to a claimable balance");
+        // Escrowed CHAN must be refunded in full back to the committer -
+        // the cap-exceeded path pushes the refund directly (succeeds here
+        // since CHAN is a plain, non-hostile ERC20), so nothing should be
+        // sitting in the pull-claim fallback either.
+        assertEq(chan.balanceOf(motherOwner), buyerBalBeforeEscrow, "committer must be refunded in full");
         assertEq(controller.pendingChanWithdrawals(motherOwner), 0, "push refund should have succeeded directly");
-        // The push-refund landed directly on the committer (motherOwner)
-        // since CHAN transfer never fails here - verify total CHAN
-        // conservation instead of a specific balance delta.
         assertFalse(controller.fatherLocked(fatherTokenId), "father must be unlocked after cap-exceeded refund");
         assertFalse(controller.motherLocked(motherTokenId), "mother must be unlocked after cap-exceeded refund");
     }
@@ -464,15 +487,15 @@ contract BreedingControllerTest is Test {
         uint256 commitId =
             _commit(motherOwner, fatherTokenId, motherTokenId, 0, 0, BreedingController.PayMethod.CHAN, 0);
 
-        uint256 commitBlock = block.number;
+        // Re-read commitBlock from the contract's own storage (source of
+        // truth) rather than caching a local copy of block.number around
+        // the vm.roll cheatcode call below - avoids any dependency on
+        // exactly how many other locals are live across that call.
+        uint256 commitBlock = _commitBlockOf(commitId);
         vm.roll(block.number + 1);
         bytes32 anchor = blockhash(commitBlock);
-        console2.log("DEBUG commitBlock", commitBlock);
-        console2.log("DEBUG block.number", block.number);
-        console2.logBytes32(anchor);
 
         uint256 expectedSeed = GeneticsLib.breedingSeed(fatherTokenId, motherTokenId, expectedNonce, anchor);
-        console2.log("DEBUG expectedSeed", expectedSeed);
         uint8[5] memory expectedGenome = GeneticsLib.resolveGenome(fatherGenes, motherGenes, expectedSeed);
 
         uint256 babyId = controller.revealBreed(commitId);

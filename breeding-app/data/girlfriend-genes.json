@@ -1,0 +1,236 @@
+{
+  "generatedAt": "2026-08-22T06:19:12.458Z",
+  "registryVersion": 1,
+  "count": 12,
+  "girlfriends": [
+    {
+      "tokenId": 1,
+      "name": "Girlfriend #1",
+      "genes": [
+        5,
+        10,
+        11,
+        8,
+        7
+      ],
+      "slotValues": {
+        "hat": "Durag",
+        "face": "Smirk with Freckles",
+        "body": "Tracksuit Hourglass",
+        "background": "Neon Skyline",
+        "accessory": "Hoop Earrings + Fanny Pack"
+      },
+      "cosmeticGrills": "Gold Top Row"
+    },
+    {
+      "tokenId": 2,
+      "name": "Girlfriend #2",
+      "genes": [
+        3,
+        9,
+        8,
+        5,
+        8
+      ],
+      "slotValues": {
+        "hat": "Bucket Hat",
+        "face": "Side-Eye Smoky Liner",
+        "body": "Oversized Hoodie",
+        "background": "Corner Store Awning",
+        "accessory": "Long Lace-Front Wig + Chain Belt"
+      },
+      "cosmeticGrills": "Diamond Fangs"
+    },
+    {
+      "tokenId": 3,
+      "name": "Girlfriend #3",
+      "genes": [
+        1,
+        12,
+        1,
+        9,
+        2
+      ],
+      "slotValues": {
+        "hat": "Baseball Cap Backwards",
+        "face": "Winged Liner + Lip Gloss",
+        "body": "Bodycon Dress",
+        "background": "Purple Trap House",
+        "accessory": "Bamboo Hoops + Nail Set"
+      },
+      "cosmeticGrills": "Platinum Bottom Row"
+    },
+    {
+      "tokenId": 4,
+      "name": "Girlfriend #4",
+      "genes": [
+        2,
+        6,
+        12,
+        6,
+        3
+      ],
+      "slotValues": {
+        "hat": "Beanie",
+        "face": "Gap Tooth Grin",
+        "body": "Varsity Jacket",
+        "background": "Cracked Basketball Court",
+        "accessory": "Box Braids + Chunky Chain"
+      },
+      "cosmeticGrills": "Rose Gold Fangs"
+    },
+    {
+      "tokenId": 5,
+      "name": "Girlfriend #5",
+      "genes": [
+        9,
+        3,
+        2,
+        3,
+        1
+      ],
+      "slotValues": {
+        "hat": "Silk Bonnet",
+        "face": "Cat-Eye Sunglasses",
+        "body": "Crop Top + Cargo Pants",
+        "background": "Bodega Neon Sign",
+        "accessory": "Acrylic Nails + Wrist Bag"
+      },
+      "cosmeticGrills": "Iced-Out Full Set"
+    },
+    {
+      "tokenId": 6,
+      "name": "Girlfriend #6",
+      "genes": [
+        10,
+        1,
+        6,
+        10,
+        6
+      ],
+      "slotValues": {
+        "hat": "Snapback",
+        "face": "Bold Brows + Nose Ring",
+        "body": "Leather Jacket",
+        "background": "Rooftop at Dusk",
+        "accessory": "Half-Up Space Buns + Chain Necklace"
+      },
+      "cosmeticGrills": "Gold Fangs"
+    },
+    {
+      "tokenId": 7,
+      "name": "Girlfriend #7",
+      "genes": [
+        11,
+        5,
+        4,
+        1,
+        9
+      ],
+      "slotValues": {
+        "hat": "Trucker Cap",
+        "face": "Freckles + Septum Ring",
+        "body": "Denim-on-Denim",
+        "background": "Arcade Cabinet Glow",
+        "accessory": "Pigtails + Chunky Hoops"
+      },
+      "cosmeticGrills": "Silver Top Row"
+    },
+    {
+      "tokenId": 8,
+      "name": "Girlfriend #8",
+      "genes": [
+        6,
+        11,
+        9,
+        7,
+        12
+      ],
+      "slotValues": {
+        "hat": "Fitted Cap Sideways",
+        "face": "Smoky Eye + Beauty Mark",
+        "body": "Puffer Vest",
+        "background": "Gas Station at Night",
+        "accessory": "Waist-Length Wig + Layered Chains"
+      },
+      "cosmeticGrills": "Diamond Top Row"
+    },
+    {
+      "tokenId": 9,
+      "name": "Girlfriend #9",
+      "genes": [
+        4,
+        8,
+        10,
+        4,
+        5
+      ],
+      "slotValues": {
+        "hat": "Do-Rag Under Cap",
+        "face": "Sharp Winged Liner",
+        "body": "Sweatsuit Set",
+        "background": "Chain-Link Fence Sunset",
+        "accessory": "French Tips + Belt Bag"
+      },
+      "cosmeticGrills": "Gold Full Set"
+    },
+    {
+      "tokenId": 10,
+      "name": "Girlfriend #10",
+      "genes": [
+        12,
+        7,
+        5,
+        2,
+        4
+      ],
+      "slotValues": {
+        "hat": "Visor",
+        "face": "Glitter Eyeshadow",
+        "body": "Halter Top + Track Pants",
+        "background": "Block Party Streamers",
+        "accessory": "Curly Afro Puff + Statement Earrings"
+      },
+      "cosmeticGrills": "Rose Gold Top Row"
+    },
+    {
+      "tokenId": 11,
+      "name": "Girlfriend #11",
+      "genes": [
+        8,
+        2,
+        3,
+        11,
+        10
+      ],
+      "slotValues": {
+        "hat": "Knit Cap",
+        "face": "Bold Red Lip",
+        "body": "Cropped Puffer",
+        "background": "Subway Platform Tile",
+        "accessory": "Sleek Ponytail + Layered Rings"
+      },
+      "cosmeticGrills": "Platinum Fangs"
+    },
+    {
+      "tokenId": 12,
+      "name": "Girlfriend #12",
+      "genes": [
+        7,
+        4,
+        7,
+        12,
+        11
+      ],
+      "slotValues": {
+        "hat": "Flat Brim Cap",
+        "face": "Colored Contacts + Nose Stud",
+        "body": "Mesh Overlay Top",
+        "background": "Sunset Boardwalk",
+        "accessory": "Twin French Braids + Hoop Belt Chain"
+      },
+      "cosmeticGrills": "Iced Bottom Row"
+    }
+  ],
+  "warnings": []
+}

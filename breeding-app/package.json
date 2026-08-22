@@ -11,7 +11,10 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "generate:girlfriends": "tsx scripts/generate-girlfriends.ts",
-    "copy-abis": "tsx scripts/copy-abis.ts"
+    "copy-abis": "tsx scripts/copy-abis.ts",
+    "build-trait-registry": "tsx scripts/build-trait-registry.ts",
+    "emit-girlfriend-genes": "tsx scripts/emit-girlfriend-genes.ts",
+    "sync-genes": "tsx scripts/sync-genes.ts"
   },
   "dependencies": {
     "@pixelpushin/tba-kit": "github:Pixelpushin/tba-kit",

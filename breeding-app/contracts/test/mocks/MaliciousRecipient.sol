@@ -23,6 +23,15 @@ contract MaliciousRecipient {
         rejectEth = reject;
     }
 
+    /// @dev Needed so MockHoodchan's `_safeMint(address(this), ...)` (this
+    /// contract IS a HOODCHAN father owner in the test) doesn't itself
+    /// revert with ERC721InvalidReceiver - unrelated to the BUG 6
+    /// scenario this mock exists to exercise, just standard ERC-721
+    /// receiver plumbing.
+    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
+        return this.onERC721Received.selector;
+    }
+
     /// @dev Exercised historically against the OLD single-tx breed() design
     /// (push-payment mid-flow) to show a hostile receive() hook could read
     /// breedNonce() before the genome/mint were finalized. Kept as a
