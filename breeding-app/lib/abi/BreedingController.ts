@@ -13,12 +13,7 @@ export const BreedingControllerAbi = [
         "internalType": "address"
       },
       {
-        "name": "hoodchanAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "girlfriendsAddress_",
+        "name": "hoodchanAddress_",
         "type": "address",
         "internalType": "address"
       },
@@ -33,30 +28,32 @@ export const BreedingControllerAbi = [
         "internalType": "address"
       },
       {
-        "name": "tbaRegistryAddress",
+        "name": "treasury_",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "tbaImplementationAddress",
+        "name": "burnAddress_",
         "type": "address",
         "internalType": "address"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "NESTED_CAP",
-    "inputs": [],
-    "outputs": [
+      },
       {
-        "name": "",
+        "name": "multisig_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "birthFee_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "sameSexFeeMultiplier_",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -73,6 +70,58 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "function",
+    "name": "birthFee",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "breed",
+    "inputs": [
+      {
+        "name": "matronCollection",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "matronId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "sireCollection",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "sireId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxSiringFee",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "babyTokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "breedNonce",
     "inputs": [],
     "outputs": [
@@ -86,16 +135,45 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "function",
-    "name": "cancelExpiredCommit",
+    "name": "breedState",
     "inputs": [
       {
-        "name": "commitId",
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    "outputs": [
+      {
+        "name": "breedCount",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "cooldownEnd",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "burnAddress",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -112,188 +190,32 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "function",
-    "name": "claimChan",
-    "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "claimEth",
-    "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "commitBreed",
+    "name": "collectionSex",
     "inputs": [
       {
-        "name": "fatherTokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
       {
-        "name": "motherTokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "maxChanPrice",
-        "type": "uint128",
-        "internalType": "uint128"
-      },
-      {
-        "name": "maxEthPrice",
-        "type": "uint128",
-        "internalType": "uint128"
-      },
-      {
-        "name": "method",
+        "name": "",
         "type": "uint8",
-        "internalType": "enum BreedingController.PayMethod"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "commitId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "payable"
-  },
-  {
-    "type": "function",
-    "name": "commits",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "fatherTokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "motherTokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "committer",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "fatherOwnerAtCommit",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "commitBlock",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "nonce",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "amountEscrowed",
-        "type": "uint128",
-        "internalType": "uint128"
-      },
-      {
-        "name": "method",
-        "type": "uint8",
-        "internalType": "enum BreedingController.PayMethod"
-      },
-      {
-        "name": "sameOwner",
-        "type": "bool",
-        "internalType": "bool"
-      },
-      {
-        "name": "resolved",
-        "type": "bool",
-        "internalType": "bool"
+        "internalType": "enum BreedingController.CollectionSex"
       }
     ],
     "stateMutability": "view"
   },
   {
     "type": "function",
-    "name": "delistSiring",
-    "inputs": [
-      {
-        "name": "fatherTokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "fatherLocked",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "girlfriends",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract IHoodchanGirlfriendsGenes"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "girlfriendsAddress",
+    "name": "hoodchanAddress",
     "inputs": [],
     "outputs": [
       {
         "name": "",
         "type": "address",
         "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "hoodchan",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract IERC721"
       }
     ],
     "stateMutability": "view"
@@ -343,6 +265,25 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "function",
+    "name": "isBreedableCollection",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "isOperator",
     "inputs": [
       {
@@ -362,32 +303,36 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "function",
-    "name": "motherLocked",
+    "name": "listSiring",
     "inputs": [
       {
-        "name": "",
+        "name": "collection",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tokenId",
         "type": "uint256",
         "internalType": "uint256"
-      }
-    ],
-    "outputs": [
+      },
       {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
+        "name": "price",
+        "type": "uint128",
+        "internalType": "uint128"
       }
     ],
-    "stateMutability": "view"
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
-    "name": "nextCommitId",
+    "name": "multisig",
     "inputs": [],
     "outputs": [
       {
         "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -407,44 +352,6 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "function",
-    "name": "pendingChanWithdrawals",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "pendingEthWithdrawals",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "renounceOwnership",
     "inputs": [],
     "outputs": [],
@@ -452,21 +359,64 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "function",
-    "name": "revealBreed",
-    "inputs": [
-      {
-        "name": "commitId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
+    "name": "sameSexFeeMultiplier",
+    "inputs": [],
     "outputs": [
       {
-        "name": "babyTokenId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setBirthFee",
+    "inputs": [
+      {
+        "name": "birthFee_",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setBreedableCollection",
+    "inputs": [
+      {
+        "name": "collection",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "allowed",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "sex",
+        "type": "uint8",
+        "internalType": "enum BreedingController.CollectionSex"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setBurnAddress",
+    "inputs": [
+      {
+        "name": "burnAddress_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -507,6 +457,19 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "function",
+    "name": "setMultisig",
+    "inputs": [
+      {
+        "name": "multisig_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setOperator",
     "inputs": [
       {
@@ -525,22 +488,12 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "function",
-    "name": "setSiringPrice",
+    "name": "setSameSexFeeMultiplier",
     "inputs": [
       {
-        "name": "fatherTokenId",
+        "name": "multiplier",
         "type": "uint256",
         "internalType": "uint256"
-      },
-      {
-        "name": "chanPrice",
-        "type": "uint128",
-        "internalType": "uint128"
-      },
-      {
-        "name": "ethPrice",
-        "type": "uint128",
-        "internalType": "uint128"
       }
     ],
     "outputs": [],
@@ -548,35 +501,12 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "function",
-    "name": "setUpgradedAllowlist",
+    "name": "setTreasury",
     "inputs": [
       {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "allowed",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setUpgradedAllowlistBatch",
-    "inputs": [
-      {
-        "name": "tokenIds",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
-      },
-      {
-        "name": "allowed",
-        "type": "bool",
-        "internalType": "bool"
+        "name": "treasury_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [],
@@ -588,18 +518,18 @@ export const BreedingControllerAbi = [
     "inputs": [
       {
         "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
     "outputs": [
       {
-        "name": "chanPrice",
-        "type": "uint128",
-        "internalType": "uint128"
-      },
-      {
-        "name": "ethPrice",
+        "name": "price",
         "type": "uint128",
         "internalType": "uint128"
       },
@@ -607,32 +537,11 @@ export const BreedingControllerAbi = [
         "name": "listed",
         "type": "bool",
         "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "tbaImplementation",
-    "inputs": [],
-    "outputs": [
+      },
       {
-        "name": "",
+        "name": "lister",
         "type": "address",
         "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "tbaRegistry",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract IERC6551Registry"
       }
     ],
     "stateMutability": "view"
@@ -652,22 +561,47 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "function",
-    "name": "upgradedAllowlist",
-    "inputs": [
+    "name": "treasury",
+    "inputs": [],
+    "outputs": [
       {
         "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "unlistSiring",
+    "inputs": [
+      {
+        "name": "collection",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tokenId",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
-    "outputs": [
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "BirthFeeSet",
+    "inputs": [
       {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
+        "name": "birthFee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
-    "stateMutability": "view"
+    "anonymous": false
   },
   {
     "type": "event",
@@ -680,15 +614,27 @@ export const BreedingControllerAbi = [
         "internalType": "uint256"
       },
       {
-        "name": "fatherTokenId",
+        "name": "matronCollection",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "matronId",
         "type": "uint256",
-        "indexed": true,
+        "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "motherTokenId",
+        "name": "sireCollection",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "sireId",
         "type": "uint256",
-        "indexed": true,
+        "indexed": false,
         "internalType": "uint256"
       },
       {
@@ -710,146 +656,54 @@ export const BreedingControllerAbi = [
         "internalType": "uint8[5]"
       },
       {
-        "name": "motherTba",
-        "type": "address",
+        "name": "babyIsMale",
+        "type": "bool",
         "indexed": false,
+        "internalType": "bool"
+      },
+      {
+        "name": "isTestTubeBaby",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "BreedableCollectionSet",
+    "inputs": [
+      {
+        "name": "collection",
+        "type": "address",
+        "indexed": true,
         "internalType": "address"
       },
       {
-        "name": "paymentMethod",
+        "name": "allowed",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      },
+      {
+        "name": "sex",
         "type": "uint8",
         "indexed": false,
-        "internalType": "enum BreedingController.PayMethod"
-      },
-      {
-        "name": "amountPaid",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "commitId",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
+        "internalType": "enum BreedingController.CollectionSex"
       }
     ],
     "anonymous": false
   },
   {
     "type": "event",
-    "name": "ChanClaimed",
+    "name": "BurnAddressSet",
     "inputs": [
       {
-        "name": "to",
+        "name": "burnAddress",
         "type": "address",
         "indexed": true,
         "internalType": "address"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "CommitCancelled",
-    "inputs": [
-      {
-        "name": "commitId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "reason",
-        "type": "uint8",
-        "indexed": false,
-        "internalType": "enum BreedingController.CommitCancelReason"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "CommitCreated",
-    "inputs": [
-      {
-        "name": "commitId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "fatherTokenId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "motherTokenId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "committer",
-        "type": "address",
-        "indexed": false,
-        "internalType": "address"
-      },
-      {
-        "name": "fatherOwnerAtCommit",
-        "type": "address",
-        "indexed": false,
-        "internalType": "address"
-      },
-      {
-        "name": "commitBlock",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "nonce",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "method",
-        "type": "uint8",
-        "indexed": false,
-        "internalType": "enum BreedingController.PayMethod"
-      },
-      {
-        "name": "amountEscrowed",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "EthClaimed",
-    "inputs": [
-      {
-        "name": "to",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -869,6 +723,19 @@ export const BreedingControllerAbi = [
         "type": "uint8[5]",
         "indexed": false,
         "internalType": "uint8[5]"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MultisigSet",
+    "inputs": [
+      {
+        "name": "multisig",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -913,12 +780,12 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "event",
-    "name": "SiringDelisted",
+    "name": "SameSexFeeMultiplierSet",
     "inputs": [
       {
-        "name": "fatherTokenId",
+        "name": "multiplier",
         "type": "uint256",
-        "indexed": true,
+        "indexed": false,
         "internalType": "uint256"
       }
     ],
@@ -929,19 +796,19 @@ export const BreedingControllerAbi = [
     "name": "SiringListed",
     "inputs": [
       {
-        "name": "fatherTokenId",
+        "name": "collection",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "tokenId",
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
       },
       {
-        "name": "chanPrice",
-        "type": "uint128",
-        "indexed": false,
-        "internalType": "uint128"
-      },
-      {
-        "name": "ethPrice",
+        "name": "price",
         "type": "uint128",
         "indexed": false,
         "internalType": "uint128"
@@ -951,56 +818,39 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "event",
-    "name": "UpgradedAllowlistSet",
+    "name": "SiringUnlisted",
     "inputs": [
+      {
+        "name": "collection",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
       {
         "name": "tokenId",
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
-      },
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TreasurySet",
+    "inputs": [
       {
-        "name": "allowed",
-        "type": "bool",
-        "indexed": false,
-        "internalType": "bool"
+        "name": "treasury",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
   },
   {
     "type": "error",
-    "name": "CommitAlreadyResolved",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "CommitExpired",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "CommitNotExpired",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "CommitNotFound",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "EthNotAccepted",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "EthTransferFailed",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "FatherLocked",
+    "name": "CollectionNotAllowlisted",
     "inputs": []
   },
   {
@@ -1010,22 +860,12 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "error",
-    "name": "MotherLocked",
+    "name": "InvalidMultiplier",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "NestedCapExceeded",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "NotGirlfriendOwner",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "NotHoodchanOwner",
+    "name": "MatronOnCooldown",
     "inputs": []
   },
   {
@@ -1035,12 +875,12 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "error",
-    "name": "NotUpgradedForEth",
+    "name": "NotTokenOwner",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "NothingToClaim",
+    "name": "NotTokenOwnerOrApproved",
     "inputs": []
   },
   {
@@ -1067,17 +907,7 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "error",
-    "name": "PriceExceedsMax",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "RevealTooEarly",
     "inputs": []
   },
   {
@@ -1093,17 +923,22 @@ export const BreedingControllerAbi = [
   },
   {
     "type": "error",
-    "name": "SiringNotListed",
+    "name": "SameToken",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "StrayEthValue",
+    "name": "SireNotAvailable",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "WrongPaymentAmount",
+    "name": "SireOnCooldown",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SiringFeeTooHigh",
     "inputs": []
   },
   {

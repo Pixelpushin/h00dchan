@@ -21,22 +21,26 @@ export const DEFAULT_RPC_URL = process.env.ALCHEMY_API_KEY
   ? `https://robinhood-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`
   : RPC_URL;
 
-// The existing, already-deployed HOODCHAN collection (father role) - a
-// real, live address, not an env var, since it's not something a human
-// will ever redeploy or swap out from under this app. Matches
-// contracts/script/Deploy.s.sol's HOODCHAN constant exactly.
+// The existing, already-deployed HOODCHAN collection - matron/sire-eligible
+// like every allowlisted collection (see the design spec's "no collection
+// is restricted to a role" rule) - a real, live address, not an env var,
+// since it's not something a human will ever redeploy or swap out from
+// under this app. Matches contracts/script/Deploy.s.sol's HOODCHAN
+// constant exactly.
 export const HOODCHAN_CONTRACT = "0x774Db2207D26570F5638028839c816702A40aBC2";
 
-// CHAN ERC-20, also already deployed - breeding fees are paid in this
-// token for every listing, regardless of Upgraded status. Matches
-// contracts/script/Deploy.s.sol's CHAN_TOKEN constant exactly.
+// CHAN ERC-20, also already deployed - the ONLY fee currency for both the
+// birth fee and any siring fee (the v1 dual-currency ETH path is cut from
+// scope, see the design spec's "Explicitly cut from scope" section).
+// Matches contracts/script/Deploy.s.sol's CHAN_TOKEN constant exactly.
 export const CHAN_TOKEN_ADDRESS = "0xB36fD5d3392C78E70c3E08f46b46F242e7EF654F";
 
 // --- Not deployed yet - every one of these is genuinely undefined today ---
 
-// Dummy placeholder mother collection (~12 tokens, see lib/girlfriendsData.ts
-// and data/girlfriends/). Swappable for the real team's Girlfriends
-// contract once it ships, purely via this env var.
+// Dummy placeholder collection (~12 tokens, see lib/girlfriendsData.ts
+// and data/girlfriends/) - matron/sire-eligible like any other allowlisted
+// collection. Swappable for the real team's Girlfriends contract once it
+// ships, purely via this env var.
 export const GIRLFRIENDS_CONTRACT =
   process.env.NEXT_PUBLIC_GIRLFRIENDS_CONTRACT;
 
@@ -44,11 +48,73 @@ export const GIRLFRIENDS_CONTRACT =
 // @pixelpushin/tba-kit registry/implementation as HOODCHAN itself.
 export const BABIES_CONTRACT = process.env.NEXT_PUBLIC_BABIES_CONTRACT;
 
-// Owns the siring-price listings + commitBreed()/revealBreed() entry
-// points (see contracts/src/BreedingController.sol's SEED-FAIRNESS
-// MITIGATION note for why breeding is two-step, not a single breed() call).
+// Owns the siring listings + the single-transaction breed() entry point
+// (see contracts/src/BreedingController.sol's ACCEPTED TRADEOFF note for
+// why breeding is one atomic call now, not the superseded v1
+// commitBreed()/revealBreed() two-step - "you get what you get" is a
+// deliberate design choice, not a missing feature).
 export const BREEDING_CONTROLLER_CONTRACT =
   process.env.NEXT_PUBLIC_BREEDING_CONTROLLER_CONTRACT;
+
+// --- Fee-recipient addresses (owner-settable post-deploy, see
+// BreedingController.setBurnAddress/setMultisig) - env-driven placeholders
+// like the three contract addresses above, not fixed values: the design
+// spec's "Open questions" section explicitly defers real recipient
+// addresses pending a real deploy. Once BreedingController is deployed,
+// prefer a LIVE read of its `burnAddress()`/`multisig()` getters over
+// these env vars wherever the exact current value matters (they can be
+// changed post-deploy without a redeploy) - these exist for pre-deploy
+// previews/UI copy only. ---
+export const BURN_ADDRESS = process.env.NEXT_PUBLIC_BURN_ADDRESS;
+export const MULTISIG_ADDRESS = process.env.NEXT_PUBLIC_MULTISIG_ADDRESS;
+
+// --- Fee amounts - mirror contracts/script/Deploy.s.sol's
+// DEFAULT_BIRTH_FEE / DEFAULT_SAME_SEX_FEE_MULTIPLIER constants exactly.
+// Both are owner-configurable post-deploy (setBirthFee/
+// setSameSexFeeMultiplier) and NOT load-bearing to the design spec (see
+// its "Open questions" section) - these are pre-deploy-preview defaults
+// only: if the real deployed value ever diverges (a live
+// `birthFee()`/`sameSexFeeMultiplier()` read is the actual source of
+// truth once BreedingController exists), this must be updated to match
+// or replaced with a live read. ---
+export const DEFAULT_BIRTH_FEE = 100_000_000_000_000_000_000n; // 100 CHAN, 18 decimals
+export const DEFAULT_SAME_SEX_FEE_MULTIPLIER = 2n; // "test tube baby" pays 2x birth fee
+
+// --- Siring protocol-fee split, in basis-points-of-10000 - mirrors
+// BreedingController._collectSiringFee's hardcoded arithmetic exactly
+// (`(price * 500) / 10000` burn, `(price * 300) / 10000` multisig). These
+// ARE true contract constants (not constructor/owner-configurable), unlike
+// the fee amounts above, so this mirror can't drift the way those can.
+// Applies ONLY to the siring-fee portion (borrowing someone else's sire) -
+// never to the flat birth fee, and never when self-siring. ---
+export const SIRING_BURN_FEE_BPS = 500n; // 5%
+export const SIRING_MULTISIG_FEE_BPS = 300n; // 3%
+export const SIRING_PROTOCOL_FEE_BPS =
+  SIRING_BURN_FEE_BPS + SIRING_MULTISIG_FEE_BPS; // 8% total
+export const FEE_BPS_DENOMINATOR = 10000n;
+
+// --- Escalating per-token cooldown ladder, in SECONDS - mirrors
+// BreedingController._cooldownSeconds's hardcoded 14-entry array exactly
+// (roughly-doubling: 1min..7day, permanently capped at the last entry for
+// any breedCount >= 14). A true contract constant, not owner-configurable,
+// same "can't drift" note as the fee-split bps above. ---
+export const COOLDOWN_SECONDS_LADDER = [
+  60, 120, 300, 600, 1800, 3600, 7200, 14400, 28800, 57600, 86400, 172800,
+  345600, 604800,
+] as const;
+
+/** Mirrors `BreedingController._cooldownSeconds(breedCount)` - the
+ * escalating cooldown, in seconds, that applies to a token's NEXT breed
+ * given its current `breedCount`. Indices past the ladder's length are
+ * clamped to the last (7-day) entry, matching the contract's own
+ * `breedCount >= ladder.length ? ladder.length - 1 : breedCount` clamp. */
+export function cooldownSecondsForBreedCount(breedCount: number): number {
+  const idx =
+    breedCount >= COOLDOWN_SECONDS_LADDER.length
+      ? COOLDOWN_SECONDS_LADDER.length - 1
+      : breedCount;
+  return COOLDOWN_SECONDS_LADDER[idx];
+}
 
 export interface ContractStatus {
   girlfriends: boolean;
@@ -73,13 +139,3 @@ export function getContractStatus(): ContractStatus {
     allDeployed: girlfriends && babies && breedingController,
   };
 }
-
-// Nested-offspring soft cap - matches the parent app's existing
-// NESTED_HOLDING_MAX_TOKENS (lib/leveling.ts) AND
-// contracts/src/BreedingController.sol's own NESTED_CAP constant, reused
-// rather than reinvented (see design spec: "not a new rule, just not
-// exceeding what already makes sense"). If the on-chain constant ever
-// changes, this must be updated to match - there is no on-chain read of
-// NESTED_CAP() wired up client-side today (it's a `view` getter, so it
-// could be read live in a follow-up instead of hardcoded here).
-export const MAX_NESTED_OFFSPRING = 5;

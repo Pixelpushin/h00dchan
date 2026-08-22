@@ -86,7 +86,7 @@ export const HoodchanBabiesAbi = [
   },
   {
     "type": "function",
-    "name": "genomeOf",
+    "name": "genesOf",
     "inputs": [
       {
         "name": "tokenId",
@@ -148,6 +148,25 @@ export const HoodchanBabiesAbi = [
   },
   {
     "type": "function",
+    "name": "isTestTubeBaby",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "mint",
     "inputs": [
       {
@@ -166,12 +185,32 @@ export const HoodchanBabiesAbi = [
         "internalType": "uint256"
       },
       {
-        "name": "fatherTokenId",
+        "name": "isMale_",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "isTestTubeBaby_",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "matronCollection",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "matronId",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "motherTokenId",
+        "name": "sireCollection",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "sireId",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -370,6 +409,25 @@ export const HoodchanBabiesAbi = [
   },
   {
     "type": "function",
+    "name": "sexOf",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "isMale",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "supportsInterface",
     "inputs": [
       {
@@ -560,13 +618,37 @@ export const HoodchanBabiesAbi = [
         "internalType": "uint256"
       },
       {
-        "name": "fatherTokenId",
+        "name": "isMale",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      },
+      {
+        "name": "isTestTubeBaby",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      },
+      {
+        "name": "matronCollection",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "matronId",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "motherTokenId",
+        "name": "sireCollection",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "sireId",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"

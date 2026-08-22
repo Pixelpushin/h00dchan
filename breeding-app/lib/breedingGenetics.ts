@@ -2,17 +2,21 @@
 //
 // Faithful TypeScript port of breeding-app/contracts/src/GeneticsLib.sol -
 // the on-chain per-locus genetic inheritance algorithm for HOODCHAN
-// breeding (itself a bit-for-bit port of AquaPrime's AquaPrimeGenetics.sol
-// #_inheritSingleLocus, narrowed from AquaPrime's 4-allele/multi-trait
-// genome down to HOODCHAN's flat 5-slot genome: Hat, Face, Body,
-// Background, Accessory).
+// breeding's flat 5-slot genome (Hat, Face, Body, Background, Accessory).
+// Full rewrite for the v2 design spec
+// (docs/superpowers/specs/2026-08-21-hoodchan-breeding-design.md): straight
+// 50/50 coin-flip inheritance (band-agnostic - no "numerically higher index
+// wins" dominance rule, which the superseded v1 port had), plus a
+// mutation/legendary layer CLAMPED into the reserved 248..255 index band
+// (`LEGENDARY_RESERVED_START` in lib/traitRegistry.ts) instead of the v1
+// port's unconstrained-byte legendary branch and range-arithmetic mutation
+// branch (both of which could collide with real trait indices).
 //
 // PARITY IS THE ENTIRE POINT OF THIS FILE:
 //   - every uint256/bytes32 operation uses BigInt, never `number` - a
 //     regular JS number only has 53 bits of safe integer precision, which
 //     silently diverges from Solidity's 256-bit arithmetic long before you
-//     notice (this was the exact failure mode of a prior, discarded
-//     attempt at this file).
+//     notice.
 //   - hashing uses ethers' solidityPackedKeccak256, which mirrors
 //     Solidity's `keccak256(abi.encodePacked(...))` byte-for-byte -
 //     encodePacked (tight packing, no padding/length-prefixing) is NOT the
@@ -23,35 +27,37 @@
 //     the English description of what it does.
 //
 // This file is intentionally PURE and byte-level: uint8 genome values in,
-// uint8 genome values out, plus the uint256 seed/bytes32 entropy plumbing
-// needed to derive them. It has no opinion on what a gene *value* means
-// (e.g. "value 42 in the Hat slot = Durag") - that trait-name resolution
-// belongs to lib/traitRegistry.ts and its consumers, not here. No
-// database, no Next.js, no React - safe to import from a Node script, an
-// API route, or a client component alike.
+// uint8 genome values out, plus the uint256 seed plumbing needed to derive
+// them. It has no opinion on what a gene *value* means (e.g. "value 42 in
+// the Hat slot = Durag") - that trait-name resolution belongs to
+// lib/traitRegistry.ts and its consumers, not here. No database, no
+// Next.js, no React - safe to import from a Node script, an API route, or a
+// client component alike.
 //
-// `entropy` (breedingSeed's 4th argument) is `blockhash(commitBlock)` in
-// production - see BreedingController.sol's SEED-FAIRNESS MITIGATION note.
-// This module has no opinion on where it comes from, only that it must be
-// supplied as a bytes32, matching GeneticsLib.sol's own signature exactly.
+// There is no `entropy` input anymore (unlike the superseded v1 port's
+// 4-arg `breedingSeed`, which anchored to a commit/reveal `blockhash`) -
+// GeneticsLib.breedingSeed is now a PURE function of public, already-known
+// inputs only (both parents' collection address + tokenId, and the global
+// breed nonce). This is the design spec's explicitly ACCEPTED tradeoff
+// ("you get what you get" - see BreedingController.sol's ACCEPTED TRADEOFF
+// note): a sophisticated caller can simulate the outcome client-side before
+// deciding whether to send the breed tx. Do not reintroduce blockhash
+// anchoring, commit/reveal, or VRF here.
 //
 // Parity is verified in lib/breedingGenetics.parity.test.ts against BOTH
-// contracts/test-vectors.json and contracts/test-vectors-fresh.json -
-// 600+ vectors generated directly by Solidity itself (`forge test`), never
+// contracts/test-vectors.json and contracts/test-vectors-fresh.json - 200+
+// vectors generated directly by Solidity itself (`forge test`), never
 // hand-computed and never generated from this TS implementation, so a
 // passing suite there is a real bit-for-bit match against the contract's
 // own arithmetic, not just "this looks right". If a mismatch ever shows up
 // there, the fix is always on this file, never on the fixtures.
-import { solidityPackedKeccak256 } from "ethers";
+import { solidityPackedKeccak256, getAddress } from "ethers";
 
 /** Number of gene slots in a HOODCHAN-baby genome (Hat, Face, Body,
  * Background, Accessory) - matches GeneticsLib.sol's GENE_SLOTS. Both
- * "slot count" and "locus count" here since HOODCHAN's genome is flat
- * (one locus per slot), unlike AquaPrime's multi-locus genes. */
+ * "slot count" and "locus count" here since HOODCHAN's genome is flat (one
+ * locus per slot). */
 export const GENE_SLOTS = 5 as const;
-/** @deprecated alias of {@link GENE_SLOTS} for compatibility with earlier
- * in-flight naming. */
-export const GENE_SLOTS_COUNT = GENE_SLOTS;
 
 /** A HOODCHAN-baby genome (or a parent's gene array): exactly 5 uint8
  * (0-255) values, in slot order [Hat, Face, Body, Background, Accessory].
@@ -63,33 +69,36 @@ export type Genome = readonly [number, number, number, number, number];
  * but are converted to BigInt immediately - see `toUint256`. */
 export type Uint256Like = bigint | number | string;
 
-/** A Solidity `bytes32` value as a `0x`-prefixed, 32-byte hex string
- * (e.g. a block hash from a provider, or GeneticsLib's `entropy` input). */
-export type Bytes32Hex = string;
-
 // ---------------------------------------------------------------------------
 // Constants - mirror GeneticsLib.sol verbatim (basis-points-of-10000, not
-// the usual 10000=100% convention - specifically matching GeneticsLib's own
-// `% 10000` comparisons so this port shares identical arithmetic).
+// the usual 10000=100% convention elsewhere in this app's fee math -
+// specifically matching GeneticsLib's own `% 10000` comparisons so this
+// port shares identical arithmetic).
 // ---------------------------------------------------------------------------
 
 /** 0.5% - GeneticsLib.LEGENDARY_MUTATION_RATE. */
 export const LEGENDARY_MUTATION_RATE = 50n;
 /** 5% - GeneticsLib.BASE_MUTATION_RATE. */
 export const BASE_MUTATION_RATE = 500n;
-/** 60% - GeneticsLib.DOMINANT_INHERITANCE_RATE. */
-export const DOMINANT_INHERITANCE_RATE = 6000n;
+
+/** Start of the reserved mutation/legendary index band - mirrors
+ * `LEGENDARY_RESERVED_START = 248` in both GeneticsLib.sol and
+ * lib/traitRegistry.ts exactly. Load-bearing, not a coincidence: neither
+ * branch below may ever emit a value below this, which would collide with
+ * a real trait index. */
+export const LEGENDARY_RESERVED_START = 248n;
+/** Size of the reserved band: 248..255 inclusive = 8 values. */
+export const LEGENDARY_BAND_SIZE = 8n;
 
 const MASK_8 = 0xffn;
-const BYTES32_HEX_LENGTH = 66; // "0x" + 64 hex chars
 
 // ---------------------------------------------------------------------------
 // Input coercion / validation helpers
 // ---------------------------------------------------------------------------
 
 /** Coerces a Uint256Like into a BigInt, matching Solidity's `uint256`
- * (non-negative, no fractional component). Throws on anything that isn't
- * a clean non-negative integer, rather than silently truncating. */
+ * (non-negative, no fractional component). Throws on anything that isn't a
+ * clean non-negative integer, rather than silently truncating. */
 function toUint256(value: Uint256Like): bigint {
   const big = typeof value === "bigint" ? value : BigInt(value);
   if (big < 0n) {
@@ -98,21 +107,11 @@ function toUint256(value: Uint256Like): bigint {
   return big;
 }
 
-/** Validates/normalizes a Solidity `bytes32` hex string (the `entropy`
- * input to `breedingSeed`, e.g. a `blockhash(commitBlock)` value read off
- * a provider). Accepts any casing, always returns lowercase. */
-function toBytes32Hex(value: Bytes32Hex): Bytes32Hex {
-  if (
-    typeof value !== "string" ||
-    value.length !== BYTES32_HEX_LENGTH ||
-    !value.startsWith("0x") ||
-    !/^0x[0-9a-fA-F]{64}$/.test(value)
-  ) {
-    throw new RangeError(
-      `expected a 0x-prefixed 32-byte hex string (bytes32), got ${String(value)}`,
-    );
-  }
-  return value.toLowerCase();
+/** Validates/normalizes a Solidity `address` (checksums via ethers, which
+ * also rejects malformed hex) - both `matronCollection`/`sireCollection`
+ * arguments to `breedingSeed` are this type on-chain. */
+function toAddress(value: string): string {
+  return getAddress(value);
 }
 
 /** Asserts a gene/genome value is a valid Solidity `uint8` (integer,
@@ -141,44 +140,40 @@ export function assertGenome(
 
 // ---------------------------------------------------------------------------
 // Seed derivation - exact port of GeneticsLib.breedingSeed /
-// GeneticsLib.inheritLocus's internal per-locus hash.
+// GeneticsLib.inheritLocus's internal per-locus hash / resolveBabyIsMale's
+// sex-bit hash.
 // ---------------------------------------------------------------------------
 
 /**
- * Port of `GeneticsLib.breedingSeed(fatherTokenId, motherTokenId,
- * breedNonce, entropy)`:
+ * Port of `GeneticsLib.breedingSeed(matronCollection, matronId,
+ * sireCollection, sireId, nonce)`:
  *
- *   keccak256(abi.encodePacked(fatherTokenId, motherTokenId, breedNonce, entropy))
+ *   keccak256(abi.encodePacked(matronCollection, matronId, sireCollection, sireId, nonce))
  *
- * `entropy` is whatever BreedingController.revealBreed anchors to
- * on-chain (`blockhash(commitBlock)` in the commit/reveal flow - see
- * BreedingController's SEED-FAIRNESS MITIGATION note) - this function
- * itself has no opinion on where it comes from, only that it's a
- * `bytes32`. Deterministic and independently re-computable by anyone off
- * the emitted reveal event alone: same four inputs always produce the
- * same seed.
+ * Deterministic and independently re-computable by anyone off the emitted
+ * `Bred` event alone (or even before the tx lands, per the design spec's
+ * accepted tradeoff - see this file's header): same five inputs always
+ * produce the same seed.
  */
 export function breedingSeed(
-  fatherTokenId: Uint256Like,
-  motherTokenId: Uint256Like,
-  breedNonce: Uint256Like,
-  entropy: Bytes32Hex,
+  matronCollection: string,
+  matronId: Uint256Like,
+  sireCollection: string,
+  sireId: Uint256Like,
+  nonce: Uint256Like,
 ): bigint {
   const hex = solidityPackedKeccak256(
-    ["uint256", "uint256", "uint256", "bytes32"],
+    ["address", "uint256", "address", "uint256", "uint256"],
     [
-      toUint256(fatherTokenId),
-      toUint256(motherTokenId),
-      toUint256(breedNonce),
-      toBytes32Hex(entropy),
+      toAddress(matronCollection),
+      toUint256(matronId),
+      toAddress(sireCollection),
+      toUint256(sireId),
+      toUint256(nonce),
     ],
   );
   return BigInt(hex);
 }
-
-/** @deprecated alias of {@link breedingSeed} for compatibility with
- * earlier in-flight naming. */
-export const computeBreedingSeed = breedingSeed;
 
 /**
  * Port of the per-locus hash inside `GeneticsLib.inheritLocus`:
@@ -198,6 +193,29 @@ export function locusSeedFor(seed: bigint, offset: Uint256Like): bigint {
   return BigInt(hex);
 }
 
+/**
+ * Port of `GeneticsLib.resolveBabyIsMale(seed)`:
+ *
+ *   uint256 sexSeed = uint256(keccak256(abi.encodePacked(seed, GENE_SLOTS)));
+ *   isMale = (sexSeed % 2) == 0;
+ *
+ * One extra, independent coin flip that decides the baby's own sex tag -
+ * NOT a gene slot (doesn't touch `resolveGenome` or its offsets at all).
+ * `GENE_SLOTS` (5) is packed as a `uint8` here, matching its Solidity
+ * declaration (`uint8 internal constant GENE_SLOTS = 5`) exactly - using
+ * `uint256` instead would silently produce a different hash even though
+ * the numeric value is the same, since `abi.encodePacked` is sensitive to
+ * the exact declared type width, not just the value.
+ */
+export function resolveBabyIsMale(seed: bigint): boolean {
+  const hex = solidityPackedKeccak256(
+    ["uint256", "uint8"],
+    [toUint256(seed), GENE_SLOTS],
+  );
+  const sexSeed = BigInt(hex);
+  return sexSeed % 2n === 0n;
+}
+
 // ---------------------------------------------------------------------------
 // Core locus inheritance - exact port of GeneticsLib.inheritLocus
 // ---------------------------------------------------------------------------
@@ -205,17 +223,29 @@ export function locusSeedFor(seed: bigint, offset: Uint256Like): bigint {
 /**
  * Port of `GeneticsLib.inheritLocus(p1, p2, seed, offset)`. Determines the
  * child value for one gene slot given both parents' values at that slot
- * and the top-level breeding seed. Decision tree mirrors the Solidity
- * SEQUENTIAL if/else-if/else exactly (not three independent draws), using
- * ONE keccak256 per locus and different bit-slices of that SAME hash for
- * each check - this bit-slice reuse (rather than hashing again per
- * decision) is load-bearing for parity, not just an optimization detail:
+ * and the top-level breeding seed. Checks are SEQUENTIAL if/else-if/else
+ * (not three independent draws), ONE keccak256 per locus, reusing
+ * different bit-slices of the SAME hash for each check rather than hashing
+ * again per check - this bit-slice reuse is load-bearing for parity, not
+ * just an optimization detail:
  *
  *   - bits [0:16)  (`locusSeed % 10000`)         -> legendary check
- *   - bits [8:16)  (`(locusSeed >> 8) & 0xFF`)    -> legendary's new value
+ *   - bits [8:16)  (`(locusSeed >> 8) % 8`)       -> legendary's band offset
  *   - bits [16:32) (`(locusSeed >> 16) % 10000`)  -> mutation check
- *   - bits [24:32) (`(locusSeed >> 24) & 0xFF`)   -> mutation magnitude
- *   - bits [32:48) (`(locusSeed >> 32) % 10000`)  -> dominant/recessive draw
+ *   - bits [24:32) (`(locusSeed >> 24) % 8`)      -> mutation's band offset
+ *   - bit  [32]    (`(locusSeed >> 32) % 2`)      -> matron/sire coin flip
+ *
+ * Both the legendary AND mutation branches are CLAMPED into the reserved
+ * `LEGENDARY_RESERVED_START..255` band via modulo against
+ * `LEGENDARY_BAND_SIZE` (8) - neither branch can ever collide with a real
+ * trait index or overflow a slot's real range, unlike the superseded v1
+ * port's unconstrained-byte legendary branch and range-arithmetic mutation
+ * branch. The standard branch is a plain 50/50 coin flip between the
+ * LITERAL matron and sire values - band-agnostic, no magnitude ordering
+ * (the v2 design's core genetics fix over v1's "numerically higher index
+ * wins 60%" dominance rule, which always favored whichever collection
+ * happened to occupy the higher index band regardless of which parent it
+ * came from).
  */
 export function inheritLocus(
   p1: number,
@@ -227,39 +257,24 @@ export function inheritLocus(
   assertUint8(p2, "p2");
 
   const locusSeed = locusSeedFor(seed, offset);
-  const p1b = BigInt(p1);
-  const p2b = BigInt(p2);
 
-  // --- Legendary mutation: 0.5% ---
+  // --- Legendary: 0.5% ---
   if (locusSeed % 10000n < LEGENDARY_MUTATION_RATE) {
-    // A brand-new value, unrelated to either parent - deliberately NOT
-    // range-constrained, unlike the base mutation branch below (that
-    // asymmetry is the whole point of calling it "legendary").
-    return Number((locusSeed >> 8n) & MASK_8);
+    return Number(
+      LEGENDARY_RESERVED_START + ((locusSeed >> 8n) % LEGENDARY_BAND_SIZE),
+    );
   }
 
   // --- Base mutation: 5% ---
   if ((locusSeed >> 16n) % 10000n < BASE_MUTATION_RATE) {
-    // A value near the parents' range, not a uniformly random byte.
-    // `range * 3` (rather than just `range`) lets the mutated value land
-    // somewhat outside the [lo, hi] parent interval in either direction,
-    // not just between the two parents - GeneticsLib's exact formula.
-    const mag = (locusSeed >> 24n) & MASK_8;
-    const lo = p1b < p2b ? p1b : p2b;
-    const hi = p1b > p2b ? p1b : p2b;
-    const range = hi > lo ? hi - lo : 1n;
-    const val = lo + (mag % (range * 3n));
-    return Number(val > 255n ? 255n : val);
+    return Number(
+      LEGENDARY_RESERVED_START + ((locusSeed >> 24n) % LEGENDARY_BAND_SIZE),
+    );
   }
 
-  // --- Standard 60/40 dominant/recessive inheritance: 94.5% ---
-  // "Dominant" means numerically higher, strictly (`>`, matching
-  // GeneticsLib) - equal parent values fall through to `recessive`, which
-  // is fine since dominant === recessive in that case anyway.
-  const dominant = p1b > p2b ? p1b : p2b;
-  const recessive = p1b <= p2b ? p1b : p2b;
-  const useDominant = (locusSeed >> 32n) % 10000n < DOMINANT_INHERITANCE_RATE;
-  return Number(useDominant ? dominant : recessive);
+  // --- Standard 50/50 coin flip: 94.5% ---
+  const useP1 = (locusSeed >> 32n) % 2n === 0n;
+  return useP1 ? p1 : p2;
 }
 
 // ---------------------------------------------------------------------------
@@ -267,23 +282,23 @@ export function inheritLocus(
 // ---------------------------------------------------------------------------
 
 /**
- * Port of `GeneticsLib.resolveGenome(fatherGenes, motherGenes, seed)`.
+ * Port of `GeneticsLib.resolveGenome(matronGenes, sireGenes, seed)`.
  * Resolves all GENE_SLOTS gene-slot values for a child from both parents'
  * gene arrays and the top-level breeding seed. Each slot is independent
  * (offset = slot index 0..4, matching GeneticsLib's per-locus `offset`
  * parameter), so slot i's outcome never affects slot j's.
  */
 export function resolveGenome(
-  fatherGenes: Genome | readonly number[],
-  motherGenes: Genome | readonly number[],
+  matronGenes: Genome | readonly number[],
+  sireGenes: Genome | readonly number[],
   seed: bigint,
 ): Genome {
-  const father = assertGenome(fatherGenes, "fatherGenes");
-  const mother = assertGenome(motherGenes, "motherGenes");
+  const matron = assertGenome(matronGenes, "matronGenes");
+  const sire = assertGenome(sireGenes, "sireGenes");
 
   const genome: number[] = [];
   for (let i = 0; i < GENE_SLOTS; i++) {
-    genome.push(inheritLocus(father[i], mother[i], seed, BigInt(i)));
+    genome.push(inheritLocus(matron[i], sire[i], seed, BigInt(i)));
   }
   return genome as unknown as Genome;
 }
@@ -292,24 +307,46 @@ export function resolveGenome(
 // Convenience wrappers
 // ---------------------------------------------------------------------------
 
+export interface BreedResult {
+  seed: bigint;
+  genome: Genome;
+  babyIsMale: boolean;
+  /** `matronSex === sireSex` at breed time - the "test tube baby" pricing
+   * tier / cosmetic badge (BreedingController.breed()'s `sameSex` local,
+   * stored as `HoodchanBabies.isTestTubeBaby`). NOT derived from the seed
+   * at all - purely a function of both parents' sex tags, which the caller
+   * must supply since this module has no on-chain read access. */
+  isTestTubeBaby: boolean;
+}
+
 /**
- * Convenience wrapper combining `breedingSeed` + `resolveGenome` in one
- * call - the typical entry point for reconstructing a child's true genome
- * off on-chain reveal data (`fatherTokenId`, `motherTokenId`,
- * `breedNonce`, and `blockhash(commitBlock)` as `entropy`, plus both
- * parents' current gene arrays).
+ * Convenience wrapper combining `breedingSeed` + `resolveGenome` +
+ * `resolveBabyIsMale` in one call - the typical entry point for locally
+ * previewing/re-verifying a breed's outcome off its public inputs (both
+ * parents' collection+id, the breed nonce, and both parents' current gene
+ * arrays + sex tags).
  */
 export function breedGenome(
-  fatherTokenId: Uint256Like,
-  motherTokenId: Uint256Like,
-  breedNonce: Uint256Like,
-  entropy: Bytes32Hex,
-  fatherGenes: Genome | readonly number[],
-  motherGenes: Genome | readonly number[],
-): { seed: bigint; genome: Genome } {
-  const seed = breedingSeed(fatherTokenId, motherTokenId, breedNonce, entropy);
-  const genome = resolveGenome(fatherGenes, motherGenes, seed);
-  return { seed, genome };
+  matronCollection: string,
+  matronId: Uint256Like,
+  sireCollection: string,
+  sireId: Uint256Like,
+  nonce: Uint256Like,
+  matronGenes: Genome | readonly number[],
+  sireGenes: Genome | readonly number[],
+  matronSex: boolean,
+  sireSex: boolean,
+): BreedResult {
+  const seed = breedingSeed(
+    matronCollection,
+    matronId,
+    sireCollection,
+    sireId,
+    nonce,
+  );
+  const genome = resolveGenome(matronGenes, sireGenes, seed);
+  const babyIsMale = resolveBabyIsMale(seed);
+  return { seed, genome, babyIsMale, isTestTubeBaby: matronSex === sireSex };
 }
 
 /** Structural equality for two genomes - e.g. comparing a locally

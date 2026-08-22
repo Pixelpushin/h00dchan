@@ -8,8 +8,8 @@
 //   - contracts/test-vectors.json         (contracts/test/GenerateTestVectors.t.sol)
 //   - contracts/test-vectors-fresh.json   (contracts/test/GenerateFreshTestVectors.t.sol)
 //
-// The second fixture uses a deliberately different token-ID range, gene
-// formula, breedNonce stride, and entropy salt than the first (see that
+// The second fixture uses a deliberately different collection-address/
+// token-ID range, gene formula, and nonce stride than the first (see that
 // generator's header comment) specifically so a TS port that was
 // overfit/hardcoded to the primary fixture's numbers - rather than an
 // actual re-implementation of GeneticsLib's arithmetic - still gets caught.
@@ -28,6 +28,7 @@ import {
   breedingSeed,
   breedGenome,
   resolveGenome,
+  resolveBabyIsMale,
   inheritLocus,
   locusSeedFor,
   assertGenome,
@@ -37,48 +38,95 @@ import {
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
-interface Vector {
-  fatherTokenId: number;
-  motherTokenId: number;
-  breedNonce: number;
-  entropy: string;
-  fatherGenes: number[];
-  motherGenes: number[];
+interface GeneticsVector {
+  matronCollection: string;
+  // string, not number: the fixture generator (GenerateTestVectors.t.sol)
+  // deliberately includes ids up to type(uint128).max/type(uint64).max as
+  // an edge case specifically to catch a TS port that narrows a uint256 to
+  // a JS `number` (53-bit-safe only) - see loadVectorFile's quoting step
+  // below, which round-trips these fields as decimal strings through
+  // JSON.parse instead of letting it silently lose precision.
+  matronId: string;
+  sireCollection: string;
+  sireId: string;
+  nonce: string;
+  matronGenes: number[];
+  sireGenes: number[];
+  matronSex: boolean;
+  sireSex: boolean;
   expectedSeed: string;
   expectedGenome: number[];
+  expectedBabyIsMale: boolean;
+  expectedIsTestTubeBaby: boolean;
 }
 
-function loadVectors(filename: string): Vector[] {
+interface FeeVector {
+  birthFee: string;
+  sameSexFeeMultiplier: string;
+  sameSex: boolean;
+  selfSiring: boolean;
+  listedFee: string;
+  expectedBirthFeePaid: string;
+  expectedSireOwnerAmount: string;
+  expectedBurnAmount: string;
+  expectedMultisigAmount: string;
+  expectedTotalCallerDebit: string;
+}
+
+interface VectorFile {
+  genetics: GeneticsVector[];
+  fees: FeeVector[];
+}
+
+// The fixture generator writes matronId/sireId/nonce as bare (unquoted)
+// decimal integers, which is valid JSON but NOT precision-safe once
+// JSON.parse turns them into JS `number`s (max safe integer is 2^53-1,
+// while these fields are full uint256s in the contract - one fixture
+// vector deliberately uses type(uint128).max). Quote those three fields
+// before parsing so they survive as strings instead, and pass them to
+// breedingSeed as strings (BigInt(str) is exact, unlike Number(str)).
+function quoteBigIntFields(raw: string): string {
+  return raw.replace(/"(matronId|sireId|nonce)":(\d+)/g, '"$1":"$2"');
+}
+
+function loadVectorFile(filename: string): VectorFile {
   const p = path.resolve(dirname, "../contracts", filename);
   const raw = readFileSync(p, "utf-8");
-  const vectors = JSON.parse(raw) as Vector[];
-  if (!Array.isArray(vectors) || vectors.length === 0) {
-    throw new Error(`${filename} loaded but contains no vectors`);
+  const parsed = JSON.parse(quoteBigIntFields(raw)) as VectorFile;
+  if (!Array.isArray(parsed.genetics) || parsed.genetics.length === 0) {
+    throw new Error(`${filename} loaded but contains no genetics vectors`);
   }
-  return vectors;
+  if (!Array.isArray(parsed.fees) || parsed.fees.length === 0) {
+    throw new Error(`${filename} loaded but contains no fee vectors`);
+  }
+  return parsed;
 }
 
-function runParitySuite(label: string, filename: string, minCount: number) {
-  describe(`${label} (${filename})`, () => {
-    const vectors = loadVectors(filename);
+function runGeneticsSuite(label: string, filename: string, minCount: number) {
+  describe(`${label} genetics (${filename})`, () => {
+    const { genetics: vectors } = loadVectorFile(filename);
 
-    it(`loads at least ${minCount} vectors`, () => {
+    it(`loads at least ${minCount} genetics vectors`, () => {
       expect(vectors.length).toBeGreaterThanOrEqual(minCount);
     });
 
-    it("matches expectedSeed and expectedGenome for every vector", () => {
+    it("matches expectedSeed, expectedGenome, expectedBabyIsMale, and expectedIsTestTubeBaby for every vector", () => {
       let checked = 0;
       for (const v of vectors) {
         const seed = breedingSeed(
-          v.fatherTokenId,
-          v.motherTokenId,
-          v.breedNonce,
-          v.entropy,
+          v.matronCollection,
+          v.matronId,
+          v.sireCollection,
+          v.sireId,
+          v.nonce,
         );
         expect(seed.toString()).toBe(v.expectedSeed);
 
-        const genome = resolveGenome(v.fatherGenes, v.motherGenes, seed);
+        const genome = resolveGenome(v.matronGenes, v.sireGenes, seed);
         expect([...genome]).toEqual(v.expectedGenome);
+
+        expect(resolveBabyIsMale(seed)).toBe(v.expectedBabyIsMale);
+        expect(v.matronSex === v.sireSex).toBe(v.expectedIsTestTubeBaby);
 
         checked++;
       }
@@ -87,42 +135,133 @@ function runParitySuite(label: string, filename: string, minCount: number) {
 
     it("breedGenome() wrapper matches the same vectors end to end", () => {
       for (const v of vectors) {
-        const { seed, genome } = breedGenome(
-          v.fatherTokenId,
-          v.motherTokenId,
-          v.breedNonce,
-          v.entropy,
-          v.fatherGenes,
-          v.motherGenes,
+        const result = breedGenome(
+          v.matronCollection,
+          v.matronId,
+          v.sireCollection,
+          v.sireId,
+          v.nonce,
+          v.matronGenes,
+          v.sireGenes,
+          v.matronSex,
+          v.sireSex,
         );
-        expect(seed.toString()).toBe(v.expectedSeed);
-        expect([...genome]).toEqual(v.expectedGenome);
+        expect(result.seed.toString()).toBe(v.expectedSeed);
+        expect([...result.genome]).toEqual(v.expectedGenome);
+        expect(result.babyIsMale).toBe(v.expectedBabyIsMale);
+        expect(result.isTestTubeBaby).toBe(v.expectedIsTestTubeBaby);
       }
     });
   });
 }
 
-// Primary fixture: >= 500 vectors per spec.
-runParitySuite("primary fixture", "test-vectors.json", 500);
+// Primary fixture (contracts/test/GenerateTestVectors.t.sol reconciliation
+// fuzz): >= 500 genetics / >= 100 fee vectors per adversarial review's
+// floor assertions (`assertGe(genetics.length, 500)`,
+// `assertGe(fees.length, 100)`).
+runGeneticsSuite("primary fixture", "test-vectors.json", 500);
 
-// Secondary, independently-formulated fixture: >= 100 vectors per spec.
-// Combined with the primary fixture this exceeds the 600+ combined floor.
-runParitySuite("fresh/staleness-guard fixture", "test-vectors-fresh.json", 100);
+// Secondary, independently-formulated fixture
+// (GenerateFreshTestVectors.t.sol): >= 100 genetics / >= 40 fee vectors per
+// the same review's floor (`assertGe(genetics.length, 100)`,
+// `assertGe(fees.length, 40)`).
+runGeneticsSuite(
+  "fresh/staleness-guard fixture",
+  "test-vectors-fresh.json",
+  100,
+);
 
 describe("combined vector coverage", () => {
-  it("primary + fresh fixtures together cover 600+ vectors", () => {
-    const primary = loadVectors("test-vectors.json");
-    const fresh = loadVectors("test-vectors-fresh.json");
-    expect(primary.length + fresh.length).toBeGreaterThanOrEqual(600);
+  it("primary + fresh fixtures together cover 600+ genetics vectors", () => {
+    const primary = loadVectorFile("test-vectors.json");
+    const fresh = loadVectorFile("test-vectors-fresh.json");
+    expect(
+      primary.genetics.length + fresh.genetics.length,
+    ).toBeGreaterThanOrEqual(600);
   });
 });
 
+// ---------------------------------------------------------------------------
+// Fee vectors - BreedingController's birth-fee / siring-fee split math
+// (_collectBirthFee / _collectSiringFee) has no dedicated TS port (lib/
+// breedingController.ts's fee-preview helper is the caller-facing surface),
+// but this suite proves the exact bps/rounding arithmetic those vectors
+// assert against is understood and reproducible in TS, independent of
+// whatever helper breedingController.test.ts exercises directly.
+// ---------------------------------------------------------------------------
+function computeFeePreview(v: FeeVector): {
+  birthFeePaid: bigint;
+  sireOwnerAmount: bigint;
+  burnAmount: bigint;
+  multisigAmount: bigint;
+  totalCallerDebit: bigint;
+} {
+  const birthFee = BigInt(v.birthFee);
+  const multiplier = BigInt(v.sameSexFeeMultiplier);
+  const listedFee = BigInt(v.listedFee);
+
+  const birthFeePaid = v.sameSex ? birthFee * multiplier : birthFee;
+
+  // Self-siring or an unlisted/free-borrowed sire never pays a siring fee
+  // or its protocol cut - only a borrowed, non-self sire does
+  // (BreedingController.breed()'s `if (!sireCallerOwned)` gate).
+  const paysSiringFee = !v.selfSiring;
+  const sireOwnerAmount = paysSiringFee ? listedFee : 0n;
+  // Independent floor division per component (5% burn, 3% multisig) -
+  // matches _collectSiringFee exactly, NOT `listedFee * 800n / 10000n`
+  // computed once (see BreedingController.sol's _collectSiringFee doc
+  // comment on why the two differ by up to 1 wei).
+  const burnAmount = paysSiringFee ? (listedFee * 500n) / 10000n : 0n;
+  const multisigAmount = paysSiringFee ? (listedFee * 300n) / 10000n : 0n;
+
+  const totalCallerDebit =
+    birthFeePaid + sireOwnerAmount + burnAmount + multisigAmount;
+  return {
+    birthFeePaid,
+    sireOwnerAmount,
+    burnAmount,
+    multisigAmount,
+    totalCallerDebit,
+  };
+}
+
+function runFeeSuite(label: string, filename: string, minCount: number) {
+  describe(`${label} fees (${filename})`, () => {
+    const { fees: vectors } = loadVectorFile(filename);
+
+    it(`loads at least ${minCount} fee vectors`, () => {
+      expect(vectors.length).toBeGreaterThanOrEqual(minCount);
+    });
+
+    it("matches every expected*Amount/expectedTotalCallerDebit field exactly", () => {
+      for (const v of vectors) {
+        const result = computeFeePreview(v);
+        expect(result.birthFeePaid.toString()).toBe(v.expectedBirthFeePaid);
+        expect(result.sireOwnerAmount.toString()).toBe(
+          v.expectedSireOwnerAmount,
+        );
+        expect(result.burnAmount.toString()).toBe(v.expectedBurnAmount);
+        expect(result.multisigAmount.toString()).toBe(v.expectedMultisigAmount);
+        expect(result.totalCallerDebit.toString()).toBe(
+          v.expectedTotalCallerDebit,
+        );
+      }
+    });
+  });
+}
+
+runFeeSuite("primary fixture", "test-vectors.json", 100);
+runFeeSuite("fresh/staleness-guard fixture", "test-vectors-fresh.json", 40);
+
 describe("byte-level API surface", () => {
+  const COLLECTION_A = "0x1111111111111111111111111111111111111111";
+  const COLLECTION_B = "0x2222222222222222222222222222222222222222";
+
   it("resolveGenome always returns exactly GENE_SLOTS values", () => {
-    const father = [1, 2, 3, 4, 5];
-    const mother = [250, 251, 252, 253, 254];
-    const seed = breedingSeed(1, 2, 0, `0x${"ab".repeat(32)}`);
-    const genome: Genome = resolveGenome(father, mother, seed);
+    const matron = [1, 2, 3, 4, 5];
+    const sire = [250, 251, 252, 253, 254];
+    const seed = breedingSeed(COLLECTION_A, 1, COLLECTION_B, 2, 0);
+    const genome: Genome = resolveGenome(matron, sire, seed);
     expect(genome.length).toBe(GENE_SLOTS);
     genome.forEach((g) => {
       expect(Number.isInteger(g)).toBe(true);
@@ -132,9 +271,8 @@ describe("byte-level API surface", () => {
   });
 
   it("is deterministic: same inputs always produce the same seed and genome", () => {
-    const entropy = `0x${"cd".repeat(32)}`;
-    const seedA = breedingSeed(42, 7, 3, entropy);
-    const seedB = breedingSeed(42, 7, 3, entropy);
+    const seedA = breedingSeed(COLLECTION_A, 42, COLLECTION_B, 7, 3);
+    const seedB = breedingSeed(COLLECTION_A, 42, COLLECTION_B, 7, 3);
     expect(seedA).toBe(seedB);
 
     const genomeA = resolveGenome([1, 2, 3, 4, 5], [6, 7, 8, 9, 10], seedA);
@@ -142,21 +280,20 @@ describe("byte-level API surface", () => {
     expect(genomeA).toEqual(genomeB);
   });
 
-  it("different breedNonce changes the seed (entropy held constant)", () => {
-    const entropy = `0x${"ef".repeat(32)}`;
-    const seedA = breedingSeed(1, 2, 0, entropy);
-    const seedB = breedingSeed(1, 2, 1, entropy);
+  it("different nonce changes the seed (everything else held constant)", () => {
+    const seedA = breedingSeed(COLLECTION_A, 1, COLLECTION_B, 2, 0);
+    const seedB = breedingSeed(COLLECTION_A, 1, COLLECTION_B, 2, 1);
     expect(seedA).not.toBe(seedB);
   });
 
-  it("different entropy changes the seed (breedNonce held constant) - the whole point of the commit/reveal fix", () => {
-    const seedA = breedingSeed(1, 2, 3, `0x${"01".repeat(32)}`);
-    const seedB = breedingSeed(1, 2, 3, `0x${"02".repeat(32)}`);
+  it("different collection address changes the seed (ids/nonce held constant) - proves collection-aware seeding", () => {
+    const seedA = breedingSeed(COLLECTION_A, 1, COLLECTION_B, 2, 0);
+    const seedB = breedingSeed(COLLECTION_B, 1, COLLECTION_B, 2, 0);
     expect(seedA).not.toBe(seedB);
   });
 
   it("inheritLocus never returns an out-of-uint8-range value across a wide offset sweep", () => {
-    const seed = breedingSeed(9, 99, 999, `0x${"11".repeat(32)}`);
+    const seed = breedingSeed(COLLECTION_A, 9, COLLECTION_B, 99, 999);
     for (let offset = 0; offset < 64; offset++) {
       const val = inheritLocus(10, 240, seed, offset);
       expect(Number.isInteger(val)).toBe(true);
@@ -166,10 +303,16 @@ describe("byte-level API surface", () => {
   });
 
   it("locusSeedFor is the raw per-locus hash inheritLocus derives its decision from", () => {
-    const seed = breedingSeed(1, 1, 1, `0x${"33".repeat(32)}`);
+    const seed = breedingSeed(COLLECTION_A, 1, COLLECTION_B, 1, 1);
     const ls = locusSeedFor(seed, 0n);
     expect(typeof ls).toBe("bigint");
     expect(ls).toBeGreaterThanOrEqual(0n);
+  });
+
+  it("resolveBabyIsMale is a stable, deterministic function of the seed alone", () => {
+    const seed = breedingSeed(COLLECTION_A, 5, COLLECTION_B, 6, 2);
+    expect(resolveBabyIsMale(seed)).toBe(resolveBabyIsMale(seed));
+    expect(typeof resolveBabyIsMale(seed)).toBe("boolean");
   });
 
   it("assertGenome rejects a wrong-length array", () => {
@@ -181,8 +324,9 @@ describe("byte-level API surface", () => {
     expect(() => assertGenome([1, 2, 3, 4, -1])).toThrow();
   });
 
-  it("breedingSeed rejects a malformed entropy value", () => {
-    expect(() => breedingSeed(1, 2, 3, "not-a-hash")).toThrow();
-    expect(() => breedingSeed(1, 2, 3, "0x1234")).toThrow();
+  it("breedingSeed rejects a malformed collection address", () => {
+    expect(() =>
+      breedingSeed("not-an-address", 1, COLLECTION_B, 2, 0),
+    ).toThrow();
   });
 });

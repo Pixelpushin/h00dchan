@@ -1,36 +1,39 @@
 // Single offspring detail page - server component, reads live chain state
-// (genome/seed off HoodchanBabies, parents off the historical Bred event -
-// there is no parentsOf() getter on the real contract, see
+// (genome/seed/sex off HoodchanBabies, parents off the historical Bred
+// event - there is no parentsOf() getter on the real contract, see
 // lib/breedingController.ts:readBredEventForBaby) plus the persisted
 // breeding record (lib/breedingStore.ts, for the image).
 //
 // Genome verification: recomputes the genome LOCALLY from both parents'
-// CURRENT live genes (father via BreedingController.hoodchanGenes, mother
-// via HoodchanGirlfriends.genesOf) and the emitted seed
-// (lib/breedingGenetics.ts's resolveGenome - the exact, parity-proven port
-// of contracts/src/GeneticsLib.sol), then compares that against the
-// on-chain genome via genomesEqual (a real byte-array comparison, not the
-// structurally-always-mismatching hash-vs-uint256 check an earlier attempt
-// shipped). A mismatch is a HARD ERROR - thrown, rendered as a real error
-// page - never a console.error that lets a wrong genome render as if it
-// were fine. NOTE: this recompute uses each parent's CURRENT genes, so a
-// father's genes changing via a later setHoodchanGenes re-sync would make
-// an old baby's genome "unverifiable" against ITS breed-time inputs even
-// though nothing is actually wrong - an inherent limitation of not storing
-// each parent's genes-at-breed-time on-chain, not a bug in this check.
+// CURRENT live genes (any of the three allowlisted collections - see
+// readParentGenes below) and the emitted seed (lib/breedingGenetics.ts's
+// resolveGenome - the exact, parity-proven port of
+// contracts/src/GeneticsLib.sol), then compares that against the on-chain
+// genome via genomesEqual (a real byte-array comparison). A mismatch is a
+// HARD ERROR - thrown, rendered as a real error page - never silently
+// rendered as if it were fine. NOTE: this recompute uses each parent's
+// CURRENT genes, so a HOODCHAN parent's genes changing via a later
+// setHoodchanGenes re-sync would make an old baby's genome "unverifiable"
+// against ITS breed-time inputs even though nothing is actually wrong - an
+// inherent limitation of not storing each parent's genes-at-breed-time
+// on-chain, not a bug in this check.
 import { ConfigPendingNotice } from "@/app/components/ConfigPendingNotice";
-import { getContractStatus } from "@/lib/config";
-import { readGenomeOf, readBreedingSeedOf } from "@/lib/babies";
+import {
+  getContractStatus,
+  HOODCHAN_CONTRACT,
+  GIRLFRIENDS_CONTRACT,
+  BABIES_CONTRACT,
+} from "@/lib/config";
+import {
+  readGenesOf as readBabyGenesOf,
+  readBreedingSeedOf,
+} from "@/lib/babies";
 import {
   readBredEventForBaby,
   readHoodchanGenes,
 } from "@/lib/breedingController";
 import { fetchHoodchanMetadata } from "@/lib/hoodchan";
-import {
-  readGirlfriendGenesOf,
-  requireGirlfriendsContract,
-} from "@/lib/girlfriends";
-import { fetchTokenMetadata } from "@/lib/chain";
+import { readGirlfriendGenesOf } from "@/lib/girlfriends";
 import { resolveGenome, genomesEqual } from "@/lib/breedingGenetics";
 import {
   resolveGenomeNames,
@@ -45,13 +48,57 @@ export const dynamic = "force-dynamic";
 
 interface LoadedBaby {
   tokenId: string;
-  fatherId: string;
-  motherId: string;
-  fatherName: string;
-  motherName: string;
+  matronCollection: string;
+  matronId: string;
+  sireCollection: string;
+  sireId: string;
+  matronName: string;
+  sireName: string;
+  babyIsMale: boolean;
+  isTestTubeBaby: boolean;
   resolvedSlots: ResolvedGenomeSlot[];
   verified: boolean;
   record: BreedingRecord | null;
+}
+
+// Any of the three allowlisted collections can fill either parent role
+// (see the design spec's "Collections and the breedable allowlist"
+// section) - branch on which one this parent came from to read its genes
+// the right way (HOODCHAN via the controller's synced adapter mapping,
+// Girlfriends/Babies live off their own contracts).
+async function readParentGenes(
+  collection: string,
+  tokenId: string,
+): Promise<number[]> {
+  if (collection.toLowerCase() === HOODCHAN_CONTRACT.toLowerCase()) {
+    return readHoodchanGenes(tokenId);
+  }
+  if (
+    GIRLFRIENDS_CONTRACT &&
+    collection.toLowerCase() === GIRLFRIENDS_CONTRACT.toLowerCase()
+  ) {
+    return readGirlfriendGenesOf(tokenId);
+  }
+  if (
+    BABIES_CONTRACT &&
+    collection.toLowerCase() === BABIES_CONTRACT.toLowerCase()
+  ) {
+    return readBabyGenesOf(tokenId);
+  }
+  throw new Error(`Unrecognized parent collection: ${collection}`);
+}
+
+async function readParentDisplayName(
+  collection: string,
+  tokenId: string,
+): Promise<string> {
+  if (collection.toLowerCase() === HOODCHAN_CONTRACT.toLowerCase()) {
+    return (
+      (await fetchHoodchanMetadata(tokenId).catch(() => null))?.name ??
+      `Anon #${tokenId}`
+    );
+  }
+  return `${collection.slice(0, 6)}…#${tokenId}`;
 }
 
 // All chain/store reads happen here, outside any JSX construction.
@@ -60,7 +107,7 @@ async function loadBaby(
 ): Promise<{ data: LoadedBaby | null; error: string | null }> {
   try {
     const [genome, seed, bred, record] = await Promise.all([
-      readGenomeOf(tokenId),
+      readBabyGenesOf(tokenId),
       readBreedingSeedOf(tokenId),
       readBredEventForBaby(tokenId),
       getBreedingRecordUnbound(tokenId),
@@ -72,25 +119,19 @@ async function loadBaby(
       );
     }
 
-    const [fatherMetadata, motherMetadata, fatherGenes, motherGenes] =
-      await Promise.all([
-        fetchHoodchanMetadata(bred.fatherTokenId),
-        fetchTokenMetadata(
-          requireGirlfriendsContract(),
-          bred.motherTokenId,
-          "Girlfriend",
-        ),
-        readHoodchanGenes(bred.fatherTokenId),
-        readGirlfriendGenesOf(bred.motherTokenId),
-      ]);
+    const [matronName, sireName, matronGenes, sireGenes] = await Promise.all([
+      readParentDisplayName(bred.matronCollection, bred.matronId),
+      readParentDisplayName(bred.sireCollection, bred.sireId),
+      readParentGenes(bred.matronCollection, bred.matronId),
+      readParentGenes(bred.sireCollection, bred.sireId),
+    ]);
 
-    const recomputedGenome = resolveGenome(fatherGenes, motherGenes, seed);
+    const recomputedGenome = resolveGenome(matronGenes, sireGenes, seed);
     const verified = genomesEqual(recomputedGenome, genome);
 
-    // HARD ERROR on a real mismatch (not the dead hash-vs-uint256 check an
-    // earlier attempt had) - this is a genuine fairness violation (the
-    // on-chain genome doesn't match what the exact same inputs recompute
-    // to) and must stop the page, not render silently.
+    // HARD ERROR on a real mismatch - this is a genuine fairness violation
+    // (the on-chain genome doesn't match what the exact same inputs
+    // recompute to) and must stop the page, not render silently.
     if (!verified && !genomesEqual(recomputedGenome, bred.genome)) {
       throw new Error(
         `Genome verification failed for baby #${tokenId}: on-chain genome [${genome.join(",")}] does not match the recomputed genome [${recomputedGenome.join(",")}] from the parents' current genes + emitted seed. This is either a bug in the genetics port or evidence of tampering - refusing to render.`,
@@ -100,10 +141,14 @@ async function loadBaby(
     return {
       data: {
         tokenId,
-        fatherId: bred.fatherTokenId,
-        motherId: bred.motherTokenId,
-        fatherName: fatherMetadata.name,
-        motherName: motherMetadata.name,
+        matronCollection: bred.matronCollection,
+        matronId: bred.matronId,
+        sireCollection: bred.sireCollection,
+        sireId: bred.sireId,
+        matronName,
+        sireName,
+        babyIsMale: bred.babyIsMale,
+        isTestTubeBaby: bred.isTestTubeBaby,
         resolvedSlots: resolveGenomeNames(genome),
         verified,
         record,
@@ -147,7 +192,15 @@ export default async function BabyPage({
     );
   }
 
-  const { fatherName, motherName, resolvedSlots, verified, record } = data;
+  const {
+    matronName,
+    sireName,
+    babyIsMale,
+    isTestTubeBaby,
+    resolvedSlots,
+    verified,
+    record,
+  } = data;
 
   return (
     <main className="mx-auto max-w-3xl w-full px-4 py-6 flex flex-col gap-4">
@@ -173,7 +226,11 @@ export default async function BabyPage({
         <div className="flex flex-col gap-2">
           <h1 className="hc-title text-2xl">Offspring #{tokenId}</h1>
           <p className="text-sm">
-            Father: {fatherName} &times; Mother: {motherName}
+            Matron: {matronName} &times; Sire: {sireName}
+          </p>
+          <p className="text-sm">
+            Sex: {babyIsMale ? "Male" : "Female"}
+            {isTestTubeBaby ? " · Test Tube Baby" : ""}
           </p>
           <span
             className="hc-badge"

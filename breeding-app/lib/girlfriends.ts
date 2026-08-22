@@ -1,14 +1,18 @@
 // Girlfriends collection helpers - wallet enumeration (Transfer-log scan,
-// same as HOODCHAN itself - no ERC721Enumerable assumed) plus TBA + nested
-// offspring lookups for app/my/page.tsx ("her own token-bound wallet,
-// enumerate Babies owned by that TBA").
+// same as HOODCHAN itself - no ERC721Enumerable assumed) plus a purely
+// informational nested-offspring lookup for app/my/page.tsx ("her own
+// token-bound wallet, list any Babies someone voluntarily nested inside
+// it"). Nesting is no longer part of the breed flow at all (see the design
+// spec's "Explicitly cut from scope": babies always mint straight to the
+// matron's OWNER wallet now, never into a TBA) - a Girlfriend's TBA is
+// just an optional destination an owner can voluntarily move an
+// already-minted baby into afterward, for the parent app's existing
+// lib/leveling.ts XP. There is no cap on this anymore (the v1 NESTED_CAP/
+// MAX_NESTED_OFFSPRING gating mechanic is dead, not just moved) - display
+// only, never a gate on anything breeding-related.
 import { Interface } from "ethers";
 import { HoodchanGirlfriendsAbi } from "@/lib/abi/HoodchanGirlfriends";
-import {
-  GIRLFRIENDS_CONTRACT,
-  BABIES_CONTRACT,
-  MAX_NESTED_OFFSPRING,
-} from "@/lib/config";
+import { GIRLFRIENDS_CONTRACT, BABIES_CONTRACT } from "@/lib/config";
 import { fetchWalletTokensOnChain, ethCall } from "@/lib/chain";
 import { computeTbaAddress } from "@/lib/tba";
 
@@ -47,14 +51,14 @@ export interface GirlfriendWithNested {
   tokenId: string;
   tbaAddress: string;
   nestedBabyIds: string[];
-  atCap: boolean;
 }
 
 // For each owned Girlfriend, computes her TBA and enumerates any Babies
 // currently nested inside it (Transfer-log scan against the Babies
-// contract, owner = the mother's TBA address) - mirrors the parent app's
-// nested-holding pattern exactly (lib/collectionSnapshot.ts's
-// nestedHoldingCount), just reused for a different pair of contracts.
+// contract, owner = the mother's TBA address) - purely informational (see
+// this file's header): nesting is a voluntary post-breed action an owner
+// can take, not a breeding-flow gate, so there is no cap/atCap field here
+// anymore.
 export async function fetchGirlfriendsWithNestedBabies(
   address: string,
 ): Promise<GirlfriendWithNested[]> {
@@ -65,7 +69,6 @@ export async function fetchGirlfriendsWithNestedBabies(
       tokenId,
       tbaAddress: "",
       nestedBabyIds: [],
-      atCap: false,
     }));
   }
   return Promise.all(
@@ -82,7 +85,6 @@ export async function fetchGirlfriendsWithNestedBabies(
         tokenId,
         tbaAddress,
         nestedBabyIds,
-        atCap: nestedBabyIds.length >= MAX_NESTED_OFFSPRING,
       };
     }),
   );

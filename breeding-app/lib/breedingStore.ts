@@ -37,13 +37,25 @@ export interface BreedingRecordSlot {
   name: string;
 }
 
+// Matron/sire-symmetric - either parent can be from any of the three
+// allowlisted collections (see the design spec's "Collections and the
+// breedable allowlist" section), so a parent reference is always a
+// (collection, id) pair, never a bare tokenId. Models the v2 flow's single
+// breed() tx (genome/sex/isTestTubeBaby all final at mint time) plus a
+// PENDING-ART phase (imageUrl/prompt filled in asynchronously by
+// app/api/breed/[txHash]/route.ts after the tx lands - see this file's
+// header) rather than the superseded v1 flow's two on-chain steps.
 export interface BreedingRecord {
   babyId: string;
-  fatherId: string;
-  motherId: string;
+  matronCollection: string;
+  matronId: string;
+  sireCollection: string;
+  sireId: string;
   seed: string; // stringified bigint
   genome: number[];
   slots: BreedingRecordSlot[];
+  babyIsMale: boolean;
+  isTestTubeBaby: boolean;
   imageUrl: string;
   prompt: string;
   createdAt: string;
@@ -103,9 +115,9 @@ export async function getBreedingRecord(
 // Unbound read for display-only paths that already trust the babyId itself
 // came from a live chain read (e.g. app/baby/[tokenId]/page.tsx, which only
 // ever reaches this store after independently confirming the token exists
-// via HoodchanBabies.genomeOf - there is no "guess a future babyId" attack
+// via HoodchanBabies.genesOf - there is no "guess a future babyId" attack
 // surface there the way there is for the breed-polling route, since a
-// genomeOf() call for a token that hasn't minted yet simply reverts).
+// genesOf() call for a token that hasn't minted yet simply reverts).
 export async function getBreedingRecordUnbound(
   babyId: string,
 ): Promise<BreedingRecord | null> {

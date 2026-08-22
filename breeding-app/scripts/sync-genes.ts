@@ -1,29 +1,34 @@
 #!/usr/bin/env -S npx tsx
 // The off-chain HOODCHAN metadata-sync script. contracts/script/Deploy.s.sol
-// itself says (see its "After deploy" prerequisite #4): "run the off-chain
-// HOODCHAN metadata-sync script (not yet written - out of scope for this
-// contracts package)". This is that script. Without it,
-// BreedingController.breed()/commitBreed() revert GenesNotSet() for every
-// real HOODCHAN father, forever - hoodchanGenesSet[tokenId] only ever
+// itself says (see its "After deploy" prerequisite #5): "run the off-chain
+// HOODCHAN gene-sync script ... before any breed() call". This is that
+// script. Without it, BreedingController.breed() reverts GenesNotSet() for
+// every real HOODCHAN parent, forever - hoodchanGenesSet[tokenId] only ever
 // becomes true via setHoodchanGenes(Batch), and nothing else in this repo
-// calls those functions.
+// calls that function.
 //
 // What it does, per HOODCHAN token:
 //   1. Reads tokenURI live (lib/chain.ts, raw fetch, no SDK) and parses its
 //      attributes.
 //   2. Maps Hats/Faces/Bodies/Backgrounds/Extra through
 //      lib/traitRegistry.ts's COMBINED_VALUE_INDEX into a uint8[5] genome -
-//      see that file's header for why the NUMBERING is genetics-load-bearing,
-//      not just a lookup convenience.
-//   3. Detects `STATUS: "Upgraded"` directly off the same tokenURI fetch
-//      (verified live 2026-08-22 to actually be present there for the three
-//      known-Upgraded anchor tokens - see lib/openseaToken.ts's header for
-//      the full story of why this differs from the original design spec's
-//      "OpenSea-only" assumption). --check-opensea cross-checks via OpenSea's
-//      per-token API as a secondary signal, off by default.
-//   4. Batches results into setHoodchanGenesBatch / setUpgradedAllowlistBatch
-//      calldata (lib/breedingController.ts's builders - the real ABI, not
-//      hand-guessed function names).
+//      see that file's header for why the NUMBERING is genetics-load-bearing
+//      (the reserved 248..255 band, not the ascending-rarity ORDERING,
+//      which the v2 design's coin-flip genetics made non-load-bearing - see
+//      the design spec's "Trait registry" section), not just a lookup
+//      convenience.
+//   3. Batches results into setHoodchanGenesBatch calldata
+//      (lib/breedingController.ts's builder - the real ABI, not a
+//      hand-guessed function name).
+//
+// STATUS:"Upgraded" / --check-opensea / lib/openseaToken.ts are REMOVED
+// (not just unused) as of the v2 design spec: that machinery existed only
+// to gate ETH as a second siring-fee currency, and the v1 dual-currency
+// ETH path is cut from scope entirely - CHAN is the ONLY fee currency now
+// (see BreedingController's `chanToken` immutable and lib/config.ts's
+// CHAN_TOKEN_ADDRESS comment). Trait ORDERING (ascending-rarity) is
+// display-only in v2; only the reserved 248..255 mutation/legendary band
+// stays load-bearing (see traitRegistry.ts's LEGENDARY_RESERVED_START).
 //
 // ============================================================================
 // SAFETY - READ BEFORE ADDING --broadcast TO ANY COMMAND LINE
@@ -49,7 +54,6 @@
 //   npx tsx scripts/sync-genes.ts                        # dry run, tokens 1..1200
 //   npx tsx scripts/sync-genes.ts --start 1 --end 50      # dry run, subset
 //   npx tsx scripts/sync-genes.ts --tokens 1,531,777,1067,700  # dry run, explicit list (sample anchors)
-//   npx tsx scripts/sync-genes.ts --check-opensea         # also cross-check STATUS via OpenSea
 //   npx tsx scripts/sync-genes.ts --out data/sync-report.json
 //   SEND_REAL_TX=I_UNDERSTAND_THIS_SENDS_REAL_TRANSACTIONS PRIVATE_KEY=0x... \
 //     npx tsx scripts/sync-genes.ts --broadcast --start 1 --end 50
@@ -63,11 +67,7 @@ import {
   valueToIndex,
   type GeneSlot,
 } from "../lib/traitRegistry";
-import {
-  buildSetHoodchanGenesBatchTx,
-  buildSetUpgradedAllowlistBatchTx,
-} from "../lib/breedingController";
-import { fetchOpenSeaTokenUpgradedStatus } from "../lib/openseaToken";
+import { buildSetHoodchanGenesBatchTx } from "../lib/breedingController";
 import { writeFileSync } from "node:fs";
 
 // ----------------------------------------------------------------------------
@@ -80,7 +80,6 @@ interface Args {
   limit: number | null;
   concurrency: number;
   batchSize: number;
-  checkOpensea: boolean;
   broadcast: boolean;
   outPath: string | null;
 }
@@ -93,7 +92,6 @@ function parseArgs(argv: string[]): Args {
     limit: null,
     concurrency: 8,
     batchSize: 200,
-    checkOpensea: false,
     broadcast: false,
     outPath: null,
   };
@@ -109,7 +107,6 @@ function parseArgs(argv: string[]): Args {
     } else if (a === "--limit") args.limit = Number(argv[++i]);
     else if (a === "--concurrency") args.concurrency = Number(argv[++i]);
     else if (a === "--batch-size") args.batchSize = Number(argv[++i]);
-    else if (a === "--check-opensea") args.checkOpensea = true;
     else if (a === "--broadcast") args.broadcast = true;
     else if (a === "--dry-run")
       args.broadcast = false; // explicit no-op, dry-run is already default
@@ -154,8 +151,6 @@ async function fetchWithRetry(tokenId: number): Promise<TokenMetadata | null> {
 export interface SyncedToken {
   tokenId: number;
   genes: [number, number, number, number, number];
-  upgraded: boolean;
-  upgradedSource: "tokenURI" | "opensea" | "disagreement" | "unknown";
   cosmeticGrillz: string | null;
   legendary: boolean;
   missingSlots: GeneSlot[]; // slots that fell back to NONE_INDEX because the attribute was absent
@@ -177,18 +172,13 @@ function isLegendaryOneOfOne(meta: TokenMetadata): boolean {
   );
 }
 
-async function resolveToken(
-  meta: TokenMetadata,
-  checkOpensea: boolean,
-): Promise<SyncedToken> {
+function resolveToken(meta: TokenMetadata): SyncedToken {
   const tokenId = Number(meta.tokenId);
 
   if (isLegendaryOneOfOne(meta)) {
     return {
       tokenId,
       genes: LEGENDARY_SENTINEL_GENES,
-      upgraded: false,
-      upgradedSource: "unknown",
       cosmeticGrillz: null,
       legendary: true,
       missingSlots: [],
@@ -206,39 +196,9 @@ async function resolveToken(
 
   const cosmeticGrillz = findAttr(meta, HOODCHAN_COSMETIC_TRAIT_KEY) ?? null;
 
-  // Primary signal: STATUS directly off the same tokenURI fetch we already
-  // paid for (see this file's header - verified live present for #531/
-  // #777/#1067, contra the original "OpenSea-only" assumption).
-  const statusAttr = findAttr(meta, "STATUS");
-  const tokenUriUpgraded = statusAttr?.toLowerCase() === "upgraded";
-
-  const upgraded = tokenUriUpgraded;
-  let upgradedSource: SyncedToken["upgradedSource"] = "tokenURI";
-
-  if (checkOpensea) {
-    const osResult = await fetchOpenSeaTokenUpgradedStatus(
-      HOODCHAN_CONTRACT,
-      tokenId,
-    );
-    if (osResult.ok && osResult.isUpgraded !== null) {
-      if (osResult.isUpgraded !== tokenUriUpgraded) {
-        console.warn(
-          `Token ${tokenId}: tokenURI says upgraded=${tokenUriUpgraded}, OpenSea says upgraded=${osResult.isUpgraded} - DISAGREEMENT, defaulting to tokenURI (see lib/openseaToken.ts header) but flagging for manual review.`,
-        );
-        upgradedSource = "disagreement";
-      }
-      // tokenURI stays authoritative even on disagreement (see module
-      // header rationale) - OpenSea is a cross-check, not an override.
-    } else if (!osResult.ok) {
-      upgradedSource = tokenUriUpgraded ? "tokenURI" : "unknown";
-    }
-  }
-
   return {
     tokenId,
     genes,
-    upgraded,
-    upgradedSource,
     cosmeticGrillz,
     legendary: false,
     missingSlots,
@@ -304,8 +264,7 @@ async function main() {
 
   console.log(
     `${willBroadcast ? "BROADCAST" : "DRY RUN"} - syncing ${targetIds.length} HOODCHAN token(s) ` +
-      `(${targetIds[0]}..${targetIds[targetIds.length - 1]}) against ${HOODCHAN_CONTRACT}` +
-      `${args.checkOpensea ? " [with OpenSea cross-check]" : ""}`,
+      `(${targetIds[0]}..${targetIds[targetIds.length - 1]}) against ${HOODCHAN_CONTRACT}`,
   );
 
   const results: SyncedToken[] = [];
@@ -315,7 +274,7 @@ async function main() {
     for (let i = 0; i < batch.length; i++) {
       const meta = metas[i];
       if (!meta) continue;
-      results.push(await resolveToken(meta, args.checkOpensea));
+      results.push(resolveToken(meta));
     }
     done += batch.length;
     process.stdout.write(
@@ -325,14 +284,12 @@ async function main() {
   process.stdout.write("\n");
 
   const legendaries = results.filter((r) => r.legendary);
-  const upgraded = results.filter((r) => r.upgraded);
   const withMissingSlots = results.filter((r) => r.missingSlots.length > 0);
 
   console.log(`\nResolved ${results.length}/${targetIds.length} tokens.`);
   console.log(
     `  Legendary 1/1 (sentinel genes, needs manual review): ${legendaries.length}`,
   );
-  console.log(`  Upgraded (STATUS present): ${upgraded.length}`);
   console.log(
     `  Tokens with >=1 missing slot (fell back to NONE_INDEX=0): ${withMissingSlots.length}`,
   );
@@ -348,8 +305,8 @@ async function main() {
       .map((a) => `${a.trait_type}=${a.value}`)
       .join(", ");
     console.log(
-      `  #${r.tokenId}: genes=[${r.genes.join(",")}] upgraded=${r.upgraded}(${r.upgradedSource}) ` +
-        `legendary=${r.legendary} grillz=${r.cosmeticGrillz ?? "-"} | ${names}`,
+      `  #${r.tokenId}: genes=[${r.genes.join(",")}] legendary=${r.legendary} ` +
+        `grillz=${r.cosmeticGrillz ?? "-"} | ${names}`,
     );
   }
 
@@ -367,12 +324,9 @@ async function main() {
     results.map((r) => ({ tokenId: r.tokenId, genes: r.genes })),
     args.batchSize,
   );
-  const upgradedIds = upgraded.map((r) => r.tokenId);
-  const upgradedBatches = chunk(upgradedIds, args.batchSize);
 
   console.log(
-    `\nWould send ${geneBatches.length} setHoodchanGenesBatch call(s) (batch size <= ${args.batchSize}) ` +
-      `and ${upgradedBatches.length} setUpgradedAllowlistBatch call(s) for ${upgradedIds.length} upgraded token(s).`,
+    `\nWould send ${geneBatches.length} setHoodchanGenesBatch call(s) (batch size <= ${args.batchSize}).`,
   );
 
   const report = {
@@ -381,13 +335,10 @@ async function main() {
     contract: HOODCHAN_CONTRACT,
     tokenCount: results.length,
     legendaryCount: legendaries.length,
-    upgradedCount: upgraded.length,
     missingSlotCount: withMissingSlots.length,
     tokens: results.map((r) => ({
       tokenId: r.tokenId,
       genes: r.genes,
-      upgraded: r.upgraded,
-      upgradedSource: r.upgradedSource,
       legendary: r.legendary,
       cosmeticGrillz: r.cosmeticGrillz,
       missingSlots: r.missingSlots,
@@ -419,14 +370,6 @@ async function main() {
     const response = await signer.sendTransaction(tx);
     console.log(
       `setHoodchanGenesBatch [${i + 1}/${geneBatches.length}] -> ${response.hash}`,
-    );
-    await response.wait();
-  }
-  for (const [i, batch] of upgradedBatches.entries()) {
-    const tx = buildSetUpgradedAllowlistBatchTx(batch, true);
-    const response = await signer.sendTransaction(tx);
-    console.log(
-      `setUpgradedAllowlistBatch [${i + 1}/${upgradedBatches.length}] -> ${response.hash}`,
     );
     await response.wait();
   }

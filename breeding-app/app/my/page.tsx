@@ -10,25 +10,23 @@ import {
   sendTransaction,
 } from "@/lib/wallet";
 import {
-  buildSetSiringPriceTx,
-  buildDelistSiringTx,
+  buildListSiringTx,
+  buildUnlistSiringTx,
 } from "@/lib/breedingController";
-import { BREEDING_CONTROLLER_CONTRACT } from "@/lib/config";
+import { BREEDING_CONTROLLER_CONTRACT, HOODCHAN_CONTRACT } from "@/lib/config";
 
 interface HoodchanRow {
   tokenId: string;
   name: string;
   image: string;
   listed: boolean;
-  chanPrice: string;
-  ethPrice: string;
+  price: string;
 }
 
 interface GirlfriendRow {
   tokenId: string;
   tbaAddress: string;
   nestedBabyIds: string[];
-  atCap: boolean;
 }
 
 interface MyData {
@@ -36,7 +34,6 @@ interface MyData {
   girlfriends: GirlfriendRow[];
   girlfriendsPending: boolean;
   breedingControllerPending: boolean;
-  maxNestedOffspring: number;
   error?: string;
 }
 
@@ -47,8 +44,7 @@ function ListingEditor({
   hoodchan: HoodchanRow;
   onSaved: () => void;
 }) {
-  const [chan, setChan] = useState(formatUnits(hoodchan.chanPrice, 18));
-  const [eth, setEth] = useState(formatUnits(hoodchan.ethPrice, 18));
+  const [price, setPrice] = useState(formatUnits(hoodchan.price, 18));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -58,16 +54,14 @@ function ListingEditor({
     setErr(null);
     try {
       const address = await connectWallet();
-      // setSiringPrice(fatherTokenId, chanPrice: uint128, ethPrice: uint128)
-      // - the real on-chain signature (contracts/src/BreedingController.sol).
-      // ETH is stored regardless of Upgraded status; it's only USABLE for a
-      // father whose upgradedAllowlist is true (checked at commitBreed
-      // time), so setting a nonzero ETH price on a non-Upgraded token is
-      // harmless, just unusable until/unless that changes.
-      const tx = buildSetSiringPriceTx(
+      // listSiring(collection, tokenId, price: uint128) - the real
+      // on-chain signature (contracts/src/BreedingController.sol). CHAN is
+      // the only fee currency (see lib/config.ts's CHAN_TOKEN_ADDRESS
+      // comment - the v1 dual-currency ETH path is cut from scope).
+      const tx = buildListSiringTx(
+        HOODCHAN_CONTRACT,
         hoodchan.tokenId,
-        parseUnits(chan || "0", 18),
-        parseUnits(eth || "0", 18),
+        parseUnits(price || "0", 18),
       );
       await sendTransaction(address, tx);
       onSaved();
@@ -84,7 +78,10 @@ function ListingEditor({
     setErr(null);
     try {
       const address = await connectWallet();
-      await sendTransaction(address, buildDelistSiringTx(hoodchan.tokenId));
+      await sendTransaction(
+        address,
+        buildUnlistSiringTx(HOODCHAN_CONTRACT, hoodchan.tokenId),
+      );
       onSaved();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to delist.");
@@ -98,15 +95,9 @@ function ListingEditor({
       <div className="flex gap-1 items-center">
         <input
           className="hc-form-input text-xs w-20"
-          value={chan}
-          onChange={(e) => setChan(e.target.value)}
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
           placeholder="CHAN"
-        />
-        <input
-          className="hc-form-input text-xs w-20"
-          value={eth}
-          onChange={(e) => setEth(e.target.value)}
-          placeholder="ETH (Upgraded only)"
         />
       </div>
       <div className="flex gap-1">
@@ -192,49 +183,31 @@ export default function MyPage() {
         {data && data.girlfriends.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {data.girlfriends.map((g) => (
-              <div
-                key={g.tokenId}
-                className="hc-card"
-                // Real 5-cap enforcement (contracts/src/BreedingController.sol's
-                // NESTED_CAP, checked live at commitBreed AND again at
-                // revealBreed) - a mother at cap can't sire again until a
-                // nested offspring is moved out of her TBA, so this greys
-                // her out here as the same real constraint, not a cosmetic
-                // guess.
-                style={
-                  g.atCap ? { opacity: 0.5, filter: "grayscale(1)" } : undefined
-                }
-              >
+              <div key={g.tokenId} className="hc-card">
                 <div className="hc-card-body">
                   <span className="font-bold text-sm">
                     Girlfriend #{g.tokenId}
                   </span>
-                  <span
-                    className="hc-badge"
-                    style={
-                      g.atCap
-                        ? {
-                            color: "var(--hc-urgent)",
-                            borderColor: "var(--hc-urgent)",
-                          }
-                        : undefined
-                    }
-                  >
-                    {g.nestedBabyIds.length}/{data.maxNestedOffspring} nested
-                    {g.atCap ? " - full" : ""}
-                  </span>
+                  {/* Purely informational - nesting is no longer a
+                      breeding-flow gate (see lib/girlfriends.ts's header:
+                      the v1 NESTED_CAP mechanic is dead, not just moved). */}
                   {g.nestedBabyIds.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {g.nestedBabyIds.map((babyId) => (
-                        <Link
-                          key={babyId}
-                          href={`/baby/${babyId}`}
-                          className="hc-link text-xs"
-                        >
-                          #{babyId}
-                        </Link>
-                      ))}
-                    </div>
+                    <>
+                      <span className="hc-badge">
+                        {g.nestedBabyIds.length} nested
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {g.nestedBabyIds.map((babyId) => (
+                          <Link
+                            key={babyId}
+                            href={`/baby/${babyId}`}
+                            className="hc-link text-xs"
+                          >
+                            #{babyId}
+                          </Link>
+                        ))}
+                      </div>
+                    </>
                   )}
                 </div>
               </div>

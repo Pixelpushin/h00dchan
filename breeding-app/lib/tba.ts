@@ -131,11 +131,14 @@ export function buildSendTokenTx(
   };
 }
 
-// Same idea, but for an NFT (ERC-721) the TBA holds - including a baby
-// minted into a mother's TBA (see the design spec's breeding flow: babies
-// mint directly into the mother's TBA, nested). `from` is the TBA itself,
-// not the caller's own EOA - the TBA holds the NFT, the connected wallet
-// is just the one authorized to tell it to move.
+// Same idea, but for an NFT (ERC-721) the TBA holds - including a baby an
+// owner voluntarily moved into a Girlfriend's TBA AFTER breeding (see the
+// design spec's "Explicitly cut from scope": babies always mint straight
+// to the matron's OWNER wallet now, never into a TBA - nesting is a
+// separate, optional action for the parent app's existing
+// lib/leveling.ts XP, not part of the breed flow itself). `from` is the
+// TBA itself, not the caller's own EOA - the TBA holds the NFT, the
+// connected wallet is just the one authorized to tell it to move.
 export function buildSendNftTx(
   tbaAddress: string,
   nftContractAddress: string,

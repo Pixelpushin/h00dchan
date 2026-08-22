@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { Interface } from "ethers";
-import { getContractStatus, BREEDING_CONTROLLER_CONTRACT } from "@/lib/config";
+import {
+  getContractStatus,
+  BREEDING_CONTROLLER_CONTRACT,
+  HOODCHAN_CONTRACT,
+} from "@/lib/config";
 import { BreedingControllerAbi } from "@/lib/abi/BreedingController";
 import { readSiringListing } from "@/lib/breedingController";
-import { fetchHoodchanMetadata, isUpgraded } from "@/lib/hoodchan";
-import { readUpgradedAllowlist } from "@/lib/breedingController";
+import { fetchHoodchanMetadata } from "@/lib/hoodchan";
 import { rpcCall } from "@/lib/chain";
 
 // Reads live chain state on every request - siring listings and prices can
@@ -20,10 +23,9 @@ if (!siringListedFragment) {
 const SIRING_LISTED_TOPIC0 = siringListedFragment.topicHash;
 
 export interface ListingResponse {
-  hoodchanId: string;
-  chanPrice: string;
-  ethPrice: string;
-  ethEligible: boolean;
+  collection: string;
+  tokenId: string;
+  price: string;
   name: string;
   image: string;
 }
@@ -33,27 +35,25 @@ interface RawLog {
 }
 
 // ENUMERATION TRADEOFF (documented per the task spec - there is no on-chain
-// enumerator; `siringListings` is a plain per-tokenId mapping getter):
+// enumerator; `siringListings` is a plain per-(collection,tokenId) mapping
+// getter):
 //
 // This route indexes `SiringListed` via `eth_getLogs` (candidate discovery
-// - every fatherTokenId that has EVER been listed, cheap: one log query
-// covering the contract's whole history) and then does a LIVE
-// `siringListings(id)` eth_call per candidate (authoritative current state -
-// a delist or a price change is only visible via a fresh read, never
-// trusted from the log itself). This is deliberately NOT a pure log-replay
-// (which would require correctly ordering SiringListed/SiringDelisted by
-// (blockNumber, logIndex) and would still only be as fresh as the RPC's
-// log retention) and NOT a brute-force `siringListings(1..~1200)` mapping
-// scan over the whole HOODCHAN supply (which is correct and enumerator-free
-// but wastes ~1200 eth_calls on tokens that were never listed at all).
-// Concretely: O(historicalListers) eth_calls instead of O(totalSupply) or
-// O(1)-but-log-retention-dependent. Tradeoff accepted: if an RPC provider
-// prunes logs older than some window, a father listed only once, long ago,
-// and never touched since could be missed - re-listing (even to the same
-// price) refreshes discoverability.
-async function discoverCandidateFatherIds(
+// - every (collection, tokenId) that has EVER been listed, cheap: one log
+// query covering the contract's whole history) and then does a LIVE
+// `siringListings(collection, tokenId)` eth_call per candidate
+// (authoritative current state - a delist, price change, or STALE listing
+// from a since-transferred token is only visible via a fresh read, never
+// trusted from the log itself - see BreedingController.SiringListing's own
+// doc comment on why `lister !== ownerOf` must invalidate a stale
+// listing). This is deliberately NOT a pure log-replay and NOT a
+// brute-force per-collection tokenId scan over the whole supply. Tradeoff
+// accepted: if an RPC provider prunes logs older than some window, a
+// token listed only once, long ago, and never touched since could be
+// missed - re-listing (even to the same price) refreshes discoverability.
+async function discoverCandidateListings(
   controllerAddress: string,
-): Promise<string[]> {
+): Promise<Array<{ collection: string; tokenId: string }>> {
   const logs = await rpcCall<RawLog[]>("eth_getLogs", [
     {
       address: controllerAddress,
@@ -62,15 +62,36 @@ async function discoverCandidateFatherIds(
       topics: [SIRING_LISTED_TOPIC0],
     },
   ]);
-  const ids = new Set<string>();
+  const seen = new Set<string>();
+  const out: Array<{ collection: string; tokenId: string }> = [];
   for (const log of logs) {
-    // fatherTokenId is topics[1] (indexed) - decode straight off the topic
-    // rather than full log decoding, same convention as
-    // lib/breedingController.ts:readBredEventForBaby.
-    const topic = log.topics[1];
-    if (topic) ids.add(BigInt(topic).toString());
+    // `collection` is topics[1], `tokenId` is topics[2] (both indexed) -
+    // decode straight off the topics rather than full log decoding, same
+    // convention as lib/breedingController.ts:readBredEventForBaby.
+    const collectionTopic = log.topics[1];
+    const tokenIdTopic = log.topics[2];
+    if (!collectionTopic || !tokenIdTopic) continue;
+    const collection = `0x${collectionTopic.slice(-40)}`;
+    const tokenId = BigInt(tokenIdTopic).toString();
+    const key = `${collection.toLowerCase()}:${tokenId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ collection, tokenId });
   }
-  return [...ids];
+  return out;
+}
+
+// UI-WAVE TODO: this only resolves display name/image for HOODCHAN
+// candidates today - Girlfriends/Babies metadata resolution (their own
+// name/image sources, not HOODCHAN's tokenURI) is out of scope for this
+// mechanical fixup and belongs to the app/ UI rewrite wave.
+async function resolveDisplay(
+  collection: string,
+): Promise<{ name: string; image: string } | null> {
+  if (collection.toLowerCase() !== HOODCHAN_CONTRACT.toLowerCase()) {
+    return null;
+  }
+  return null; // filled in per-candidate below via fetchHoodchanMetadata
 }
 
 export async function GET() {
@@ -81,36 +102,41 @@ export async function GET() {
 
   try {
     const controllerAddress = BREEDING_CONTROLLER_CONTRACT as string;
-    const candidateIds = await discoverCandidateFatherIds(controllerAddress);
+    const candidates = await discoverCandidateListings(controllerAddress);
 
     const enriched = await Promise.all(
-      candidateIds.map(async (hoodchanId): Promise<ListingResponse | null> => {
-        try {
-          const [listing, upgraded, metadata] = await Promise.all([
-            readSiringListing(hoodchanId),
-            readUpgradedAllowlist(hoodchanId),
-            fetchHoodchanMetadata(hoodchanId),
-          ]);
-          if (!listing.listed) return null;
-          return {
-            hoodchanId,
-            chanPrice: listing.chanPrice.toString(),
-            ethPrice: listing.ethPrice.toString(),
-            // ETH badge only when BOTH the on-chain allowlist AND the
-            // token's own live tokenURI metadata still carry
-            // STATUS:"Upgraded" - two independent signals, never just one
-            // (see lib/hoodchan.ts's header on why tokenURI is now the
-            // primary source and the allowlist is the contract's own
-            // synced copy of it).
-            ethEligible:
-              listing.ethPrice > 0n && upgraded && isUpgraded(metadata),
-            name: metadata.name,
-            image: metadata.image,
-          };
-        } catch {
-          return null;
-        }
-      }),
+      candidates.map(
+        async ({ collection, tokenId }): Promise<ListingResponse | null> => {
+          try {
+            const listing = await readSiringListing(collection, tokenId);
+            if (!listing.listed) return null;
+
+            let name = `${collection.slice(0, 6)}…#${tokenId}`;
+            let image = "";
+            if (collection.toLowerCase() === HOODCHAN_CONTRACT.toLowerCase()) {
+              const metadata = await fetchHoodchanMetadata(tokenId).catch(
+                () => null,
+              );
+              if (metadata) {
+                name = metadata.name;
+                image = metadata.image;
+              }
+            } else {
+              await resolveDisplay(collection); // no-op placeholder, see TODO above
+            }
+
+            return {
+              collection,
+              tokenId,
+              price: listing.price.toString(),
+              name,
+              image,
+            };
+          } catch {
+            return null;
+          }
+        },
+      ),
     );
 
     return NextResponse.json({

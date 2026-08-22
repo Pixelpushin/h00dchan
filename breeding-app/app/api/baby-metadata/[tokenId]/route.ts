@@ -33,8 +33,19 @@ export async function GET(
         trait_type: SLOT_LABEL[s.slot as GeneSlot],
         value: s.name,
       })),
-      { trait_type: "Father", value: record.fatherId },
-      { trait_type: "Mother", value: record.motherId },
+      {
+        trait_type: "Matron",
+        value: `${record.matronCollection}#${record.matronId}`,
+      },
+      {
+        trait_type: "Sire",
+        value: `${record.sireCollection}#${record.sireId}`,
+      },
+      { trait_type: "Sex", value: record.babyIsMale ? "Male" : "Female" },
+      {
+        trait_type: "Test Tube Baby",
+        value: record.isTestTubeBaby ? "Yes" : "No",
+      },
     ],
   });
 }

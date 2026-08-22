@@ -1,11 +1,10 @@
-// BreedingController reads/writes - siring-price listings + the two-step
-// commit/reveal breeding flow (contracts/src/BreedingController.sol's
-// SEED-FAIRNESS MITIGATION note explains why: a single-tx breed() would let
-// a caller preview the whole genome before deciding whether to send the tx,
-// since every input to the old seed was already public or readable ahead of
-// time - commitBreed() escrows payment and locks both parents, then
-// revealBreed() derives the seed from blockhash(commitBlock), a value that
-// doesn't exist yet at commit time).
+// BreedingController reads/writes - siring listings + the single
+// atomic-transaction breed() flow (contracts/src/BreedingController.sol's
+// ACCEPTED TRADEOFF note explains why a single-tx breed() is fine here,
+// not a bug: the design spec explicitly accepts a predictable/simulable
+// seed - "you get what you get" - in exchange for deleting the superseded
+// v1 commit/reveal escrow/lock/expiry machinery entirely. There is no
+// commitBreed()/revealBreed() two-step anymore.
 //
 // Reads go through the raw JSON-RPC helpers in lib/chain.ts (parent-app
 // convention: no provider SDK for reads); writes are built here as
@@ -15,15 +14,14 @@
 //
 // Every function name/signature below is generated from the real deployed
 // ABI (lib/abi/BreedingController.ts, itself generated from contracts/out/
-// by scripts/copy-abis.ts) - see the design spec's BUG 4 for why an earlier
-// attempt's hand-written breedWithChan/breedWithEth/setSirePrice/
-// allListedTokenIds() never actually existed on this contract, and BUG 2
-// for why commitBreed takes explicit maxChanPrice/maxEthPrice bounds (never
-// trust a live-read price with no slippage guard). There is no on-chain
-// enumerator for "every listed father" - `siringListings` is a plain
-// per-tokenId mapping getter, so listing discovery across many fathers is
-// handled by app/api/listings/route.ts (SiringListed log replay + a live
-// re-check per candidate), not this file.
+// by scripts/copy-abis.ts) - see the design spec's BUG 4 for why an
+// earlier attempt's hand-written ABI (breedWithChan/breedWithEth,
+// setSirePrice, allListedTokenIds()...) never actually existed on this
+// contract. There is no on-chain enumerator for "every listed sire" -
+// `siringListings` is a plain per-(collection,tokenId) mapping getter, so
+// listing discovery across many sires is handled by
+// app/api/listings/route.ts (SiringListed log replay + a live re-check per
+// candidate), not this file.
 import { Interface } from "ethers";
 import { BreedingControllerAbi } from "@/lib/abi/BreedingController";
 import { BREEDING_CONTROLLER_CONTRACT } from "@/lib/config";
@@ -43,18 +41,29 @@ export interface RawLog {
   transactionHash?: string;
 }
 
-// Mirrors the contract's `enum PayMethod { CHAN, ETH }` exactly - passed to
-// commitBreed() and read back out of the Bred/CommitCreated events.
-export enum PayMethod {
-  CHAN = 0,
-  ETH = 1,
+// Mirrors the contract's `enum CollectionSex { Male, Female, PerToken }`
+// exactly - Male/Female are fixed per-collection at allowlist time
+// (HOODCHAN/Girlfriends); PerToken defers to the token's own contract
+// (currently only HoodchanBabies, via IPerTokenSex.sexOf).
+export enum CollectionSex {
+  Male = 0,
+  Female = 1,
+  PerToken = 2,
 }
 
 export interface SiringListing {
-  fatherTokenId: string;
-  chanPrice: bigint;
-  ethPrice: bigint;
+  collection: string;
+  tokenId: string;
+  price: bigint;
   listed: boolean;
+  lister: string;
+}
+
+export interface TokenBreedState {
+  collection: string;
+  tokenId: string;
+  breedCount: number;
+  cooldownEnd: bigint;
 }
 
 export function requireController(): string {
@@ -65,7 +74,7 @@ export function requireController(): string {
 }
 
 // The Bred event signature hash (topic0) - computed once from the real ABI
-// (not a literal guessed constant) so BUG 5's log-forgery check
+// (not a literal guessed constant) so BUG 5(a)'s log-forgery check
 // (parseBredEventFromLogs below) verifies against the actual deployed
 // event, not a hand-copied string that could silently drift from the ABI.
 const BRED_EVENT_FRAGMENT = controllerInterface.getEvent("Bred");
@@ -74,40 +83,161 @@ if (!BRED_EVENT_FRAGMENT) {
 }
 export const BRED_EVENT_TOPIC0 = BRED_EVENT_FRAGMENT.topicHash;
 
-const COMMIT_CREATED_FRAGMENT = controllerInterface.getEvent("CommitCreated");
-if (!COMMIT_CREATED_FRAGMENT) {
-  throw new Error("BreedingController ABI is missing the CommitCreated event.");
-}
-export const COMMIT_CREATED_EVENT_TOPIC0 = COMMIT_CREATED_FRAGMENT.topicHash;
+// ---------------------------------------------------------------------------
+// Reads: allowlist / collection config
+// ---------------------------------------------------------------------------
 
-// siringListings(uint256) -> (uint128 chanPrice, uint128 ethPrice, bool
-// listed) - the public mapping getter Solidity auto-generates for
-// `mapping(uint256 => SiringListing) public siringListings`. There is no
-// separate `listingOf`/enumerator function on the real contract.
-export async function readSiringListing(
-  fatherTokenId: string,
-): Promise<SiringListing> {
+export async function readIsBreedableCollection(
+  collection: string,
+): Promise<boolean> {
   const contract = requireController();
-  const data = controllerInterface.encodeFunctionData("siringListings", [
-    fatherTokenId,
+  const data = controllerInterface.encodeFunctionData("isBreedableCollection", [
+    collection,
   ]);
   const result = await ethCall(contract, data);
-  const [chanPrice, ethPrice, listed] =
-    controllerInterface.decodeFunctionResult("siringListings", result);
+  const [allowed] = controllerInterface.decodeFunctionResult(
+    "isBreedableCollection",
+    result,
+  );
+  return Boolean(allowed);
+}
+
+export async function readCollectionSex(
+  collection: string,
+): Promise<CollectionSex> {
+  const contract = requireController();
+  const data = controllerInterface.encodeFunctionData("collectionSex", [
+    collection,
+  ]);
+  const result = await ethCall(contract, data);
+  const [sex] = controllerInterface.decodeFunctionResult(
+    "collectionSex",
+    result,
+  );
+  return Number(sex) as CollectionSex;
+}
+
+// ---------------------------------------------------------------------------
+// Reads: fee config (see lib/config.ts's DEFAULT_BIRTH_FEE /
+// DEFAULT_SAME_SEX_FEE_MULTIPLIER for the pre-deploy-preview mirrors of
+// these same values - once BreedingController is deployed, these live
+// reads are the actual source of truth, owner-configurable post-deploy).
+// ---------------------------------------------------------------------------
+
+export async function readBirthFee(): Promise<bigint> {
+  const contract = requireController();
+  const data = controllerInterface.encodeFunctionData("birthFee", []);
+  const result = await ethCall(contract, data);
+  const [fee] = controllerInterface.decodeFunctionResult("birthFee", result);
+  return BigInt(fee);
+}
+
+export async function readSameSexFeeMultiplier(): Promise<bigint> {
+  const contract = requireController();
+  const data = controllerInterface.encodeFunctionData(
+    "sameSexFeeMultiplier",
+    [],
+  );
+  const result = await ethCall(contract, data);
+  const [multiplier] = controllerInterface.decodeFunctionResult(
+    "sameSexFeeMultiplier",
+    result,
+  );
+  return BigInt(multiplier);
+}
+
+export async function readTreasury(): Promise<string> {
+  const contract = requireController();
+  const data = controllerInterface.encodeFunctionData("treasury", []);
+  const result = await ethCall(contract, data);
+  const [treasury] = controllerInterface.decodeFunctionResult(
+    "treasury",
+    result,
+  );
+  return String(treasury);
+}
+
+export async function readBurnAddress(): Promise<string> {
+  const contract = requireController();
+  const data = controllerInterface.encodeFunctionData("burnAddress", []);
+  const result = await ethCall(contract, data);
+  const [addr] = controllerInterface.decodeFunctionResult(
+    "burnAddress",
+    result,
+  );
+  return String(addr);
+}
+
+export async function readMultisigAddress(): Promise<string> {
+  const contract = requireController();
+  const data = controllerInterface.encodeFunctionData("multisig", []);
+  const result = await ethCall(contract, data);
+  const [addr] = controllerInterface.decodeFunctionResult("multisig", result);
+  return String(addr);
+}
+
+// ---------------------------------------------------------------------------
+// Reads: escalating cooldown state + siring listings - both COMPOSITE
+// (collection, tokenId) keyed, matching BreedingController's `breedState`/
+// `siringListings` mappings exactly (see that contract's comment on why:
+// e.g. HOODCHAN #5 and Babies #5 must never share cooldown state just
+// because their tokenIds collide across different collections).
+// ---------------------------------------------------------------------------
+
+export async function readBreedState(
+  collection: string,
+  tokenId: string,
+): Promise<TokenBreedState> {
+  const contract = requireController();
+  const data = controllerInterface.encodeFunctionData("breedState", [
+    collection,
+    tokenId,
+  ]);
+  const result = await ethCall(contract, data);
+  const [breedCount, cooldownEnd] = controllerInterface.decodeFunctionResult(
+    "breedState",
+    result,
+  );
   return {
-    fatherTokenId,
-    chanPrice: BigInt(chanPrice),
-    ethPrice: BigInt(ethPrice),
-    listed: Boolean(listed),
+    collection,
+    tokenId,
+    breedCount: Number(breedCount),
+    cooldownEnd: BigInt(cooldownEnd),
   };
 }
 
-export async function readHoodchanGenesSet(
-  fatherTokenId: string,
-): Promise<boolean> {
+export async function readSiringListing(
+  collection: string,
+  tokenId: string,
+): Promise<SiringListing> {
+  const contract = requireController();
+  const data = controllerInterface.encodeFunctionData("siringListings", [
+    collection,
+    tokenId,
+  ]);
+  const result = await ethCall(contract, data);
+  const [price, listed, lister] = controllerInterface.decodeFunctionResult(
+    "siringListings",
+    result,
+  );
+  return {
+    collection,
+    tokenId,
+    price: BigInt(price),
+    listed: Boolean(listed),
+    lister: String(lister),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Reads: HOODCHAN gene-sync trust point (see BreedingController.sol's
+// HOODCHAN ADAPTER note - HOODCHAN's genes are synced in, not read live).
+// ---------------------------------------------------------------------------
+
+export async function readHoodchanGenesSet(tokenId: string): Promise<boolean> {
   const contract = requireController();
   const data = controllerInterface.encodeFunctionData("hoodchanGenesSet", [
-    fatherTokenId,
+    tokenId,
   ]);
   const result = await ethCall(contract, data);
   const [set] = controllerInterface.decodeFunctionResult(
@@ -117,29 +247,12 @@ export async function readHoodchanGenesSet(
   return Boolean(set);
 }
 
-export async function readUpgradedAllowlist(
-  fatherTokenId: string,
-): Promise<boolean> {
-  const contract = requireController();
-  const data = controllerInterface.encodeFunctionData("upgradedAllowlist", [
-    fatherTokenId,
-  ]);
-  const result = await ethCall(contract, data);
-  const [allowed] = controllerInterface.decodeFunctionResult(
-    "upgradedAllowlist",
-    result,
-  );
-  return Boolean(allowed);
-}
-
-export async function readHoodchanGenes(
-  fatherTokenId: string,
-): Promise<number[]> {
+export async function readHoodchanGenes(tokenId: string): Promise<number[]> {
   const contract = requireController();
   const genes = await Promise.all(
     [0, 1, 2, 3, 4].map(async (slotIndex) => {
       const data = controllerInterface.encodeFunctionData("hoodchanGenes", [
-        fatherTokenId,
+        tokenId,
         slotIndex,
       ]);
       const result = await ethCall(contract, data);
@@ -153,153 +266,150 @@ export async function readHoodchanGenes(
   return genes;
 }
 
-export async function readFatherLocked(
-  fatherTokenId: string,
-): Promise<boolean> {
-  const contract = requireController();
-  const data = controllerInterface.encodeFunctionData("fatherLocked", [
-    fatherTokenId,
-  ]);
-  const result = await ethCall(contract, data);
-  const [locked] = controllerInterface.decodeFunctionResult(
-    "fatherLocked",
-    result,
-  );
-  return Boolean(locked);
-}
+// ---------------------------------------------------------------------------
+// Writes: siring listings - generalized to any allowlisted (collection,
+// tokenId), not just HOODCHAN. Gated on the CURRENT ownerOf at call time
+// on-chain (not here) - see BreedingController.listSiring/unlistSiring's
+// own doc comments for the stale-listing-on-transfer fix (BUG 2 from
+// adversarial review).
+// ---------------------------------------------------------------------------
 
-export async function readMotherLocked(
-  motherTokenId: string,
-): Promise<boolean> {
-  const contract = requireController();
-  const data = controllerInterface.encodeFunctionData("motherLocked", [
-    motherTokenId,
-  ]);
-  const result = await ethCall(contract, data);
-  const [locked] = controllerInterface.decodeFunctionResult(
-    "motherLocked",
-    result,
-  );
-  return Boolean(locked);
-}
-
-// setSiringPrice(uint256,uint128,uint128) - only the current HOODCHAN
-// owner may call this (checked on-chain, not here). NOT `setSirePrice` -
-// see this file's header comment.
-export function buildSetSiringPriceTx(
-  fatherTokenId: string,
-  chanPrice: bigint,
-  ethPrice: bigint,
+export function buildListSiringTx(
+  collection: string,
+  tokenId: string,
+  price: bigint,
 ): { to: string; data: string } {
   return {
     to: requireController(),
-    data: controllerInterface.encodeFunctionData("setSiringPrice", [
-      fatherTokenId,
-      chanPrice,
-      ethPrice,
+    data: controllerInterface.encodeFunctionData("listSiring", [
+      collection,
+      tokenId,
+      price,
     ]),
   };
 }
 
-export function buildDelistSiringTx(fatherTokenId: string): {
-  to: string;
-  data: string;
-} {
+export function buildUnlistSiringTx(
+  collection: string,
+  tokenId: string,
+): { to: string; data: string } {
   return {
     to: requireController(),
-    data: controllerInterface.encodeFunctionData("delistSiring", [
-      fatherTokenId,
+    data: controllerInterface.encodeFunctionData("unlistSiring", [
+      collection,
+      tokenId,
     ]),
   };
 }
 
-// commitBreed(fatherTokenId, motherTokenId, maxChanPrice, maxEthPrice,
-// method) -> commitId. Step 1 of 2 - see this file's header. `maxChanPrice`/
-// `maxEthPrice` MUST be the exact price the caller saw and approved right
-// before sending this tx (BUG 2's slippage guard): the contract escrows
-// whatever the CURRENT listed price is at commit time, but reverts with
-// PriceExceedsMax if that price is higher than the bound passed here, so a
-// father owner front-running with setSiringPrice can raise the caller's
-// cost above what they agreed to instead of silently draining more.
-// Callers not paying (same-owner breed, or a free 0-price listing) should
-// still pass the current price as the max (0 if free) rather than
-// type(uint128).max - passing an unbounded max defeats the whole guard.
-export function buildCommitBreedTx(
-  fatherTokenId: string,
-  motherTokenId: string,
-  maxChanPrice: bigint,
-  maxEthPrice: bigint,
-  method: PayMethod,
-  valueWei: bigint = BigInt(0),
-): { to: string; data: string; value?: string } {
-  return {
-    to: requireController(),
-    data: controllerInterface.encodeFunctionData("commitBreed", [
-      fatherTokenId,
-      motherTokenId,
-      maxChanPrice,
-      maxEthPrice,
-      method,
-    ]),
-    value: method === PayMethod.ETH ? valueWei.toString() : undefined,
-  };
-}
-
-// revealBreed(commitId) -> babyTokenId. Step 2 of 2, callable by ANYONE
-// once block.number > commitBlock (not restricted to the original
-// committer - see the contract's own doc comment). The UI should
-// auto-call this once eligible (~1 block after commitBreed lands) rather
-// than requiring a second manual click.
-export function buildRevealBreedTx(commitId: string): {
-  to: string;
-  data: string;
-} {
-  return {
-    to: requireController(),
-    data: controllerInterface.encodeFunctionData("revealBreed", [commitId]),
-  };
-}
-
-// cancelExpiredCommit(commitId) - refunds the escrowed payment and unlocks
-// both parent tokens for a commit whose 256-block blockhash reveal window
-// has closed without a reveal (an "abandoned" commit). Callable by anyone,
-// same rationale as revealBreed.
-export function buildCancelExpiredCommitTx(commitId: string): {
-  to: string;
-  data: string;
-} {
-  return {
-    to: requireController(),
-    data: controllerInterface.encodeFunctionData("cancelExpiredCommit", [
-      commitId,
-    ]),
-  };
-}
-
-export function buildClaimEthTx(): { to: string; data: string } {
-  return {
-    to: requireController(),
-    data: controllerInterface.encodeFunctionData("claimEth", []),
-  };
-}
-
-export function buildClaimChanTx(): { to: string; data: string } {
-  return {
-    to: requireController(),
-    data: controllerInterface.encodeFunctionData("claimChan", []),
-  };
-}
-
-// --- Operator-only metadata-sync writes (scripts/sync-genes.ts) ---------
+// ---------------------------------------------------------------------------
+// Write: breed() - the single atomic entry point. Every field of the two
+// parents is now a (collection, id) PAIR, not a bare tokenId, since any of
+// the three allowlisted collections can fill either role (see the design
+// spec's "Collections and the breedable allowlist" section).
 //
-// setHoodchanGenes(Batch)/setUpgradedAllowlist(Batch) are the two
-// operator-gated entry points that make HOODCHAN fathers usable for
-// breeding at all - see BreedingController.sol's "DISCOVERY-DRIVEN
-// DESIGN" note: HOODCHAN's real traits live in off-chain IPFS/HTTP
-// metadata this contract cannot eth_call into, so an operator (the
-// off-chain sync script) has to push them in. `breed()`/`commitBreed()`
-// revert GenesNotSet for any father whose genes were never synced this
-// way - these two builders are what unblocks that.
+// `maxSiringFee` is REQUIRED, not optional - see
+// BreedingController.breed()'s own doc comment on why: the sire's owner is
+// an UNTRUSTED counterparty who can re-call `listSiring` at any moment,
+// including in the block that front-runs this call. Every call site MUST
+// pass the caller's own last-seen quote (the sire's current
+// `siringListings(...).price`, or 0 for self-siring/caller-owned sires),
+// NEVER `type(uint256).max` - passing an unbounded max defeats the whole
+// slippage guard and reopens the exact fund-loss bug adversarial review
+// found in the superseded v1 attempt.
+// ---------------------------------------------------------------------------
+
+export function buildBreedTx(
+  matronCollection: string,
+  matronId: string,
+  sireCollection: string,
+  sireId: string,
+  maxSiringFee: bigint,
+): { to: string; data: string } {
+  return {
+    to: requireController(),
+    data: controllerInterface.encodeFunctionData("breed", [
+      matronCollection,
+      matronId,
+      sireCollection,
+      sireId,
+      maxSiringFee,
+    ]),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Fee preview - computes the caller's EXACT total CHAN debit for a
+// prospective breed, mirroring BreedingController._collectBirthFee /
+// _collectSiringFee's arithmetic bit-for-bit (independent floor division
+// per protocol-fee component, not a single combined-bps multiply - see
+// that contract's doc comment on why the two differ by up to 1 wei).
+// Verified against the forge-generated fee vectors in
+// lib/breedingController.test.ts (contracts/test-vectors*.json's "fees"
+// section) - this is the one place in the app that must match the
+// contract's fee math exactly, since it's what a UI shows the user BEFORE
+// they sign, and what `maxSiringFee` above should be derived from.
+// ---------------------------------------------------------------------------
+
+export interface BreedFeePreviewInput {
+  birthFee: bigint;
+  sameSexFeeMultiplier: bigint;
+  matronSex: boolean;
+  sireSex: boolean;
+  /** Caller owns/is-approved-for the sire directly - if true, no siring
+   * fee (and therefore no protocol fee) applies at all, regardless of
+   * `listedPrice` (self-siring is always free of the siring-fee leg). */
+  sireCallerOwned: boolean;
+  /** The sire's CURRENT `siringListings(...).price` - ignored when
+   * `sireCallerOwned` is true. This is also the value that should be
+   * passed as `buildBreedTx`'s `maxSiringFee` argument. */
+  listedPrice: bigint;
+}
+
+export interface BreedFeePreview {
+  birthFeePaid: bigint;
+  sireOwnerAmount: bigint;
+  burnAmount: bigint;
+  multisigAmount: bigint;
+  totalCallerDebit: bigint;
+}
+
+export function previewBreedFee(input: BreedFeePreviewInput): BreedFeePreview {
+  const sameSex = input.matronSex === input.sireSex;
+  const birthFeePaid = sameSex
+    ? input.birthFee * input.sameSexFeeMultiplier
+    : input.birthFee;
+
+  const payingSiringFee = !input.sireCallerOwned;
+  const sireOwnerAmount = payingSiringFee ? input.listedPrice : 0n;
+  // Independent floor division per component - matches
+  // BreedingController._collectSiringFee exactly, NOT
+  // `listedPrice * 800n / 10000n` computed once.
+  const burnAmount = payingSiringFee ? (input.listedPrice * 500n) / 10000n : 0n;
+  const multisigAmount = payingSiringFee
+    ? (input.listedPrice * 300n) / 10000n
+    : 0n;
+
+  return {
+    birthFeePaid,
+    sireOwnerAmount,
+    burnAmount,
+    multisigAmount,
+    totalCallerDebit:
+      birthFeePaid + sireOwnerAmount + burnAmount + multisigAmount,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Operator-only metadata-sync write (scripts/sync-genes.ts) - the one
+// operator-gated entry point that makes HOODCHAN parents usable for
+// breeding at all (see BreedingController.sol's HOODCHAN ADAPTER note):
+// HOODCHAN's real traits live in off-chain IPFS/HTTP metadata this
+// contract cannot eth_call into, so an operator (the off-chain sync
+// script) has to push them in. `breed()` reverts GenesNotSet for any
+// HOODCHAN parent whose genes were never synced this way.
+// ---------------------------------------------------------------------------
+
 export function buildSetHoodchanGenesBatchTx(
   tokenIds: Array<string | number>,
   genes: Array<[number, number, number, number, number]>,
@@ -313,84 +423,27 @@ export function buildSetHoodchanGenesBatchTx(
   };
 }
 
-export function buildSetUpgradedAllowlistBatchTx(
-  tokenIds: Array<string | number>,
-  allowed: boolean,
-): { to: string; data: string } {
-  return {
-    to: requireController(),
-    data: controllerInterface.encodeFunctionData("setUpgradedAllowlistBatch", [
-      tokenIds.map((id) => id.toString()),
-      allowed,
-    ]),
-  };
-}
-
-export interface CommitInfo {
-  commitId: string;
-  fatherTokenId: string;
-  motherTokenId: string;
-  committer: string;
-  fatherOwnerAtCommit: string;
-  commitBlock: bigint;
-  nonce: bigint;
-  amountEscrowed: bigint;
-  method: PayMethod;
-  sameOwner: boolean;
-  resolved: boolean;
-}
-
-// commits(uint256) -> the full Commit struct - used to drive the UI's
-// "resume an abandoned commit" path (poll commitBlock/resolved to decide
-// whether to show a Reveal or Cancel button for a commitId the user has,
-// e.g. from localStorage or a prior tx that never got revealed client-side).
-export async function readCommit(commitId: string): Promise<CommitInfo> {
-  const contract = requireController();
-  const data = controllerInterface.encodeFunctionData("commits", [commitId]);
-  const result = await ethCall(contract, data);
-  const [
-    fatherTokenId,
-    motherTokenId,
-    committer,
-    fatherOwnerAtCommit,
-    commitBlock,
-    nonce,
-    amountEscrowed,
-    method,
-    sameOwner,
-    resolved,
-  ] = controllerInterface.decodeFunctionResult("commits", result);
-  return {
-    commitId,
-    fatherTokenId: fatherTokenId.toString(),
-    motherTokenId: motherTokenId.toString(),
-    committer: String(committer),
-    fatherOwnerAtCommit: String(fatherOwnerAtCommit),
-    commitBlock: BigInt(commitBlock),
-    nonce: BigInt(nonce),
-    amountEscrowed: BigInt(amountEscrowed),
-    method: Number(method) as PayMethod,
-    sameOwner: Boolean(sameOwner),
-    resolved: Boolean(resolved),
-  };
-}
+// ---------------------------------------------------------------------------
+// Bred event parsing
+// ---------------------------------------------------------------------------
 
 export interface BredEventResult {
   babyTokenId: string;
-  fatherTokenId: string;
-  motherTokenId: string;
+  matronCollection: string;
+  matronId: string;
+  sireCollection: string;
+  sireId: string;
   breedNonce: bigint;
   seed: bigint;
   genome: number[];
-  motherTba: string;
-  paymentMethod: PayMethod;
-  amountPaid: bigint;
-  commitId: string;
+  babyIsMale: boolean;
+  isTestTubeBaby: boolean;
 }
 
 // Parses the Bred event out of a transaction receipt's logs - used by
 // app/api/breed/[txHash]/route.ts to learn the freshly-minted baby's ID,
-// seed, genome, and mother's TBA without polling a separate indexer.
+// seed, genome, sex, and test-tube-baby flag without polling a separate
+// indexer.
 //
 // BUG 5(a) fix: a log is ONLY accepted as a real Bred event if BOTH (1)
 // `log.address` case-insensitively equals the configured
@@ -420,15 +473,15 @@ export function parseBredEventFromLogs(
         const args = parsed.args;
         return {
           babyTokenId: args.babyTokenId.toString(),
-          fatherTokenId: args.fatherTokenId.toString(),
-          motherTokenId: args.motherTokenId.toString(),
+          matronCollection: String(args.matronCollection),
+          matronId: args.matronId.toString(),
+          sireCollection: String(args.sireCollection),
+          sireId: args.sireId.toString(),
           breedNonce: BigInt(args.breedNonce_),
           seed: BigInt(args.seed),
           genome: (args.genome as bigint[]).map((g) => Number(g)),
-          motherTba: String(args.motherTba),
-          paymentMethod: Number(args.paymentMethod) as PayMethod,
-          amountPaid: BigInt(args.amountPaid),
-          commitId: args.commitId.toString(),
+          babyIsMale: Boolean(args.babyIsMale),
+          isTestTubeBaby: Boolean(args.isTestTubeBaby),
         };
       }
     } catch {
@@ -443,13 +496,10 @@ export function parseBredEventFromLogs(
 // Historical lookup for app/baby/[tokenId]/page.tsx - a fresh page load
 // (not right after breeding) has no receipt to read logs from, so this
 // replays the Bred event log directly off-chain via eth_getLogs, filtered
-// to this exact babyTokenId (topic1, indexed) AND the real controller
-// address + Bred topic0 (same BUG 5(a) verification as
-// parseBredEventFromLogs above - a log matching only babyTokenId but from
-// the wrong contract must never be trusted). fatherTokenId/motherTokenId
-// come straight off topics[2]/topics[3] (both indexed) rather than the ABI
-// decoder, since indexed uint256 topics don't need full log decoding to
-// read.
+// to this exact babyTokenId (topic1, the only indexed field on the new
+// event) AND the real controller address + Bred topic0 (same BUG 5(a)
+// verification as parseBredEventFromLogs above - a log matching only
+// babyTokenId but from the wrong contract must never be trusted).
 export async function readBredEventForBaby(
   babyTokenId: string,
 ): Promise<BredEventResult | null> {
